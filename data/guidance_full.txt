@@ -8,11 +8,13 @@ Map Directions:
 - WEST from Sheriff's Office: Assayer's Office
 - SOUTH: Livery Stables (Go here for the PUMP)
 - NORTH: Telegraph Office
+- The MAP is hidden in a random town room (Rooms 1-7).
 - SOUTH from the Desert Edge leads into the desert (only safe with a saddled horse).
 
 Task Sequence:
-1. Move EAST to the General Store.
-2. TAKE items one at a time: TAKE CANTEEN, TAKE LEATHER, TAKE SADDLE, TAKE MATCHES.
+1. Explore the town rooms (NORTH, SOUTH, EAST, WEST) until you find the MAP, then TAKE MAP.
+2. Move back to Main Street, then EAST to the General Store.
+3. TAKE items one at a time: TAKE CANTEEN, TAKE LEATHER, TAKE SADDLE, TAKE MATCHES.
 3. Do NOT waste turns in the store. Move WEST to return to Main Street.
 4. Move WEST to the Sheriff's Office.
 5. The box is locked. You need a key from the stream (hidden under a rock).

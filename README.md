@@ -22,9 +22,36 @@
     ~ ~ ~ ~ ~  D U S T W O O D  ~ ~ ~
 ```
 
-A small, single-file Free Pascal text adventure. You explore a deserted frontier town in 1884, move between rooms, examine objects, and manage a simple inventory. The world (rooms, exits, items) is defined in `world.ini`.
+A small Free Pascal text adventure. You explore a deserted frontier town in 1884, move between rooms, examine objects, and manage a simple inventory. The world (rooms, exits, items) is defined in `data/world.ini`.
 
 The game features automatic word-wrapping for long descriptions and a custom input handler with command history and `Control-D` exit support.
+
+## Architecture
+
+Echoes of Dustwood uses a **Stateless Sidecar** architecture to bridge a legacy-style CLI game with modern AI agents and REST interfaces.
+
+### Component Overview
+
+- **Pascal Engine (`bin/dustwood`):** The core game logic. Written in modular Free Pascal, it features a `--headless` mode for non-interactive I/O via `stdin/stdout`.
+- **Sidecar API (`scripts/sidecar.py`):** A FastAPI wrapper that exposes the game as a REST service. It manages state by spawning a fresh Pascal process for every turn, using `LOAD` and `SAVE` commands to persist state to `data/save.ini`.
+- **AI Client (`scripts/ai_client.py`):** A `pydantic-ai` agent that "plays" the game. It interprets game output and selects the next command based on external guidance files.
+- **Orchestrator (`scripts/ai-game.sh`):** A shell script that manages the lifecycle of the sidecar and the AI agent.
+
+## Project Structure
+
+```text
+.
+├── bin/                # Compiled Pascal binaries
+├── data/               # Configuration and state (world.ini, save.ini)
+├── logs/               # Sidecar and AI client logs
+├── scripts/            # Python sidecar, AI agents, and runners
+└── src/
+    └── pascal/         # Modular Free Pascal source code
+        ├── dustwood.pas      # Main entry point
+        ├── u_commands.pas    # Game verbs and logic
+        ├── u_io.pas          # Emoji-rich output handling
+        └── u_state.pas       # Global state definitions
+```
 
 ## Build
 
@@ -56,15 +83,15 @@ sudo pacman -S --needed fpc
 From the project root:
 
 ```bash
-fpc dustwood.pas
+make build
 ```
 
-This produces `dustwood`.
+This produces `bin/dustwood`.
 
 ## Run
 
 ```bash
-./dustwood
+./bin/dustwood
 ```
 
 ## Commands
@@ -82,7 +109,7 @@ This produces `dustwood`.
 - `FIX <ITEM>` to repair something in the room
 - `SADDLE` to saddle the horse in the stables
 - `CLIMB` to climb a steep obstacle
-- `SAVE` / `LOAD` to persist your progress to `save.ini`
+- `SAVE` / `LOAD` to persist your progress to `data/save.ini`
 - `HELP`, `H`, or `?` to show the command list
 - `QUIT` or `Q` (or `Control-D`) to exit
 
@@ -168,7 +195,7 @@ This is not the only way to play, but it will show you the current content:
 
 ## World Data Format
 
-The game loads its map and items from `world.ini`. It supports up to 20 rooms and 20 items. Sections are numbered:
+The game loads its map and items from `data/world.ini`. It supports up to 20 rooms and 20 items. Sections are numbered:
 
 - Rooms: `[Room1]`, `[Room2]`, ... with `Name`, `Description`, and exit fields `North`, `South`, `East`, `West` (room numbers, or `0` for none).
 - Items: `[Item1]`, `[Item2]`, ... with `Name`, `Description`, `Location` (room number, or `-1` for inventory), and `IsTakeable` (`1` or `0`).
@@ -177,7 +204,7 @@ The game loads its map and items from `world.ini`. It supports up to 20 rooms an
 
 ### Expanding the world
 
-- Add or edit rooms and items in `world.ini`.
+- Add or edit rooms and items in `data/world.ini`.
 - Room exits are numeric links to other room IDs. Use `0` for no exit.
 - Item `Location` can be a room number or `-1` to start in inventory.
 
@@ -186,10 +213,10 @@ The game loads its map and items from `world.ini`. It supports up to 20 rooms an
 - Max rooms: `20`
 - Max items: `20`
 
-To change these, update the constants in `dustwood.pas` and recompile.
+To change these, update the constants in `src/pascal/u_types.pas` and recompile.
 
 ### Suggested extensions
 
-- Add new commands in the parser (see `ParseCommand` in `dustwood.pas`).
+- Add new commands in the parser (see `ProcessCommand` in `src/pascal/u_commands.pas`).
 - Add items that can be taken and combined by tracking extra state.
 - Add win/lose conditions by checking inventory or room state.
