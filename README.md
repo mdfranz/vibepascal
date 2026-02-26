@@ -24,6 +24,8 @@
 
 A small, single-file Free Pascal text adventure. You explore a deserted frontier town in 1884, move between rooms, examine objects, and manage a simple inventory. The world (rooms, exits, items) is defined in `world.ini`.
 
+The game features automatic word-wrapping for long descriptions and a custom input handler with command history and `Control-D` exit support.
+
 ## Build
 
 ### Linux dependencies
@@ -73,11 +75,25 @@ This produces `dustwood`.
 - `TAKE <ITEM>` or `GET <ITEM>` to pick up an item
 - `DROP <ITEM>` to drop an item
 - `EXAMINE <ITEM>` or `X <ITEM>` to read item descriptions
-- `QUIT` or `Q` to exit
+- `DRINK` to quench your thirst if your canteen has water
+- `FILL` to refill your canteen at a water source
+- `LIGHT` to light your lamp (requires matches)
+- `FIX <ITEM>` to repair something in the room
+- `SAVE` / `LOAD` to persist your progress to `save.ini`
+- `HELP`, `H`, or `?` to show the command list
+- `QUIT` or `Q` (or `Control-D`) to exit
+
+## Survival and Time
+
+- **Thirst:** You must find water. If your thirst reaches its limit, the game ends.
+- **Time:** The sun sinks as you move. At twilight and night, visibility changes. You may need a light source to see in the dark.
 
 ## Objective
 
-This is a light narrative exploration game. Your goal is to learn what happened in Dustwood by exploring the town, reading item descriptions, and piecing together clues (especially the note inside the book and the state of the telegraph office).
+This is a narrative exploration and survival game. Your goal is to:
+1.  **Survive:** Monitor your thirst and the passing of time.
+2.  **Investigate:** Learn what happened in Dustwood by exploring the town and reading clues.
+3.  **Restore:** Use the items you find to repair the town's infrastructure (like the water pump).
 
 ## Short Walkthrough
 

@@ -197,6 +197,54 @@ begin
   end;
 end;
 
+procedure SaveGame;
+var Ini: TIniFile; i: Integer; Section: string;
+begin
+  Ini := TIniFile.Create('save.ini');
+  try
+    Ini.WriteInteger('State', 'CurrentRoom', CurrentRoom^.ID);
+    Ini.WriteBool('State', 'IsPumpFixed', IsPumpFixed);
+    Ini.WriteBool('State', 'IsLampLit', IsLampLit);
+    Ini.WriteBool('State', 'HasWater', HasWater);
+    Ini.WriteInteger('State', 'Thirst', Thirst);
+    Ini.WriteInteger('State', 'Turns', Turns);
+    for i := 1 to MAX_ITEMS do begin
+      Section := 'Item' + IntToStr(i);
+      Ini.WriteInteger(Section, 'Location', Items[i].Location);
+      Ini.WriteString(Section, 'Description', Items[i].Description);
+    end;
+    WriteLn('Game saved.');
+  finally Ini.Free; end;
+end;
+
+procedure LoadGame;
+var Ini: TIniFile; i: Integer; Section: string; RoomID: Integer;
+begin
+  if not FileExists('save.ini') then begin
+    WriteLn('No save file found.');
+    Exit;
+  end;
+  Ini := TIniFile.Create('save.ini');
+  try
+    RoomID := Ini.ReadInteger('State', 'CurrentRoom', 1);
+    CurrentRoom := RoomRegistry[RoomID];
+    IsPumpFixed := Ini.ReadBool('State', 'IsPumpFixed', False);
+    IsLampLit := Ini.ReadBool('State', 'IsLampLit', False);
+    HasWater := Ini.ReadBool('State', 'HasWater', False);
+    Thirst := Ini.ReadInteger('State', 'Thirst', 0);
+    Turns := Ini.ReadInteger('State', 'Turns', 0);
+    for i := 1 to MAX_ITEMS do begin
+      Section := 'Item' + IntToStr(i);
+      if Ini.SectionExists(Section) then begin
+        Items[i].Location := Ini.ReadInteger(Section, 'Location', Items[i].Location);
+        Items[i].Description := Ini.ReadString(Section, 'Description', Items[i].Description);
+      end;
+    end;
+    WriteLn('Game loaded.');
+    Look;
+  finally Ini.Free; end;
+end;
+
 { --- Core Commands --- }
 
 procedure ShowHelp;
@@ -213,6 +261,7 @@ begin
   WriteLn('  FILL            - Fill canteen at a water source');
   WriteLn('  LIGHT           - Light your lamp if you have matches');
   WriteLn('  FIX             - Repair something');
+  WriteLn('  SAVE / LOAD     - Save or load your progress');
   WriteLn('  HELP (H)        - Show this list');
   WriteLn('  QUIT (Q)        - Exit');
   WriteLn;
@@ -317,6 +366,8 @@ begin
   else if (Verb = 'FILL') then FillCanteen
   else if (Verb = 'LIGHT') then LightLamp
   else if (Verb = 'FIX') then FixSomething(Noun)
+  else if (Verb = 'SAVE') then SaveGame
+  else if (Verb = 'LOAD') then LoadGame
   else if (Verb = 'TAKE') or (Verb = 'GET') then begin
     i := FindItem(Noun, CurrentRoom^.ID);
     if i > 0 then begin Items[i].Location := INV_LOCATION; WriteLn('Taken.'); end else WriteLn('Not here.');
