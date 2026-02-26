@@ -35,7 +35,9 @@ var
   RoomRegistry: array[1..MAX_ROOMS] of PRoom;
   Items: array[1..MAX_ITEMS] of TItem;
   CurrentRoom: PRoom;
-  IsPlaying, IsPumpFixed, IsLampLit, HasWater: Boolean;
+  IsPlaying, IsPumpFixed, IsLampLit, HasWater, IsHeadless, IsBoxOpen: Boolean;
+  SnakeRoom: Integer; // ID of the room where a snake is currently coiled
+  OutlawRoom: Integer; // ID of the room where the outlaw is waiting
   CommandStr: string;
   Verb, Noun: string;
   Thirst, Turns, i: Integer;
@@ -61,6 +63,12 @@ end;
 function CustomReadLn(Prompt: string): string;
 var Ch: Char; S: string; HistIdx: Integer;
 begin
+  if IsHeadless then begin
+    Write(Prompt);
+    ReadLn(S);
+    CustomReadLn := S;
+    Exit;
+  end;
   Write(Prompt); S := ''; HistIdx := HistoryCount;
   repeat
     Ch := ReadKey;
@@ -113,15 +121,27 @@ var i: Integer; FoundItems: Boolean;
 begin
   WriteLn;
   if IsDark then begin
-    WrapWriteLn('It is pitch black. You are likely to be eaten by a grue... or at least trip over a cactus.');
+    WrapWriteLn('It is pitch black. You can''t see anything.');
     Exit;
   end;
 
-  if Turns >= DARK_TURN then WriteLn('[The moon hangs cold and silver in the black sky]')
-  else if Turns >= TWILIGHT_TURN then WriteLn('[The sky is bruised purple, the sun sinking behind the peaks]');
+  if Turns >= DARK_TURN then WriteLn('[The moon hangs in the black sky]')
+  else if Turns >= TWILIGHT_TURN then WriteLn('[The sky is purple as the sun sets]');
 
   WriteLn('*** ', CurrentRoom^.Name, ' ***');
   WrapWriteLn(CurrentRoom^.Description);
+
+  if SnakeRoom = CurrentRoom^.ID then begin
+    WriteLn;
+    WriteLn('!!! A RATTLESNAKE is coiled here, buzzing its tail angrily !!!');
+    WriteLn('One wrong move could be your last.');
+  end;
+
+  if OutlawRoom = CurrentRoom^.ID then begin
+    WriteLn;
+    WriteLn('!!! A DIRTY OUTLAW is leaning against the wall, hand on his holster !!!');
+    WriteLn('"You don''t belong here, stranger," he sneers.');
+  end;
   
   FoundItems := False;
   for i := 1 to MAX_ITEMS do
@@ -139,6 +159,17 @@ begin
   else
   begin
     CurrentRoom := NewRoom;
+    // 20% chance of a snake appearing in the new room (except Main Street)
+    if (CurrentRoom^.ID <> 1) and (Random(100) < 20) then
+      SnakeRoom := CurrentRoom^.ID
+    else
+      SnakeRoom := 0;
+
+    // 15% chance of an outlaw appearing (except Main Street and Sheriff's office)
+    if (CurrentRoom^.ID <> 1) and (CurrentRoom^.ID <> 7) and (Random(100) < 15) then
+      OutlawRoom := CurrentRoom^.ID
+    else
+      OutlawRoom := 0;
     Look;
   end;
 end;
@@ -147,17 +178,18 @@ procedure UpdateWorld;
 begin
   Inc(Turns);
   Inc(Thirst);
+  // Snakes eventually slither away
+  if (SnakeRoom > 0) and (Random(100) < 30) then SnakeRoom := 0;
   if Thirst > THIRST_LIMIT - 5 then
     WriteLn('*** Your throat is parched. You need water soon. ***');
   
   if Thirst >= THIRST_LIMIT then begin
-    WrapWriteLn('The desert has claimed you. Your strength fails, and you collapse into the dust.');
-    WriteLn('GAME OVER.');
+    WrapWriteLn('You have collapsed from dehydration. GAME OVER.');
     IsPlaying := False;
   end;
 
-  if Turns = TWILIGHT_TURN then WriteLn('The shadows are growing long. The sun is dipping low.');
-  if Turns = DARK_TURN then WriteLn('The last of the light fades. Darkness swallows Dustwood.');
+  if Turns = TWILIGHT_TURN then WriteLn('The sun is getting low.');
+  if Turns = DARK_TURN then WriteLn('It is now dark.');
 end;
 
 procedure Drink;
@@ -169,7 +201,7 @@ begin
   else begin
     Thirst := 0;
     HasWater := False;
-    WrapWriteLn('The water is warm and tastes of tin, but it is the finest thing you''ve ever felt.');
+    WrapWriteLn('The water is warm but refreshing.');
     WriteLn('Your thirst is quenched.');
   end;
 end;
@@ -193,7 +225,7 @@ begin
     WriteLn('You have nothing to light it with.')
   else begin
     IsLampLit := True;
-    WrapWriteLn('You strike a match and light the lamp. A warm yellow glow pushes back the shadows.');
+    WrapWriteLn('You light the lamp. A yellow glow illuminates the room.');
   end;
 end;
 
@@ -277,7 +309,7 @@ begin
     WrapWriteLn(Items[ItemID].Details);
     if (Items[ItemID].Name = 'BOOK') and (Items[5].Location = 0) then begin
       Items[5].Location := INV_LOCATION;
-      WriteLn; WriteLn('Wait... a small folded note falls out of the book!');
+      WriteLn; WriteLn('A small folded note falls out of the book.');
     end;
   end
   else if TargetNoun = '' then Look
@@ -291,9 +323,9 @@ begin
   if (UpperCase(TargetNoun) = 'PUMP') and (CurrentRoom^.ID = 3) then begin
     if FindItem('LEATHER', INV_LOCATION) > 0 then begin
       IsPumpFixed := True;
-      WriteLn('You fix the pump with the leather scrap. Water begins to flow!');
+      WriteLn('You fix the pump. Water starts to flow.');
       Items[3].Description := 'a working water pump';
-    end else WriteLn('You need a gasket to fix the pump.');
+    end else WriteLn('You need a gasket.');
   end else WriteLn('Nothing to fix here.');
 end;
 
@@ -345,6 +377,10 @@ begin
       end;
     end;
   finally Ini.Free; end;
+  Randomize;
+  SnakeRoom := 0;
+  OutlawRoom := 0;
+  IsBoxOpen := False;
   CurrentRoom := RoomRegistry[1]; IsPlaying := True; IsPumpFixed := False; 
   IsLampLit := False; HasWater := False; Thirst := 0; Turns := 0;
 end;
@@ -352,7 +388,56 @@ end;
 procedure ParseCommand(Cmd: string);
 begin
   SplitCommand(Cmd, Verb, Noun);
-  if (Verb = 'N') or (Verb = 'NORTH') then MoveTo(CurrentRoom^.North)
+  
+  // If a snake is here, any action other than moving or FREEZE is dangerous
+  if (SnakeRoom = CurrentRoom^.ID) and (Verb <> 'FREEZE') and (Verb <> 'WAIT') and 
+     (Verb <> 'N') and (Verb <> 'S') and (Verb <> 'E') and (Verb <> 'W') and
+     (Verb <> 'NORTH') and (Verb <> 'SOUTH') and (Verb <> 'EAST') and (Verb <> 'WEST') and
+     (Verb <> 'LOOK') and (Verb <> 'L') and (Verb <> 'QUIT') and (Verb <> 'Q') then
+  begin
+    WrapWriteLn('As you reach out, the rattlesnake strikes! You feel a sharp pain in your hand.');
+    WrapWriteLn('The venom works quickly. GAME OVER.');
+    IsPlaying := False;
+    Exit;
+  end;
+
+  if (OutlawRoom = CurrentRoom^.ID) and (Verb <> 'SHOOT') and (Verb <> 'KILL') and
+     (Verb <> 'N') and (Verb <> 'S') and (Verb <> 'E') and (Verb <> 'W') and
+     (Verb <> 'NORTH') and (Verb <> 'SOUTH') and (Verb <> 'EAST') and (Verb <> 'WEST') and
+     (Verb <> 'LOOK') and (Verb <> 'L') and (Verb <> 'QUIT') and (Verb <> 'Q') then
+  begin
+    WrapWriteLn('The outlaw doesn''t like you poking around. He draws his gun and fires.');
+    WrapWriteLn('Everything goes dark. GAME OVER.');
+    IsPlaying := False;
+    Exit;
+  end;
+
+  if (Verb = 'OPEN') and (Noun = 'BOX') and (CurrentRoom^.ID = 7) then begin
+    if IsBoxOpen then WriteLn('It is already open.')
+    else begin
+      IsBoxOpen := True;
+      Items[8].Location := 7; // Put revolver in Sheriff's office
+      WriteLn('You pry the latch open. Inside lies a heavy revolver.');
+    end;
+  end
+  else if (Verb = 'SHOOT') or (Verb = 'KILL') then begin
+    if FindItem('REVOLVER', INV_LOCATION) = 0 then
+      WriteLn('You have nothing to shoot with.')
+    else if OutlawRoom = CurrentRoom^.ID then begin
+      OutlawRoom := 0;
+      WrapWriteLn('You draw your revolver and fire first. The outlaw falls to the ground.');
+      WriteLn('The threat is gone.');
+    end else
+      WriteLn('Nothing here to shoot.');
+  end
+  else if (Verb = 'FREEZE') or (Verb = 'WAIT') then begin
+    WriteLn('You stay perfectly still. The snake watches you...');
+    if Random(100) < 50 then begin
+      SnakeRoom := 0;
+      WriteLn('The snake loses interest and slithers into the shadows.');
+    end;
+  end
+  else if (Verb = 'N') or (Verb = 'NORTH') then MoveTo(CurrentRoom^.North)
   else if (Verb = 'S') or (Verb = 'SOUTH') then MoveTo(CurrentRoom^.South)
   else if (Verb = 'E') or (Verb = 'EAST') then MoveTo(CurrentRoom^.East)
   else if (Verb = 'W') or (Verb = 'WEST') then MoveTo(CurrentRoom^.West)
@@ -378,6 +463,7 @@ begin
 end;
 
 begin
+  IsHeadless := (ParamCount > 0) and (ParamStr(1) = '--headless');
   InitGame; Look;
   while IsPlaying do ParseCommand(CustomReadLn('> '));
 end.
