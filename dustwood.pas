@@ -13,6 +13,14 @@ const
   THIRST_LIMIT = 20;
   DARK_TURN = 30;
   TWILIGHT_TURN = 20;
+  SCORE_ROOM_VISIT = 5;
+  SCORE_ITEM_PICKUP = 3;
+  SCORE_NOTE_FOUND = 5;
+  SCORE_PUMP_FIX = 20;
+  SCORE_FIRST_FILL = 10;
+  SCORE_LAMP_LIGHT = 5;
+  SCORE_BOX_OPEN = 10;
+  SCORE_OUTLAW_KILL = 15;
 
 type
   PRoom = ^TRoom;
@@ -41,6 +49,10 @@ var
   CommandStr: string;
   Verb, Noun: string;
   Thirst, Turns, i: Integer;
+  Score: Integer;
+  RoomVisited: array[1..MAX_ROOMS] of Boolean;
+  ItemScored: array[1..MAX_ITEMS] of Boolean;
+  ScoredPumpFix, ScoredFirstFill, ScoredLampLight, ScoredBoxOpen, ScoredOutlawKill, ScoredNoteFound: Boolean;
   History: array[0..MAX_HISTORY] of string;
   HistoryCount: Integer = 0;
 
@@ -159,6 +171,10 @@ begin
   else
   begin
     CurrentRoom := NewRoom;
+    if (CurrentRoom^.ID <> 1) and (not RoomVisited[CurrentRoom^.ID]) then begin
+      RoomVisited[CurrentRoom^.ID] := True;
+      Inc(Score, SCORE_ROOM_VISIT);
+    end;
     // 20% chance of a snake appearing in the new room (except Main Street)
     if (CurrentRoom^.ID <> 1) and (Random(100) < 20) then
       SnakeRoom := CurrentRoom^.ID
@@ -213,6 +229,10 @@ begin
   else if (CurrentRoom^.ID = 3) and IsPumpFixed then begin
     HasWater := True;
     WriteLn('You fill your canteen with fresh water from the pump.');
+    if not ScoredFirstFill then begin
+      ScoredFirstFill := True;
+      Inc(Score, SCORE_FIRST_FILL);
+    end;
   end else
     WriteLn('There is no water here.');
 end;
@@ -226,11 +246,15 @@ begin
   else begin
     IsLampLit := True;
     WrapWriteLn('You light the lamp. A yellow glow illuminates the room.');
+    if not ScoredLampLight then begin
+      ScoredLampLight := True;
+      Inc(Score, SCORE_LAMP_LIGHT);
+    end;
   end;
 end;
 
 procedure SaveGame;
-var Ini: TIniFile; i: Integer; Section: string;
+var Ini: TIniFile; i: Integer; Section: string; RoomsStr, ItemsStr: string;
 begin
   Ini := TIniFile.Create('save.ini');
   try
@@ -240,17 +264,32 @@ begin
     Ini.WriteBool('State', 'HasWater', HasWater);
     Ini.WriteInteger('State', 'Thirst', Thirst);
     Ini.WriteInteger('State', 'Turns', Turns);
+    Ini.WriteInteger('State', 'Score', Score);
     for i := 1 to MAX_ITEMS do begin
       Section := 'Item' + IntToStr(i);
       Ini.WriteInteger(Section, 'Location', Items[i].Location);
       Ini.WriteString(Section, 'Description', Items[i].Description);
     end;
+    RoomsStr := '';
+    for i := 1 to MAX_ROOMS do
+      if RoomVisited[i] then RoomsStr := RoomsStr + '1' else RoomsStr := RoomsStr + '0';
+    ItemsStr := '';
+    for i := 1 to MAX_ITEMS do
+      if ItemScored[i] then ItemsStr := ItemsStr + '1' else ItemsStr := ItemsStr + '0';
+    Ini.WriteString('ScoreFlags', 'RoomVisited', RoomsStr);
+    Ini.WriteString('ScoreFlags', 'ItemScored', ItemsStr);
+    Ini.WriteBool('ScoreFlags', 'ScoredPumpFix', ScoredPumpFix);
+    Ini.WriteBool('ScoreFlags', 'ScoredFirstFill', ScoredFirstFill);
+    Ini.WriteBool('ScoreFlags', 'ScoredLampLight', ScoredLampLight);
+    Ini.WriteBool('ScoreFlags', 'ScoredBoxOpen', ScoredBoxOpen);
+    Ini.WriteBool('ScoreFlags', 'ScoredOutlawKill', ScoredOutlawKill);
+    Ini.WriteBool('ScoreFlags', 'ScoredNoteFound', ScoredNoteFound);
     WriteLn('Game saved.');
   finally Ini.Free; end;
 end;
 
 procedure LoadGame;
-var Ini: TIniFile; i: Integer; Section: string; RoomID: Integer;
+var Ini: TIniFile; i: Integer; Section: string; RoomID: Integer; RoomsStr, ItemsStr: string;
 begin
   if not FileExists('save.ini') then begin
     WriteLn('No save file found.');
@@ -265,6 +304,7 @@ begin
     HasWater := Ini.ReadBool('State', 'HasWater', False);
     Thirst := Ini.ReadInteger('State', 'Thirst', 0);
     Turns := Ini.ReadInteger('State', 'Turns', 0);
+    Score := Ini.ReadInteger('State', 'Score', 0);
     for i := 1 to MAX_ITEMS do begin
       Section := 'Item' + IntToStr(i);
       if Ini.SectionExists(Section) then begin
@@ -272,6 +312,20 @@ begin
         Items[i].Description := Ini.ReadString(Section, 'Description', Items[i].Description);
       end;
     end;
+    RoomsStr := Ini.ReadString('ScoreFlags', 'RoomVisited', '');
+    for i := 1 to MAX_ROOMS do begin
+      if (Length(RoomsStr) >= i) and (RoomsStr[i] = '1') then RoomVisited[i] := True else RoomVisited[i] := False;
+    end;
+    ItemsStr := Ini.ReadString('ScoreFlags', 'ItemScored', '');
+    for i := 1 to MAX_ITEMS do begin
+      if (Length(ItemsStr) >= i) and (ItemsStr[i] = '1') then ItemScored[i] := True else ItemScored[i] := False;
+    end;
+    ScoredPumpFix := Ini.ReadBool('ScoreFlags', 'ScoredPumpFix', False);
+    ScoredFirstFill := Ini.ReadBool('ScoreFlags', 'ScoredFirstFill', False);
+    ScoredLampLight := Ini.ReadBool('ScoreFlags', 'ScoredLampLight', False);
+    ScoredBoxOpen := Ini.ReadBool('ScoreFlags', 'ScoredBoxOpen', False);
+    ScoredOutlawKill := Ini.ReadBool('ScoreFlags', 'ScoredOutlawKill', False);
+    ScoredNoteFound := Ini.ReadBool('ScoreFlags', 'ScoredNoteFound', False);
     WriteLn('Game loaded.');
     Look;
   finally Ini.Free; end;
@@ -294,6 +348,7 @@ begin
   WriteLn('  LIGHT           - Light your lamp if you have matches');
   WriteLn('  FIX             - Repair something');
   WriteLn('  SAVE / LOAD     - Save or load your progress');
+  WriteLn('  SCORE           - Show current score');
   WriteLn('  HELP (H)        - Show this list');
   WriteLn('  QUIT (Q)        - Exit');
   WriteLn;
@@ -310,6 +365,10 @@ begin
     if (Items[ItemID].Name = 'BOOK') and (Items[5].Location = 0) then begin
       Items[5].Location := INV_LOCATION;
       WriteLn; WriteLn('A small folded note falls out of the book.');
+      if not ScoredNoteFound then begin
+        ScoredNoteFound := True;
+        Inc(Score, SCORE_NOTE_FOUND);
+      end;
     end;
   end
   else if TargetNoun = '' then Look
@@ -325,6 +384,10 @@ begin
       IsPumpFixed := True;
       WriteLn('You fix the pump. Water starts to flow.');
       Items[3].Description := 'a working water pump';
+      if not ScoredPumpFix then begin
+        ScoredPumpFix := True;
+        Inc(Score, SCORE_PUMP_FIX);
+      end;
     end else WriteLn('You need a gasket.');
   end else WriteLn('Nothing to fix here.');
 end;
@@ -381,6 +444,15 @@ begin
   SnakeRoom := 0;
   OutlawRoom := 0;
   IsBoxOpen := False;
+  Score := 0;
+  for i := 1 to MAX_ROOMS do RoomVisited[i] := False;
+  for i := 1 to MAX_ITEMS do ItemScored[i] := False;
+  ScoredPumpFix := False;
+  ScoredFirstFill := False;
+  ScoredLampLight := False;
+  ScoredBoxOpen := False;
+  ScoredOutlawKill := False;
+  ScoredNoteFound := False;
   CurrentRoom := RoomRegistry[1]; IsPlaying := True; IsPumpFixed := False; 
   IsLampLit := False; HasWater := False; Thirst := 0; Turns := 0;
 end;
@@ -418,6 +490,10 @@ begin
       IsBoxOpen := True;
       Items[8].Location := 7; // Put revolver in Sheriff's office
       WriteLn('You pry the latch open. Inside lies a heavy revolver.');
+      if not ScoredBoxOpen then begin
+        ScoredBoxOpen := True;
+        Inc(Score, SCORE_BOX_OPEN);
+      end;
     end;
   end
   else if (Verb = 'SHOOT') or (Verb = 'KILL') then begin
@@ -427,6 +503,10 @@ begin
       OutlawRoom := 0;
       WrapWriteLn('You draw your revolver and fire first. The outlaw falls to the ground.');
       WriteLn('The threat is gone.');
+      if not ScoredOutlawKill then begin
+        ScoredOutlawKill := True;
+        Inc(Score, SCORE_OUTLAW_KILL);
+      end;
     end else
       WriteLn('Nothing here to shoot.');
   end
@@ -453,9 +533,17 @@ begin
   else if (Verb = 'FIX') then FixSomething(Noun)
   else if (Verb = 'SAVE') then SaveGame
   else if (Verb = 'LOAD') then LoadGame
+  else if (Verb = 'SCORE') then WriteLn('Score: ', Score)
   else if (Verb = 'TAKE') or (Verb = 'GET') then begin
     i := FindItem(Noun, CurrentRoom^.ID);
-    if i > 0 then begin Items[i].Location := INV_LOCATION; WriteLn('Taken.'); end else WriteLn('Not here.');
+    if i > 0 then begin
+      Items[i].Location := INV_LOCATION;
+      WriteLn('Taken.');
+      if not ItemScored[i] then begin
+        ItemScored[i] := True;
+        Inc(Score, SCORE_ITEM_PICKUP);
+      end;
+    end else WriteLn('Not here.');
   end
   else if (Verb = 'QUIT') or (Verb = 'Q') then IsPlaying := False;
   
@@ -466,4 +554,5 @@ begin
   IsHeadless := (ParamCount > 0) and (ParamStr(1) = '--headless');
   InitGame; Look;
   while IsPlaying do ParseCommand(CustomReadLn('> '));
+  WriteLn('Final score: ', Score);
 end.
