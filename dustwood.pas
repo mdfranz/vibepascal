@@ -6,122 +6,59 @@ uses
   SysUtils, IniFiles;
 
 const
-  MAX_ROOMS = 10;
-  MAX_ITEMS = 15;
-  INV_LOCATION = -1; { Special location ID for items in the player's inventory }
+  MAX_ROOMS = 20;
+  MAX_ITEMS = 20;
+  INV_LOCATION = -1;
 
 type
-  TLocation = record
+  PRoom = ^TRoom;
+  TRoom = record
+    ID: Integer;
     Name: string[50];
     Description: string[255];
-    North, South, East, West: Integer;
+    North, South, East, West: PRoom;
   end;
 
   TItem = record
-    ID: Integer;
     Name: string[30];
     Description: string[255];
-    Location: Integer;     { Room ID, INV_LOCATION, or 0 if inactive/hidden }
+    Location: Integer; { -1 for Inv, or Room ID }
     IsTakeable: Boolean;
   end;
 
 var
-  Rooms: array[1..MAX_ROOMS] of TLocation;
+  RoomRegistry: array[1..MAX_ROOMS] of PRoom;
   Items: array[1..MAX_ITEMS] of TItem;
-  CurrentRoom: Integer;
+  CurrentRoom: PRoom;
   IsPlaying: Boolean;
   CommandStr: string;
   Verb, Noun: string;
 
-{ --- Initialization --- }
-
-procedure InitGame;
-var
-  i: Integer;
-  Ini: TIniFile;
-  Section: string;
-begin
-  { Initialize arrays first }
-  for i := 1 to MAX_ROOMS do
-  begin
-    Rooms[i].Name := '';
-    Rooms[i].Description := '';
-    Rooms[i].North := 0; Rooms[i].South := 0; Rooms[i].East := 0; Rooms[i].West := 0;
-  end;
-  for i := 1 to MAX_ITEMS do
-  begin
-    Items[i].ID := i;
-    Items[i].Name := '';
-    Items[i].Description := '';
-    Items[i].Location := 0;
-    Items[i].IsTakeable := False;
-  end;
-
-  { Load data from INI }
-  if FileExists('world.ini') then
-  begin
-    Ini := TIniFile.Create('world.ini');
-    try
-      for i := 1 to MAX_ROOMS do
-      begin
-        Section := 'Room' + IntToStr(i);
-        if Ini.SectionExists(Section) then
-        begin
-          Rooms[i].Name := Ini.ReadString(Section, 'Name', '');
-          Rooms[i].Description := Ini.ReadString(Section, 'Description', '');
-          Rooms[i].North := Ini.ReadInteger(Section, 'North', 0);
-          Rooms[i].South := Ini.ReadInteger(Section, 'South', 0);
-          Rooms[i].East := Ini.ReadInteger(Section, 'East', 0);
-          Rooms[i].West := Ini.ReadInteger(Section, 'West', 0);
-        end;
-      end;
-      for i := 1 to MAX_ITEMS do
-      begin
-        Section := 'Item' + IntToStr(i);
-        if Ini.SectionExists(Section) then
-        begin
-          Items[i].Name := Ini.ReadString(Section, 'Name', '');
-          Items[i].Description := Ini.ReadString(Section, 'Description', '');
-          Items[i].Location := Ini.ReadInteger(Section, 'Location', 0);
-          Items[i].IsTakeable := Ini.ReadInteger(Section, 'IsTakeable', 0) = 1;
-        end;
-      end;
-    finally
-      Ini.Free;
-    end;
-  end
-  else
-  begin
-    WriteLn('Error: world.ini not found!');
-    Halt(1);
-  end;
-
-  CurrentRoom := 1;
-  IsPlaying := True;
-
-  WriteLn('--------------------------------------------------');
-  WriteLn('              ECHOES OF DUSTWOOD                  ');
-  WriteLn('--------------------------------------------------');
-  WriteLn('The year is 1884. You are Elias Thorne. You rode');
-  WriteLn('into Dustwood looking for your brother Silas.');
-  WriteLn('Your horse is dead. The town is abandoned.');
-  WriteLn('Find him, find the truth, and survive.');
-  WriteLn('--------------------------------------------------');
-  WriteLn('Commands: N, S, E, W, LOOK, TAKE [ITEM], DROP [ITEM],');
-  WriteLn('          EXAMINE [ITEM], INVENTORY (I), QUIT (Q)');
-  WriteLn;
-end;
-
 { --- Core Mechanics --- }
 
-function FindItem(ItemName: string; CheckLocation: Integer): Integer;
+function FindItemInCurrentRoom(ItemName: string): Integer;
 var
   i: Integer;
 begin
   Result := 0;
   for i := 1 to MAX_ITEMS do
   begin
-    if (Items[i].Location = CheckLocation) and (Items[i].Name = ItemName) then
+    if (Items[i].Location = CurrentRoom^.ID) and (Items[i].Name = ItemName) then
+    begin
+      Result := i;
+      Exit;
+    end;
+  end;
+end;
+
+function FindItemInInventory(ItemName: string): Integer;
+var
+  i: Integer;
+begin
+  Result := 0;
+  for i := 1 to MAX_ITEMS do
+  begin
+    if (Items[i].Location = INV_LOCATION) and (Items[i].Name = ItemName) then
     begin
       Result := i;
       Exit;
@@ -135,13 +72,13 @@ var
   FoundItems: Boolean;
 begin
   WriteLn;
-  WriteLn('*** ', Rooms[CurrentRoom].Name, ' ***');
-  WriteLn(Rooms[CurrentRoom].Description);
+  WriteLn('*** ', CurrentRoom^.Name, ' ***');
+  WriteLn(CurrentRoom^.Description);
   
   FoundItems := False;
   for i := 1 to MAX_ITEMS do
   begin
-    if Items[i].Location = CurrentRoom then
+    if Items[i].Location = CurrentRoom^.ID then
     begin
       if not FoundItems then
       begin
@@ -155,9 +92,9 @@ begin
   WriteLn;
 end;
 
-procedure MoveTo(NewRoom: Integer);
+procedure MoveTo(NewRoom: PRoom);
 begin
-  if NewRoom = 0 then
+  if NewRoom = nil then
     WriteLn('You cannot go that way.')
   else
   begin
@@ -165,6 +102,88 @@ begin
     Look;
   end;
 end;
+
+{ --- Initialization --- }
+
+procedure InitGame;
+var
+  i: Integer;
+  Ini: TIniFile;
+  Section: string;
+  N, S, E, W: Integer;
+begin
+  { Initialize Registry }
+  for i := 1 to MAX_ROOMS do RoomRegistry[i] := nil;
+
+  if not FileExists('world.ini') then
+  begin
+    WriteLn('Error: world.ini not found!');
+    Halt(1);
+  end;
+
+  Ini := TIniFile.Create('world.ini');
+  try
+    { Pass 1: Allocate Rooms }
+    for i := 1 to MAX_ROOMS do
+    begin
+      Section := 'Room' + IntToStr(i);
+      if Ini.SectionExists(Section) then
+      begin
+        New(RoomRegistry[i]);
+        RoomRegistry[i]^.ID := i;
+        RoomRegistry[i]^.Name := Ini.ReadString(Section, 'Name', 'Empty Room');
+        RoomRegistry[i]^.Description := Ini.ReadString(Section, 'Description', '');
+        RoomRegistry[i]^.North := nil; RoomRegistry[i]^.South := nil;
+        RoomRegistry[i]^.East := nil; RoomRegistry[i]^.West := nil;
+      end;
+    end;
+
+    { Pass 2: Link Exits using pointers }
+    for i := 1 to MAX_ROOMS do
+    begin
+      if RoomRegistry[i] <> nil then
+      begin
+        Section := 'Room' + IntToStr(i);
+        N := Ini.ReadInteger(Section, 'North', 0);
+        S := Ini.ReadInteger(Section, 'South', 0);
+        E := Ini.ReadInteger(Section, 'East', 0);
+        W := Ini.ReadInteger(Section, 'West', 0);
+
+        if (N > 0) and (N <= MAX_ROOMS) then RoomRegistry[i]^.North := RoomRegistry[N];
+        if (S > 0) and (S <= MAX_ROOMS) then RoomRegistry[i]^.South := RoomRegistry[S];
+        if (E > 0) and (E <= MAX_ROOMS) then RoomRegistry[i]^.East := RoomRegistry[E];
+        if (W > 0) and (W <= MAX_ROOMS) then RoomRegistry[i]^.West := RoomRegistry[W];
+      end;
+    end;
+
+    { Load Items }
+    for i := 1 to MAX_ITEMS do
+    begin
+      Section := 'Item' + IntToStr(i);
+      if Ini.SectionExists(Section) then
+      begin
+        Items[i].Name := Ini.ReadString(Section, 'Name', '');
+        Items[i].Description := Ini.ReadString(Section, 'Description', '');
+        Items[i].Location := Ini.ReadInteger(Section, 'Location', 0);
+        Items[i].IsTakeable := Ini.ReadInteger(Section, 'IsTakeable', 0) = 1;
+      end;
+    end;
+  finally
+    Ini.Free;
+  end;
+
+  CurrentRoom := RoomRegistry[1];
+  IsPlaying := True;
+
+  WriteLn('--------------------------------------------------');
+  WriteLn('              ECHOES OF DUSTWOOD                  ');
+  WriteLn('--------------------------------------------------');
+  WriteLn('The year is 1884. You are Elias Thorne.');
+  WriteLn('--------------------------------------------------');
+  WriteLn;
+end;
+
+{ --- Parser & Commands --- }
 
 procedure ShowInventory;
 var
@@ -181,16 +200,14 @@ begin
       FoundItems := True;
     end;
   end;
-  
-  if not FoundItems then
-    WriteLn('  Nothing.');
+  if not FoundItems then WriteLn('  Nothing.');
 end;
 
 procedure TakeItem(TargetNoun: string);
 var
   ItemID: Integer;
 begin
-  ItemID := FindItem(TargetNoun, CurrentRoom);
+  ItemID := FindItemInCurrentRoom(TargetNoun);
   if ItemID > 0 then
   begin
     if Items[ItemID].IsTakeable then
@@ -198,90 +215,72 @@ begin
       Items[ItemID].Location := INV_LOCATION;
       WriteLn('You picked up the ', Items[ItemID].Name, '.');
     end
-    else
-      WriteLn('You cannot take the ', Items[ItemID].Name, '.');
+    else WriteLn('You cannot take that.');
   end
-  else
-    WriteLn('You don''t see a ', TargetNoun, ' here.');
+  else WriteLn('You don''t see that here.');
 end;
 
 procedure DropItem(TargetNoun: string);
 var
   ItemID: Integer;
 begin
-  ItemID := FindItem(TargetNoun, INV_LOCATION);
+  ItemID := FindItemInInventory(TargetNoun);
   if ItemID > 0 then
   begin
-    Items[ItemID].Location := CurrentRoom;
+    Items[ItemID].Location := CurrentRoom^.ID;
     WriteLn('You dropped the ', Items[ItemID].Name, '.');
   end
-  else
-    WriteLn('You are not carrying a ', TargetNoun, '.');
+  else WriteLn('You aren''t carrying that.');
 end;
 
 procedure ExamineItem(TargetNoun: string);
 var
   ItemID: Integer;
 begin
-  { Check inventory first, then room }
-  ItemID := FindItem(TargetNoun, INV_LOCATION);
-  if ItemID = 0 then
-    ItemID := FindItem(TargetNoun, CurrentRoom);
+  ItemID := FindItemInInventory(TargetNoun);
+  if ItemID = 0 then ItemID := FindItemInCurrentRoom(TargetNoun);
 
-  if ItemID > 0 then
-    WriteLn(Items[ItemID].Description)
-  else
-    WriteLn('You don''t see a ', TargetNoun, ' to examine.');
+  if ItemID > 0 then WriteLn(Items[ItemID].Description)
+  else WriteLn('You don''t see that here.');
 end;
 
-{ --- Parser --- }
-
 procedure SplitCommand(Cmd: string; var V, N: string);
-var
-  SpacePos: Integer;
+var SpacePos: Integer;
 begin
-  V := '';
-  N := '';
+  V := ''; N := '';
   Cmd := UpperCase(Trim(Cmd));
   SpacePos := Pos(' ', Cmd);
-  
   if SpacePos > 0 then
   begin
     V := Copy(Cmd, 1, SpacePos - 1);
     N := Trim(Copy(Cmd, SpacePos + 1, Length(Cmd)));
   end
-  else
-    V := Cmd;
+  else V := Cmd;
 end;
 
 procedure ParseCommand(Cmd: string);
 begin
   SplitCommand(Cmd, Verb, Noun);
-
-  if (Verb = 'N') or (Verb = 'NORTH') then MoveTo(Rooms[CurrentRoom].North)
-  else if (Verb = 'S') or (Verb = 'SOUTH') then MoveTo(Rooms[CurrentRoom].South)
-  else if (Verb = 'E') or (Verb = 'EAST') then MoveTo(Rooms[CurrentRoom].East)
-  else if (Verb = 'W') or (Verb = 'WEST') then MoveTo(Rooms[CurrentRoom].West)
+  if (Verb = 'N') or (Verb = 'NORTH') then MoveTo(CurrentRoom^.North)
+  else if (Verb = 'S') or (Verb = 'SOUTH') then MoveTo(CurrentRoom^.South)
+  else if (Verb = 'E') or (Verb = 'EAST') then MoveTo(CurrentRoom^.East)
+  else if (Verb = 'W') or (Verb = 'WEST') then MoveTo(CurrentRoom^.West)
   else if (Verb = 'LOOK') or (Verb = 'L') then Look
   else if (Verb = 'QUIT') or (Verb = 'Q') then IsPlaying := False
   else if (Verb = 'INVENTORY') or (Verb = 'I') then ShowInventory
   else if (Verb = 'TAKE') or (Verb = 'GET') then TakeItem(Noun)
   else if (Verb = 'DROP') then DropItem(Noun)
   else if (Verb = 'EXAMINE') or (Verb = 'X') then ExamineItem(Noun)
-  else if Verb <> '' then
-    WriteLn('I don''t know how to do that.');
+  else if Verb <> '' then WriteLn('I don''t know how to do that.');
 end;
 
 begin
   InitGame;
   Look;
-
   while IsPlaying do
   begin
     Write('> ');
     ReadLn(CommandStr);
     ParseCommand(CommandStr);
   end;
-
-  WriteLn('You wander off into the dust... Game Over.');
 end.
