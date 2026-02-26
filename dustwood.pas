@@ -11,6 +11,7 @@ const
   INV_LOCATION = -1;
   MAX_HISTORY = 10;
   THIRST_LIMIT = 20;
+  HORSE_THIRST_LIMIT = 15;
   DARK_TURN = 30;
   TWILIGHT_TURN = 20;
   SCORE_ROOM_VISIT = 5;
@@ -21,6 +22,8 @@ const
   SCORE_LAMP_LIGHT = 5;
   SCORE_BOX_OPEN = 10;
   SCORE_OUTLAW_KILL = 15;
+  STREAM_ROOM_ID = 13;
+  DESERT_ENTRY_ROOM_ID = 8;
 
 type
   PRoom = ^TRoom;
@@ -43,12 +46,12 @@ var
   RoomRegistry: array[1..MAX_ROOMS] of PRoom;
   Items: array[1..MAX_ITEMS] of TItem;
   CurrentRoom: PRoom;
-  IsPlaying, IsPumpFixed, IsLampLit, HasWater, IsHeadless, IsBoxOpen: Boolean;
+  IsPlaying, IsPumpFixed, IsLampLit, HasWater, IsHeadless, IsBoxOpen, IsHorseSaddled, IsRiding: Boolean;
   SnakeRoom: Integer; // ID of the room where a snake is currently coiled
   OutlawRoom: Integer; // ID of the room where the outlaw is waiting
   CommandStr: string;
   Verb, Noun: string;
-  Thirst, Turns, i: Integer;
+  Thirst, Turns, HorseThirst, i: Integer;
   Score: Integer;
   RoomVisited: array[1..MAX_ROOMS] of Boolean;
   ItemScored: array[1..MAX_ITEMS] of Boolean;
@@ -128,6 +131,11 @@ begin
   Result := (Turns >= DARK_TURN) and not IsLampLit;
 end;
 
+function IsDesertRoom(RoomID: Integer): Boolean;
+begin
+  Result := (RoomID >= 8) and (RoomID <= 13);
+end;
+
 procedure Look;
 var i: Integer; FoundItems: Boolean;
 begin
@@ -140,6 +148,7 @@ begin
   if Turns >= DARK_TURN then WriteLn('[The moon hangs in the black sky]')
   else if Turns >= TWILIGHT_TURN then WriteLn('[The sky is purple as the sun sets]');
 
+  if IsRiding then Write('[RIDING] ');
   WriteLn('*** ', CurrentRoom^.Name, ' ***');
   WrapWriteLn(CurrentRoom^.Description);
 
@@ -168,9 +177,20 @@ procedure MoveTo(NewRoom: PRoom);
 begin
   if NewRoom = nil then
     WriteLn('You cannot go that way.')
+  else if IsRiding and ((NewRoom^.ID = 2) or (NewRoom^.ID = 4) or (NewRoom^.ID = 5) or (NewRoom^.ID = 7)) then
+    WriteLn('You can''t bring a horse in there. Dismount first.')
+  else if (CurrentRoom^.ID = 6) and (NewRoom^.ID = DESERT_ENTRY_ROOM_ID) and (not IsRiding) then
+    WriteLn('The desert is too dangerous on foot. You must be riding a saddled horse.')
   else
   begin
     CurrentRoom := NewRoom;
+    if IsRiding then begin
+      for i := 1 to MAX_ITEMS do
+        if Items[i].Name = 'HORSE' then begin
+          Items[i].Location := CurrentRoom^.ID;
+          Break;
+        end;
+    end;
     if (CurrentRoom^.ID <> 1) and (not RoomVisited[CurrentRoom^.ID]) then begin
       RoomVisited[CurrentRoom^.ID] := True;
       Inc(Score, SCORE_ROOM_VISIT);
@@ -194,13 +214,26 @@ procedure UpdateWorld;
 begin
   Inc(Turns);
   Inc(Thirst);
+  if IsHorseSaddled and IsDesertRoom(CurrentRoom^.ID) then Inc(HorseThirst);
   // Snakes eventually slither away
   if (SnakeRoom > 0) and (Random(100) < 30) then SnakeRoom := 0;
   if Thirst > THIRST_LIMIT - 5 then
     WriteLn('*** Your throat is parched. You need water soon. ***');
+  if IsHorseSaddled and IsDesertRoom(CurrentRoom^.ID) and (HorseThirst > HORSE_THIRST_LIMIT - 5) then
+    WriteLn('*** Your horse is showing signs of exhaustion. It needs water soon. ***');
   
   if Thirst >= THIRST_LIMIT then begin
     WrapWriteLn('You have collapsed from dehydration. GAME OVER.');
+    IsPlaying := False;
+  end;
+
+  if IsDesertRoom(CurrentRoom^.ID) and (not IsRiding) then begin
+    WrapWriteLn('The desert heat is overwhelming on foot. You collapse into the sand. GAME OVER.');
+    IsPlaying := False;
+  end;
+
+  if IsHorseSaddled and IsDesertRoom(CurrentRoom^.ID) and (HorseThirst >= HORSE_THIRST_LIMIT) then begin
+    WrapWriteLn('Your horse collapses from dehydration. You are stranded in the desert. GAME OVER.');
     IsPlaying := False;
   end;
 
@@ -233,6 +266,9 @@ begin
       ScoredFirstFill := True;
       Inc(Score, SCORE_FIRST_FILL);
     end;
+  end else if (CurrentRoom^.ID = STREAM_ROOM_ID) then begin
+    HasWater := True;
+    WriteLn('You fill your canteen with cold stream water.');
   end else
     WriteLn('There is no water here.');
 end;
@@ -262,7 +298,10 @@ begin
     Ini.WriteBool('State', 'IsPumpFixed', IsPumpFixed);
     Ini.WriteBool('State', 'IsLampLit', IsLampLit);
     Ini.WriteBool('State', 'HasWater', HasWater);
+    Ini.WriteBool('State', 'IsHorseSaddled', IsHorseSaddled);
+    Ini.WriteBool('State', 'IsRiding', IsRiding);
     Ini.WriteInteger('State', 'Thirst', Thirst);
+    Ini.WriteInteger('State', 'HorseThirst', HorseThirst);
     Ini.WriteInteger('State', 'Turns', Turns);
     Ini.WriteInteger('State', 'Score', Score);
     for i := 1 to MAX_ITEMS do begin
@@ -302,7 +341,10 @@ begin
     IsPumpFixed := Ini.ReadBool('State', 'IsPumpFixed', False);
     IsLampLit := Ini.ReadBool('State', 'IsLampLit', False);
     HasWater := Ini.ReadBool('State', 'HasWater', False);
+    IsHorseSaddled := Ini.ReadBool('State', 'IsHorseSaddled', False);
+    IsRiding := Ini.ReadBool('State', 'IsRiding', False);
     Thirst := Ini.ReadInteger('State', 'Thirst', 0);
+    HorseThirst := Ini.ReadInteger('State', 'HorseThirst', 0);
     Turns := Ini.ReadInteger('State', 'Turns', 0);
     Score := Ini.ReadInteger('State', 'Score', 0);
     for i := 1 to MAX_ITEMS do begin
@@ -345,8 +387,11 @@ begin
   WriteLn('  INVENTORY (I)   - Check your gear');
   WriteLn('  DRINK           - Drink from your canteen');
   WriteLn('  FILL            - Fill canteen at a water source');
+  WriteLn('  WATER           - Water your horse at a water source');
   WriteLn('  LIGHT           - Light your lamp if you have matches');
   WriteLn('  FIX             - Repair something');
+  WriteLn('  SADDLE          - Put a saddle on the horse');
+  WriteLn('  CLIMB           - Climb a steep obstacle');
   WriteLn('  SAVE / LOAD     - Save or load your progress');
   WriteLn('  SCORE           - Show current score');
   WriteLn('  HELP (H)        - Show this list');
@@ -362,6 +407,11 @@ begin
   if ItemID = 0 then ItemID := FindItem(TargetNoun, CurrentRoom^.ID);
   if ItemID > 0 then begin
     WrapWriteLn(Items[ItemID].Details);
+    if (Items[ItemID].Name = 'ROCK') and (Items[11].Location = 0) then begin
+      Items[11].Location := CurrentRoom^.ID;
+      WriteLn;
+      WriteLn('You lift the rock. A small brass key is hidden beneath it.');
+    end;
     if (Items[ItemID].Name = 'BOOK') and (Items[5].Location = 0) then begin
       Items[5].Location := INV_LOCATION;
       WriteLn; WriteLn('A small folded note falls out of the book.');
@@ -390,6 +440,52 @@ begin
       end;
     end else WriteLn('You need a gasket.');
   end else WriteLn('Nothing to fix here.');
+end;
+
+procedure WaterHorse(TargetNoun: string);
+begin
+  TargetNoun := UpperCase(Trim(TargetNoun));
+  if (TargetNoun <> '') and (TargetNoun <> 'HORSE') then begin
+    WriteLn('Water what?');
+    Exit;
+  end;
+  if not IsHorseSaddled then begin
+    WriteLn('You don''t have a horse with you.');
+    Exit;
+  end;
+  if CurrentRoom^.ID <> STREAM_ROOM_ID then begin
+    WriteLn('There is no water here for your horse.');
+    Exit;
+  end;
+  HorseThirst := 0;
+  WriteLn('Your horse drinks deeply from the stream.');
+end;
+
+procedure SaddleHorse(TargetNoun: string);
+var HorseID: Integer;
+begin
+  TargetNoun := UpperCase(Trim(TargetNoun));
+  if (TargetNoun <> '') and (TargetNoun <> 'HORSE') and (TargetNoun <> 'ON HORSE') then begin
+    WriteLn('Saddle what?');
+    Exit;
+  end;
+  HorseID := FindItem('HORSE', CurrentRoom^.ID);
+  if HorseID = 0 then begin
+    WriteLn('There is no horse here.');
+    Exit;
+  end;
+  if FindItem('SADDLE', INV_LOCATION) = 0 then begin
+    WriteLn('You need a saddle.');
+    Exit;
+  end;
+  if IsHorseSaddled then begin
+    WriteLn('The horse is already saddled.');
+    Exit;
+  end;
+  IsHorseSaddled := True;
+  Items[HorseID].Description := 'a saddled horse';
+  Items[HorseID].Details := 'A calm, saddle-ready horse. It looks steady and patient.';
+  WriteLn('You secure the saddle onto the horse. It stands quietly.');
 end;
 
 { --- Parser --- }
@@ -444,7 +540,9 @@ begin
   SnakeRoom := 0;
   OutlawRoom := 0;
   IsBoxOpen := False;
+  IsHorseSaddled := False;
   Score := 0;
+  HorseThirst := 0;
   for i := 1 to MAX_ROOMS do RoomVisited[i] := False;
   for i := 1 to MAX_ITEMS do ItemScored[i] := False;
   ScoredPumpFix := False;
@@ -458,14 +556,20 @@ begin
 end;
 
 procedure ParseCommand(Cmd: string);
+var ConsumeTurn: Boolean;
 begin
   SplitCommand(Cmd, Verb, Noun);
+  ConsumeTurn := True;
   
   // If a snake is here, any action other than moving or FREEZE is dangerous
   if (SnakeRoom = CurrentRoom^.ID) and (Verb <> 'FREEZE') and (Verb <> 'WAIT') and 
      (Verb <> 'N') and (Verb <> 'S') and (Verb <> 'E') and (Verb <> 'W') and
      (Verb <> 'NORTH') and (Verb <> 'SOUTH') and (Verb <> 'EAST') and (Verb <> 'WEST') and
-     (Verb <> 'LOOK') and (Verb <> 'L') and (Verb <> 'QUIT') and (Verb <> 'Q') then
+     (Verb <> 'LOOK') and (Verb <> 'L') and (Verb <> 'EXAMINE') and (Verb <> 'X') and
+     (Verb <> 'SEARCH') and (Verb <> 'INVENTORY') and (Verb <> 'I') and
+     (Verb <> 'CHECK') and (Verb <> 'HELP') and (Verb <> '?') and (Verb <> 'H') and
+     (Verb <> 'SCORE') and (Verb <> 'SAVE') and (Verb <> 'LOAD') and
+     (Verb <> 'QUIT') and (Verb <> 'Q') then
   begin
     WrapWriteLn('As you reach out, the rattlesnake strikes! You feel a sharp pain in your hand.');
     WrapWriteLn('The venom works quickly. GAME OVER.');
@@ -476,7 +580,11 @@ begin
   if (OutlawRoom = CurrentRoom^.ID) and (Verb <> 'SHOOT') and (Verb <> 'KILL') and
      (Verb <> 'N') and (Verb <> 'S') and (Verb <> 'E') and (Verb <> 'W') and
      (Verb <> 'NORTH') and (Verb <> 'SOUTH') and (Verb <> 'EAST') and (Verb <> 'WEST') and
-     (Verb <> 'LOOK') and (Verb <> 'L') and (Verb <> 'QUIT') and (Verb <> 'Q') then
+     (Verb <> 'LOOK') and (Verb <> 'L') and (Verb <> 'EXAMINE') and (Verb <> 'X') and
+     (Verb <> 'SEARCH') and (Verb <> 'INVENTORY') and (Verb <> 'I') and
+     (Verb <> 'CHECK') and (Verb <> 'HELP') and (Verb <> '?') and (Verb <> 'H') and
+     (Verb <> 'SCORE') and (Verb <> 'SAVE') and (Verb <> 'LOAD') and
+     (Verb <> 'QUIT') and (Verb <> 'Q') then
   begin
     WrapWriteLn('The outlaw doesn''t like you poking around. He draws his gun and fires.');
     WrapWriteLn('Everything goes dark. GAME OVER.');
@@ -484,15 +592,35 @@ begin
     Exit;
   end;
 
-  if (Verb = 'OPEN') and (Noun = 'BOX') and (CurrentRoom^.ID = 7) then begin
+  if (Verb = 'MOUNT') or (Verb = 'RIDE') then begin
+    if IsRiding then WriteLn('You are already riding.')
+    else if FindItem('HORSE', CurrentRoom^.ID) > 0 then begin
+      if IsHorseSaddled then begin
+        IsRiding := True;
+        WriteLn('You swing yourself into the saddle. You are now riding.');
+      end else WriteLn('The horse needs a saddle before you can ride her.');
+    end else WriteLn('There is no horse here.');
+  end
+  else if (Verb = 'DISMOUNT') then begin
+    if not IsRiding then WriteLn('You aren''t riding anything.')
+    else begin
+      IsRiding := False;
+      WriteLn('You dismount and stand beside your horse.');
+    end;
+  end
+  else if (Verb = 'OPEN') and (Noun = 'BOX') and (CurrentRoom^.ID = 7) then begin
     if IsBoxOpen then WriteLn('It is already open.')
     else begin
-      IsBoxOpen := True;
-      Items[8].Location := 7; // Put revolver in Sheriff's office
-      WriteLn('You pry the latch open. Inside lies a heavy revolver.');
-      if not ScoredBoxOpen then begin
-        ScoredBoxOpen := True;
-        Inc(Score, SCORE_BOX_OPEN);
+      if FindItem('KEY', INV_LOCATION) = 0 then
+        WriteLn('The box is locked. You need a key.')
+      else begin
+        IsBoxOpen := True;
+        Items[8].Location := 7; // Put revolver in Sheriff's office
+        WriteLn('You unlock the box. Inside lies a heavy revolver.');
+        if not ScoredBoxOpen then begin
+          ScoredBoxOpen := True;
+          Inc(Score, SCORE_BOX_OPEN);
+        end;
       end;
     end;
   end
@@ -521,24 +649,60 @@ begin
   else if (Verb = 'S') or (Verb = 'SOUTH') then MoveTo(CurrentRoom^.South)
   else if (Verb = 'E') or (Verb = 'EAST') then MoveTo(CurrentRoom^.East)
   else if (Verb = 'W') or (Verb = 'WEST') then MoveTo(CurrentRoom^.West)
-  else if (Verb = 'LOOK') or (Verb = 'L') or (Verb = 'EXAMINE') or (Verb = 'X') then ExamineItem(Noun)
-  else if (Verb = 'HELP') or (Verb = '?') or (Verb = 'H') then ShowHelp
+  else if (Verb = 'LOOK') or (Verb = 'L') then begin
+    ExamineItem(Noun);
+    ConsumeTurn := False;
+  end
+  else if (Verb = 'EXAMINE') or (Verb = 'X') then begin
+    ExamineItem(Noun);
+    ConsumeTurn := False;
+  end
+  else if (Verb = 'SEARCH') then begin
+    Look;
+    ConsumeTurn := False;
+  end
+  else if (Verb = 'HELP') or (Verb = '?') or (Verb = 'H') then begin
+    ShowHelp;
+    ConsumeTurn := False;
+  end
   else if (Verb = 'INVENTORY') or (Verb = 'I') then begin
     WriteLn('You are carrying:');
     for i := 1 to MAX_ITEMS do if Items[i].Location = INV_LOCATION then WriteLn('  - ', Items[i].Description);
+    ConsumeTurn := False;
+  end
+  else if (Verb = 'CHECK') and ((UpperCase(Noun) = 'INVENTORY') or (UpperCase(Noun) = 'INV') or (UpperCase(Noun) = 'I')) then begin
+    WriteLn('You are carrying:');
+    for i := 1 to MAX_ITEMS do if Items[i].Location = INV_LOCATION then WriteLn('  - ', Items[i].Description);
+    ConsumeTurn := False;
   end
   else if (Verb = 'DRINK') then Drink
   else if (Verb = 'FILL') then FillCanteen
+  else if (Verb = 'WATER') then WaterHorse(Noun)
   else if (Verb = 'LIGHT') then LightLamp
   else if (Verb = 'FIX') then FixSomething(Noun)
-  else if (Verb = 'SAVE') then SaveGame
-  else if (Verb = 'LOAD') then LoadGame
-  else if (Verb = 'SCORE') then WriteLn('Score: ', Score)
+  else if (Verb = 'SADDLE') then SaddleHorse(Noun)
+  else if (Verb = 'PUT') and (Pos('SADDLE', UpperCase(Noun)) > 0) then SaddleHorse('HORSE')
+  else if (Verb = 'CLIMB') then begin
+    if (CurrentRoom^.ID = 12) then MoveTo(RoomRegistry[STREAM_ROOM_ID])
+    else WriteLn('There is nothing to climb here.');
+  end
+  else if (Verb = 'SAVE') then begin
+    SaveGame;
+    ConsumeTurn := False;
+  end
+  else if (Verb = 'LOAD') then begin
+    LoadGame;
+    ConsumeTurn := False;
+  end
+  else if (Verb = 'SCORE') then begin
+    WriteLn('Score: ', Score);
+    ConsumeTurn := False;
+  end
   else if (Verb = 'TAKE') or (Verb = 'GET') then begin
     i := FindItem(Noun, CurrentRoom^.ID);
     if i > 0 then begin
       Items[i].Location := INV_LOCATION;
-      WriteLn('Taken.');
+      WriteLn('Taken: ', Items[i].Description, '.');
       if not ItemScored[i] then begin
         ItemScored[i] := True;
         Inc(Score, SCORE_ITEM_PICKUP);
@@ -547,7 +711,7 @@ begin
   end
   else if (Verb = 'QUIT') or (Verb = 'Q') then IsPlaying := False;
   
-  if IsPlaying then UpdateWorld;
+  if IsPlaying and ConsumeTurn then UpdateWorld;
 end;
 
 begin

@@ -77,8 +77,11 @@ This produces `dustwood`.
 - `EXAMINE <ITEM>` or `X <ITEM>` to read item descriptions
 - `DRINK` to quench your thirst if your canteen has water
 - `FILL` to refill your canteen at a water source
+- `WATER` to water your horse at a water source
 - `LIGHT` to light your lamp (requires matches)
 - `FIX <ITEM>` to repair something in the room
+- `SADDLE` to saddle the horse in the stables
+- `CLIMB` to climb a steep obstacle
 - `SAVE` / `LOAD` to persist your progress to `save.ini`
 - `HELP`, `H`, or `?` to show the command list
 - `QUIT` or `Q` (or `Control-D`) to exit
@@ -118,6 +121,35 @@ This is not the only way to play, but it will show you the current content:
 - **Assayer's Office** (Room 4): Boarded up and reinforced, recently used as a base. East returns to Main Street.
 - **General Store** (Room 5): Mostly looted shelves. West returns to Main Street.
 - **The Desert Edge** (Room 6): The edge of town. The desert beyond is deadly without preparation. North returns to the Livery Stables.
+- **Sheriff's Office** (Room 7): A dusty office with a heavy desk and a locked gun box. East returns to Main Street; west leads to the Assayer's Office.
+- **Dry Wash** (Room 8): The first stretch of desert passages.
+- **Howling Desert** (Rooms 9-11): A wind-scoured maze of dunes where everything looks the same.
+- **Butte** (Room 12): A steep rise with a narrow climb.
+- **Hidden Stream** (Room 13): A cool stream beyond the butte.
+
+### ASCII Map
+
+```
+      [2] Telegraph Office
+              |
+[4] Assayer --[7] Sheriff --[1] Main Street --[5] General Store
+              |
+       [3] Livery Stables
+              |
+       [6] Desert Edge
+              |
+       [8] Dry Wash
+         /       \
+   [9] Howling  [11] Howling
+       Desert       Desert
+         \       /
+      [10] Howling
+           Desert
+              |
+           [12] Butte
+              |
+        [13] Hidden Stream
+```
 
 ### Items
 
@@ -125,6 +157,14 @@ This is not the only way to play, but it will show you the current content:
 - **CANTEEN** (General Store): An old, empty army canteen.
 - **PUMP** (Livery Stables): An iron water pump; not takeable.
 - **WIRE** (Telegraph Office): A spool of conductive copper wire.
+- **LEATHER** (General Store): A scrap of tough leather.
+- **MATCHES** (General Store): A small box of matches.
+- **BOX** (Sheriff's Office): A locked gun box.
+- **REVOLVER** (Sheriff's Office): A loaded .44 revolver (inside the gun box).
+- **HORSE** (Livery Stables): A skittish horse that needs a saddle.
+- **SADDLE** (General Store): A worn leather saddle.
+- **KEY** (Hidden Stream): A small brass key hidden under a rock.
+- **ROCK** (Hidden Stream): A flat rock hiding something underneath.
 
 ## World Data Format
 

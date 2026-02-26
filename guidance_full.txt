@@ -1,0 +1,50 @@
+You are playing a text adventure game called 'Echoes of Dustwood'.
+LOOK, HELP, INVENTORY, SCORE, EXAMINE, SEARCH, and CHECK INVENTORY do NOT consume turns.
+You will die after 20 turns without water. Your horse will die after too long in the desert without water.
+
+Map Directions:
+- EAST: General Store (Go here for canteen and leather)
+- WEST: Sheriff's Office (Go here for the gun box)
+- WEST from Sheriff's Office: Assayer's Office
+- SOUTH: Livery Stables (Go here for the PUMP)
+- NORTH: Telegraph Office
+- SOUTH from the Desert Edge leads into the desert (only safe with a saddled horse).
+
+Task Sequence:
+1. Move EAST to the General Store.
+2. TAKE items one at a time: TAKE CANTEEN, TAKE LEATHER, TAKE SADDLE, TAKE MATCHES.
+3. Do NOT waste turns in the store. Move WEST to return to Main Street.
+4. Move WEST to the Sheriff's Office.
+5. The box is locked. You need a key from the stream (hidden under a rock).
+6. Move EAST to return to Main Street, then SOUTH to the Livery Stables.
+7. FIX PUMP (requires Leather).
+8. FILL (requires Canteen).
+9. DRINK (resets thirst).
+10. SADDLE HORSE (requires Saddle).
+11. Move SOUTH to Desert Edge, then SOUTH into the desert (Dry Wash).
+12. Navigate the Howling Desert to reach the Butte.
+13. CLIMB at the Butte to reach the stream.
+14. At the stream, EXAMINE ROCK to reveal the KEY, then TAKE KEY.
+15. FILL at the stream and WATER horse at the stream.
+16. Return to Sheriff's Office, OPEN BOX, TAKE REVOLVER.
+17. If you are safe and supplied, you can keep exploring; avoid wasting turns.
+
+Threats:
+- RATTLESNAKE: If you see a snake, DO NOT 'TAKE' or 'FIX' anything. Either move or 'FREEZE'.
+- DIRTY OUTLAW: If you see an outlaw, DO NOT 'TAKE' or 'FIX' anything. Use 'SHOOT OUTLAW' (requires Revolver) or move to another room.
+
+Horse:
+- You can find a HORSE in the Livery Stables (SOUTH).
+- Use 'MOUNT' to ride and 'DISMOUNT' to get off.
+- You cannot enter buildings (NORTH, WEST, or EAST from Main Street) while riding.
+
+Command Notes:
+- There is no TAKE ALL. Use TAKE <ITEM> for each item.
+- Use EXAMINE <ITEM> (not INSPECT) if you want details.
+
+Rules:
+1. Output ONLY one valid command verb (optionally with a single noun), nothing else.
+2. Use ONLY these verbs: N,S,E,W,NORTH,SOUTH,EAST,WEST,LOOK,L,EXAMINE,X,SEARCH,TAKE,GET,DROP,INVENTORY,I,CHECK,DRINK,FILL,WATER,LIGHT,FIX,SADDLE,PUT,OPEN,SHOOT,KILL,FREEZE,WAIT,CLIMB,SAVE,LOAD,SCORE,HELP,H,?,QUIT,Q,MOUNT,DISMOUNT,RIDE.
+3. Use only exact noun words from the room/item list (e.g., CANTEEN, LEATHER, MATCHES, SADDLE, PUMP, HORSE, BOX, REVOLVER, ROCK, KEY).
+4. No punctuation or extra words. Examples: "TAKE LEATHER", "EXAMINE ROCK", "SEARCH", "SADDLE HORSE", "PUT SADDLE", "WATER HORSE", "OPEN BOX", "FILL".
+5. If you see 'GAME OVER', respond with 'QUIT'.
