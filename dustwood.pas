@@ -44,6 +44,20 @@ var
 
 { --- Custom Input --- }
 
+procedure WrapWriteLn(S: string);
+const MAX_WIDTH = 75;
+var SpacePos: Integer;
+begin
+  while Length(S) > MAX_WIDTH do begin
+    SpacePos := MAX_WIDTH + 1;
+    while (SpacePos > 1) and (S[SpacePos] <> ' ') do Dec(SpacePos);
+    if SpacePos = 1 then SpacePos := MAX_WIDTH;
+    WriteLn(Copy(S, 1, SpacePos - 1));
+    S := Trim(Copy(S, SpacePos, Length(S)));
+  end;
+  WriteLn(S);
+end;
+
 function CustomReadLn(Prompt: string): string;
 var Ch: Char; S: string; HistIdx: Integer;
 begin
@@ -66,6 +80,9 @@ begin
       end;
     end else if Ch = #8 then begin
       if Length(S) > 0 then begin Write(#8' '#8); Delete(S, Length(S), 1); end;
+    end else if Ch = #4 then begin
+      WriteLn('QUIT');
+      Result := 'QUIT'; Exit;
     end else if Ch = #13 then begin
       WriteLn;
       if (S <> '') and ((HistoryCount = 0) or (S <> History[(HistoryCount-1) mod MAX_HISTORY])) then begin
@@ -96,7 +113,7 @@ var i: Integer; FoundItems: Boolean;
 begin
   WriteLn;
   if IsDark then begin
-    WriteLn('It is pitch black. You are likely to be eaten by a grue... or at least trip over a cactus.');
+    WrapWriteLn('It is pitch black. You are likely to be eaten by a grue... or at least trip over a cactus.');
     Exit;
   end;
 
@@ -104,7 +121,7 @@ begin
   else if Turns >= TWILIGHT_TURN then WriteLn('[The sky is bruised purple, the sun sinking behind the peaks]');
 
   WriteLn('*** ', CurrentRoom^.Name, ' ***');
-  WriteLn(CurrentRoom^.Description);
+  WrapWriteLn(CurrentRoom^.Description);
   
   FoundItems := False;
   for i := 1 to MAX_ITEMS do
@@ -134,7 +151,7 @@ begin
     WriteLn('*** Your throat is parched. You need water soon. ***');
   
   if Thirst >= THIRST_LIMIT then begin
-    WriteLn('The desert has claimed you. Your strength fails, and you collapse into the dust.');
+    WrapWriteLn('The desert has claimed you. Your strength fails, and you collapse into the dust.');
     WriteLn('GAME OVER.');
     IsPlaying := False;
   end;
@@ -152,7 +169,7 @@ begin
   else begin
     Thirst := 0;
     HasWater := False;
-    WriteLn('The water is warm and tastes of tin, but it is the finest thing you''ve ever felt.');
+    WrapWriteLn('The water is warm and tastes of tin, but it is the finest thing you''ve ever felt.');
     WriteLn('Your thirst is quenched.');
   end;
 end;
@@ -176,7 +193,7 @@ begin
     WriteLn('You have nothing to light it with.')
   else begin
     IsLampLit := True;
-    WriteLn('You strike a match and light the lamp. A warm yellow glow pushes back the shadows.');
+    WrapWriteLn('You strike a match and light the lamp. A warm yellow glow pushes back the shadows.');
   end;
 end;
 
@@ -208,7 +225,7 @@ begin
   ItemID := FindItem(TargetNoun, INV_LOCATION);
   if ItemID = 0 then ItemID := FindItem(TargetNoun, CurrentRoom^.ID);
   if ItemID > 0 then begin
-    WriteLn(Items[ItemID].Details);
+    WrapWriteLn(Items[ItemID].Details);
     if (Items[ItemID].Name = 'BOOK') and (Items[5].Location = 0) then begin
       Items[5].Location := INV_LOCATION;
       WriteLn; WriteLn('Wait... a small folded note falls out of the book!');
@@ -217,6 +234,8 @@ begin
   else if TargetNoun = '' then Look
   else WriteLn('You don''t see that here.');
 end;
+
+
 
 procedure FixSomething(TargetNoun: string);
 begin
