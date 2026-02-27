@@ -4,8 +4,10 @@ If you see a threat, try to FREEZE or move away.
 - STICK TO THE VERB LIST. Do not attempt complex actions like 'SEARCH FOR WIRE' or 'SCATTER'.
 - ONCE YOU HAVE AN ITEM, MOVE ON. Do not keep searching for things you already have.
 - IF STUCK, try a different direction or 'LOOK' to refresh your surroundings.
+- Use 'SCORE' periodically to check your progress.
 - Use 'INVENTORY' to confirm what you are carrying.
 - LOOK, HELP, INVENTORY, and SCORE do NOT consume turns.
+- Do NOT use LOOK repeatedly; move to new rooms once you have checked for items.
 There is a horse in the stables. You need a saddle to ride into the desert.
 You can FILL your canteen and WATER your horse at a stream beyond a butte.
 A key is hidden under a rock at the stream.

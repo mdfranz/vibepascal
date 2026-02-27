@@ -101,7 +101,8 @@ class DustwoodGame:
                     # Use os.read for non-blocking feel with bufsize=0
                     chunk = os.read(key.fileobj.fileno(), 4096)
                     if not chunk:
-                        break
+                        # EOF reached! Return what we have.
+                        return buf.decode(errors='replace')
                     buf.extend(chunk)
                     if buf.endswith(self.prompt_bytes):
                         return buf.decode(errors='replace')
@@ -199,6 +200,19 @@ def sanitize_command(command: str) -> str:
     
     if cmd.startswith("INSPECT "): cmd = cmd.replace("INSPECT ", "EXAMINE ")
     if cmd == "INSPECT": cmd = "LOOK"
+
+    # Smart item mapping for common model hallucinations
+    if "WIRE" in cmd:
+        if "TAKE" in cmd: cmd = "TAKE WIRE"
+        if "EXAMINE" in cmd: cmd = "EXAMINE WIRE"
+    if "MAP" in cmd:
+        if "TAKE" in cmd: cmd = "TAKE MAP"
+        if "EXAMINE" in cmd: cmd = "EXAMINE MAP"
+    if "CANTEEN" in cmd:
+        if "TAKE" in cmd: cmd = "TAKE CANTEEN"
+    if "SADDLE" in cmd and "SADDLE HORSE" not in cmd:
+        if "TAKE" in cmd: cmd = "TAKE SADDLE"
+
     return cmd
 
 def is_valid_command(command: str) -> bool:
@@ -325,7 +339,15 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
                 f"Current Game Output:\n{trimmed_output}\n\n"
                 f"Last Command: {last_command or 'None'}\n\n"
                 f"TASK: Provide your next action as a {schema_desc}.\n"
-                "IMPORTANT: Output ONLY the JSON. No conversational text, no thought blocks, no markdown formatting."
+                "PERCEPTION GUIDE:\n"
+                "1. Narrative text is flavor. Focus on lines with icons:\n"
+                "   - 📦 'You see the following here:' lists interactable items.\n"
+                "   - 🚪 'Exits:' lists available movement directions.\n"
+                "   - 🐍 or 🤠 indicates immediate threats.\n"
+                "2. For 'TAKE', 'DROP', or 'EXAMINE', you MUST include the item name (e.g., 'TAKE CANTEEN').\n"
+                "3. SHORT NAMES: Use only the last word of an item description (e.g., for 'a spool of copper wire', use 'WIRE').\n"
+                "4. ONCE YOU HAVE AN ITEM, MOVE ON. Do not keep searching for it.\n"
+                "Output ONLY the JSON. No conversational text, no thought blocks, no markdown formatting."
             )
 
             choice = None
@@ -403,12 +425,33 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
             logger.info(f"GAME RESPONSE:\n{last_output.strip()}")
             last_output_sig = output_signature(last_output)
 
+            # --- Score Tracking ---
+            import re
+            score_match = re.search(r"🏆 Score:\s*(\d+)", last_output)
+            if score_match:
+                logger.info(f"🏆 [SCORE UPDATE]: {score_match.group(1)}")
+            # Also catch the final score if it's there
+            final_match = re.search(r"Final score:\s*(\d+)", last_output)
+            if final_match:
+                logger.info(f"🏆 [FINAL SCORE]: {final_match.group(1)}")
+
             if "GAME OVER" in last_output or "Final score" in last_output:
                 logger.info("\n--- Game Ended ---")
                 break
 
             time.sleep(delay)
     finally:
+        # One last read to capture final score if game ended
+        final_output = game._read_until_prompt(timeout=1.0)
+        import re
+        # Check for both regular score and final score at the end
+        score_match = re.search(r"🏆 Score:\s*(\d+)", final_output)
+        if score_match:
+            logger.info(f"🏆 [SCORE UPDATE]: {score_match.group(1)}")
+        final_match = re.search(r"Final score:\s*(\d+)", final_output)
+        if final_match:
+            logger.info(f"🏆 [FINAL SCORE]: {final_match.group(1)}")
+
         game.stop()
         logger.info("Strands AI session complete.")
 

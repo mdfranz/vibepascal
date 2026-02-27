@@ -11,8 +11,10 @@ Survival Hints:
 - STICK TO THE VERB LIST. Do not attempt complex actions like 'SEARCH FOR WIRE'.
 - ONCE YOU HAVE AN ITEM, MOVE ON. Use 'INVENTORY' to confirm what you have.
 - IF STUCK, try a different direction or 'LOOK' to refresh your surroundings.
+- Use 'SCORE' periodically (every 5-10 turns) to check your progress.
 - Watch your thirst; you only have about 25 turns.
 - LOOK, HELP, INVENTORY, and SCORE do NOT consume turns.
+- Do NOT use LOOK if you can already see everything in the room. Move to the next room immediately once you have what you need.
 - There is a horse in the Livery Stables. You need a saddle to ride into the desert.
 - The desert is a howling maze of dunes. Look for a butte and CLIMB to reach a stream.
 - You can FILL your canteen and WATER your horse at the stream.

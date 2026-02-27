@@ -4,6 +4,7 @@ You are playing a text adventure game called 'Echoes of Dustwood'.
 - Use 'INVENTORY' to confirm you have the required items.
 - IF STUCK, 'LOOK' or move to a different room.
 - LOOK, HELP, INVENTORY, SCORE, EXAMINE, SEARCH, and CHECK INVENTORY do NOT consume turns.
+- Use 'SCORE' periodically (every 5-10 turns) to check your progress.
 Do NOT use LOOK if the room description and items are already visible in the previous output. 
 Move efficiently: if you know the exits and have checked for items, move to the next room or perform your task immediately.
 Only use INVENTORY when you need to confirm you have a required item.
@@ -14,6 +15,7 @@ Never TAKE an item you already have in your inventory.
 Avoid using INVENTORY right after taking something unless you need to confirm a requirement.
 Only TAKE items that are visibly listed in the room's item list.
 Take the MAP as soon as you find it; it reveals exits in rooms.
+If you have done everything in a room, MOVE to the next room immediately. Don't linger.
 
 Map Directions:
 - EAST: General Store (Go here for canteen and leather)
