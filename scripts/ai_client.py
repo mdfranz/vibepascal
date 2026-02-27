@@ -173,11 +173,32 @@ def is_valid_command(command: str) -> bool:
     verb = command.split(" ", 1)[0]
     return verb in ALLOWED_VERBS
 
+def setup_ollama(model_name: str):
+    """Configures Ollama environment variables if needed."""
+    if model_name.startswith('ollama:'):
+        # Default to localhost if OLLAMA_HOST is not set
+        host = os.environ.get('OLLAMA_HOST', 'http://localhost:11434')
+        
+        # Ensure the protocol is present
+        if not host.startswith(('http://', 'https://')):
+            host = 'http://' + host
+        
+        base_url = host.rstrip('/')
+        if not base_url.endswith('/v1'):
+            base_url += '/v1'
+        
+        # Pydantic AI 1.x Ollama provider expects the base URL.
+        # If it uses the OpenAI compatibility layer internally, it often handles the /v1 path itself.
+        os.environ['OLLAMA_BASE_URL'] = base_url
+        logger.info(f"Ollama config: OLLAMA_BASE_URL set to {base_url}")
+
 def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
     """Main loop for the AI agent to play the game."""
     if not os.path.exists(guidance_file):
         logger.error(f"Guidance file not found: {guidance_file}")
         return
+
+    setup_ollama(model_name)
 
     with open(guidance_file, 'r') as f:
         system_instruction = f.read().strip()

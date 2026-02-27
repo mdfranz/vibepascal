@@ -276,7 +276,7 @@ begin
   WriteLn;
   WriteLn('Available Commands:');
   WriteLn('  🚶 N, S, E, W      - Move North, South, East, West');
-  WriteLn('  👀 LOOK (L)        - Look around');
+  WriteLn('  👀 LOOK [DIR]      - Look at the current room or peer in a direction');
   WriteLn('  🔍 EXAMINE (X)     - Look closely at an item');
   WriteLn('  🖐️  TAKE (GET)      - Pick up an item');
   WriteLn('  ✋  DROP            - Leave an item');
@@ -299,6 +299,22 @@ begin
   ConsumeTurn := False;
 end;
 
+procedure PeekDirection(var S: TGameState; const Direction: string);
+var
+  Target: PRoom;
+begin
+  Target := nil;
+  if (Direction = 'N') or (Direction = 'NORTH') then Target := S.CurrentRoom^.North
+  else if (Direction = 'S') or (Direction = 'SOUTH') then Target := S.CurrentRoom^.South
+  else if (Direction = 'E') or (Direction = 'EAST') then Target := S.CurrentRoom^.East
+  else if (Direction = 'W') or (Direction = 'WEST') then Target := S.CurrentRoom^.West;
+
+  if Target <> nil then
+    WriteLn('👀 You peer ', Direction, ' and see the ', Target^.Name, '.')
+  else
+    WriteLn('🏜️ There is nothing but desert to the ', Direction, '.');
+end;
+
 procedure ExamineItem(var S: TGameState; const TargetNoun: string; var ConsumeTurn: Boolean);
 var
   ItemID: Integer;
@@ -306,8 +322,16 @@ var
   NoteId: Integer;
   Noun: string;
 begin
-  Noun := TargetNoun;
-  if (Copy(UpperCase(Noun), 1, 3) = 'AT ') then Noun := Trim(Copy(Noun, 4, Length(Noun)));
+  Noun := UpperCase(Trim(TargetNoun));
+  if (Copy(Noun, 1, 3) = 'AT ') then Noun := Trim(Copy(Noun, 4, Length(Noun)));
+
+  if (Noun = 'N') or (Noun = 'NORTH') or (Noun = 'S') or (Noun = 'SOUTH') or
+     (Noun = 'E') or (Noun = 'EAST') or (Noun = 'W') or (Noun = 'WEST') then begin
+    PeekDirection(S, Noun);
+    ConsumeTurn := False;
+    Exit;
+  end;
+
   ItemID := FindItem(Noun, INV_LOCATION, S);
   if ItemID = 0 then ItemID := FindItem(Noun, S.CurrentRoom^.ID, S);
   if ItemID > 0 then begin

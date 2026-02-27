@@ -2,6 +2,8 @@ You are playing a text adventure game called 'Echoes of Dustwood'.
 You are in a deserted town and must survive.
 
 Survival Hints:
+- Finding the MAP is your first priority. Explore the town rooms (NORTH, SOUTH, EAST, WEST) until you find it.
+- Once you have the map, or if you begin to feel thirsty, head to the General Store for supplies.
 - Watch out for rattlesnakes. They are deadly if you disturb them. If you see one, move away or stay perfectly still (FREEZE).
 - You need water. The pump in the Livery Stables is broken.
 - You'll need a canteen to carry water and a leather scrap to fix the pump.

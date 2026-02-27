@@ -21,10 +21,11 @@ Map Directions:
 - SOUTH from the Desert Edge leads into the desert (only safe with a saddled horse).
 
 Task Sequence:
-1. Explore the town rooms (NORTH, SOUTH, EAST, WEST) until you find the MAP, then TAKE MAP. 
+1. PRIMARY GOAL: Explore the town rooms (NORTH, SOUTH, EAST, WEST) until you find the MAP, then TAKE MAP. 
+   - This is your top priority. Do not stop searching for the map unless you start to get thirsty.
    - If you have explored a room and it doesn't have the MAP, do not keep LOOKing there; move to a different room.
-1b. In the Telegraph Office, TAKE WIRE and FIX TELEGRAPH using the wire (optional but scores).
-2. Move back to Main Street, then EAST to the General Store.
+1b. While searching for the map: If you are in the Telegraph Office, TAKE WIRE and FIX TELEGRAPH using the wire (optional but scores).
+2. ONLY IF YOU ARE THIRSTY or have the MAP: Move to the General Store (EAST from Main Street).
 3. TAKE items one at a time: TAKE CANTEEN, TAKE LEATHER, TAKE SADDLE, TAKE MATCHES.
 3. Do NOT waste turns in the store. Move WEST to return to Main Street once you have the items.
 4. Move WEST to the Sheriff's Office.
