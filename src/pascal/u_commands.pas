@@ -357,7 +357,7 @@ var
   Noun: string;
 begin
   Noun := UpperCase(Trim(TargetNoun));
-  if (Noun <> '') and (Noun <> 'HORSE') then begin
+  if (Noun <> '') and (Noun <> 'HORSE') and (Noun <> 'MARE') then begin
     WriteLn('Water what?');
     Exit;
   end;
@@ -376,10 +376,11 @@ end;
 procedure SaddleHorse(var S: TGameState; const TargetNoun: string; var ConsumeTurn: Boolean);
 var
   HorseID: Integer;
+  SaddleID: Integer;
   Noun: string;
 begin
   Noun := UpperCase(Trim(TargetNoun));
-  if (Noun <> '') and (Noun <> 'HORSE') and (Noun <> 'ON HORSE') then begin
+  if (Noun <> '') and (Noun <> 'HORSE') and (Noun <> 'ON HORSE') and (Noun <> 'MARE') then begin
     WriteLn('Saddle what?');
     Exit;
   end;
@@ -388,7 +389,8 @@ begin
     WriteLn('There is no horse here.');
     Exit;
   end;
-  if FindItem('SADDLE', INV_LOCATION, S) = 0 then begin
+  SaddleID := FindItem('SADDLE', INV_LOCATION, S);
+  if SaddleID = 0 then begin
     WriteLn('You need a saddle.');
     Exit;
   end;
@@ -397,13 +399,22 @@ begin
     Exit;
   end;
   S.IsHorseSaddled := True;
+  S.Items[SaddleID].Location := 0;
   S.Items[HorseID].Description := 'a saddled horse';
   S.Items[HorseID].Details := 'A calm, saddle-ready horse. It looks steady and patient.';
   WriteLn('You secure the saddle onto the horse. It stands quietly.');
 end;
 
 procedure HandleMount(var S: TGameState; const Noun: string; var ConsumeTurn: Boolean);
+var
+  NounUpper: string;
 begin
+  NounUpper := UpperCase(Trim(Noun));
+  if (NounUpper <> '') and (NounUpper <> 'HORSE') and (NounUpper <> 'MARE') then begin
+    WriteLn('Mount what?');
+    Exit;
+  end;
+
   if S.IsRiding then WriteLn('You are already riding.')
   else if FindItem('HORSE', S.CurrentRoom^.ID, S) > 0 then begin
     if S.IsHorseSaddled then begin
@@ -417,7 +428,15 @@ begin
 end;
 
 procedure HandleDismount(var S: TGameState; const Noun: string; var ConsumeTurn: Boolean);
+var
+  NounUpper: string;
 begin
+  NounUpper := UpperCase(Trim(Noun));
+  if (NounUpper <> '') and (NounUpper <> 'HORSE') and (NounUpper <> 'MARE') then begin
+    WriteLn('Dismount what?');
+    Exit;
+  end;
+
   if not S.IsRiding then WriteLn('You aren''t riding anything.')
   else begin
     S.IsRiding := False;
