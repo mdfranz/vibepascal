@@ -101,7 +101,7 @@ begin
     if S.IsRiding then begin
       for i := 1 to MAX_ITEMS do
         if S.Items[i].Name = 'HORSE' then begin
-          S.Items[i].Location := S.CurrentRoom^.ID;
+          S.Items[i].Location := INV_LOCATION;
           Break;
         end;
     end;
@@ -126,6 +126,7 @@ procedure UpdateWorld(var S: TGameState);
 begin
   Inc(S.Turns);
   Inc(S.Thirst);
+  if (S.TempLightTurns > 0) and (not S.IsLampLit) then Dec(S.TempLightTurns);
   if S.IsHorseSaddled and IsDesertRoom(S.CurrentRoom^.ID) then Inc(S.HorseThirst);
   if (S.SnakeRoom > 0) and (Random(100) < 30) then S.SnakeRoom := 0;
   if S.Thirst > THIRST_LIMIT - 5 then begin
@@ -193,17 +194,20 @@ end;
 
 procedure LightLamp(var S: TGameState; const Noun: string; var ConsumeTurn: Boolean);
 begin
-  if FindItem('LAMP', INV_LOCATION, S) = 0 then
-    WriteLn('You don''t have a lamp.')
-  else if FindItem('MATCHES', INV_LOCATION, S) = 0 then
-    WriteLn('You have nothing to light it with.')
-  else begin
+  if (Noun <> '') and (UpperCase(Trim(Noun)) <> 'MATCH') and (UpperCase(Trim(Noun)) <> 'MATCHES') then begin
+    WriteLn('Light what?');
+    Exit;
+  end;
+  if FindItem('LAMP', INV_LOCATION, S) > 0 then begin
     S.IsLampLit := True;
     WrapWriteLn('🔦 You light the lamp. A yellow glow illuminates the room.');
     if not S.ScoredLampLight then begin
       S.ScoredLampLight := True;
       Inc(S.Score, SCORE_LAMP_LIGHT);
     end;
+  end else begin
+    S.TempLightTurns := 3;
+    WrapWriteLn('🔥 You strike a match. The room brightens for a moment.');
   end;
 end;
 
@@ -223,6 +227,7 @@ begin
   WriteLn('  🔦 LIGHT           - Light your lamp if you have matches');
   WriteLn('  🔧 FIX             - Repair something');
   WriteLn('  🏇 SADDLE          - Put a saddle on the horse');
+  WriteLn('  ❄️  FREEZE (WAIT)   - Stay still to avoid danger');
   WriteLn('  🧗 CLIMB           - Climb a steep obstacle');
   WriteLn('  💾 SAVE / LOAD     - Save or load your progress');
   WriteLn('  🏆 SCORE           - Show current score');
@@ -265,8 +270,11 @@ begin
 end;
 
 procedure FixSomething(var S: TGameState; const TargetNoun: string; var ConsumeTurn: Boolean);
+var
+  Noun: string;
 begin
-  if (UpperCase(TargetNoun) = 'PUMP') and (S.CurrentRoom^.ID = 3) then begin
+  Noun := UpperCase(Trim(TargetNoun));
+  if (Noun = 'PUMP') and (S.CurrentRoom^.ID = 3) then begin
     if FindItem('LEATHER', INV_LOCATION, S) > 0 then begin
       S.IsPumpFixed := True;
       WriteLn('You fix the pump. Water starts to flow.');
@@ -276,7 +284,22 @@ begin
         Inc(S.Score, SCORE_PUMP_FIX);
       end;
     end else
-      WriteLn('You need a gasket.');
+      WriteLn('You need leather.');
+  end else if ((Noun = 'WIRE') or (Noun = 'WIRES') or (Noun = 'TELEGRAPH')) and (S.CurrentRoom^.ID = 2) then begin
+    if S.IsTelegraphFixed then begin
+      WriteLn('The telegraph is already repaired.');
+    end else if FindItem('WIRE', INV_LOCATION, S) > 0 then begin
+      S.IsTelegraphFixed := True;
+      WriteLn('You splice the copper wire and restore the telegraph line.');
+      if S.RoomRegistry[2] <> nil then
+        S.RoomRegistry[2]^.Description := 'The telegraph has been repaired. The line hums faintly with life.';
+      if not S.ScoredTelegraphFix then begin
+        S.ScoredTelegraphFix := True;
+        Inc(S.Score, SCORE_TELEGRAPH_FIX);
+      end;
+      S.Items[4].Location := 0;
+    end else
+      WriteLn('You need copper wire.');
   end else
     WriteLn('Nothing to fix here.');
 end;
@@ -337,6 +360,7 @@ begin
   else if FindItem('HORSE', S.CurrentRoom^.ID, S) > 0 then begin
     if S.IsHorseSaddled then begin
       S.IsRiding := True;
+      S.Items[FindItem('HORSE', S.CurrentRoom^.ID, S)].Location := INV_LOCATION;
       WriteLn('You swing yourself into the saddle. You are now riding.');
     end else
       WriteLn('The horse needs a saddle before you can ride her.');
@@ -349,6 +373,8 @@ begin
   if not S.IsRiding then WriteLn('You aren''t riding anything.')
   else begin
     S.IsRiding := False;
+    if FindItem('HORSE', INV_LOCATION, S) > 0 then
+      S.Items[FindItem('HORSE', INV_LOCATION, S)].Location := S.CurrentRoom^.ID;
     WriteLn('You dismount and stand beside your horse.');
   end;
 end;
@@ -440,9 +466,19 @@ end;
 procedure HandleTake(var S: TGameState; const Noun: string; var ConsumeTurn: Boolean);
 var
   ItemId: Integer;
+  i: Integer;
+  CarryCount: Integer;
 begin
   ItemId := FindItem(Noun, S.CurrentRoom^.ID, S);
   if ItemId > 0 then begin
+    CarryCount := 0;
+    for i := 1 to MAX_ITEMS do
+      if (S.Items[i].Location = INV_LOCATION) and S.Items[i].IsTakeable then
+        Inc(CarryCount);
+    if CarryCount >= MAX_CARRY then begin
+      WriteLn('You can''t carry any more. Drop something first.');
+      Exit;
+    end;
     if not S.Items[ItemId].IsTakeable then begin
       if S.Items[ItemId].Name = 'PUMP' then
         WriteLn('The pump is fixed in place.')
@@ -540,7 +576,7 @@ var
   i: Integer;
   Handled: Boolean;
 const
-  Commands: array[1..28] of TCommandEntry = (
+  Commands: array[1..31] of TCommandEntry = (
     (Verb: 'N'; Handler: nil),
     (Verb: 'NORTH'; Handler: nil),
     (Verb: 'S'; Handler: nil),
@@ -559,6 +595,7 @@ const
     (Verb: 'H'; Handler: @ShowHelp),
     (Verb: 'INVENTORY'; Handler: @HandleInventory),
     (Verb: 'I'; Handler: @HandleInventory),
+    (Verb: 'INV'; Handler: @HandleInventory),
     (Verb: 'DRINK'; Handler: @Drink),
     (Verb: 'FILL'; Handler: @FillCanteen),
     (Verb: 'WATER'; Handler: @WaterHorse),
@@ -568,7 +605,9 @@ const
     (Verb: 'PUT'; Handler: @HandlePut),
     (Verb: 'CLIMB'; Handler: @HandleClimb),
     (Verb: 'SAVE'; Handler: @HandleSave),
-    (Verb: 'LOAD'; Handler: @HandleLoad)
+    (Verb: 'LOAD'; Handler: @HandleLoad),
+    (Verb: 'DROP'; Handler: @HandleDrop),
+    (Verb: 'D'; Handler: @HandleDrop)
   );
 begin
   SplitCommand(Cmd, Verb, Noun);

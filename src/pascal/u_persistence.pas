@@ -27,6 +27,8 @@ begin
     Ini.WriteBool('State', 'HasWater', S.HasWater);
     Ini.WriteBool('State', 'IsHorseSaddled', S.IsHorseSaddled);
     Ini.WriteBool('State', 'IsRiding', S.IsRiding);
+    Ini.WriteBool('State', 'IsTelegraphFixed', S.IsTelegraphFixed);
+    Ini.WriteInteger('State', 'TempLightTurns', S.TempLightTurns);
     Ini.WriteInteger('State', 'Thirst', S.Thirst);
     Ini.WriteInteger('State', 'HorseThirst', S.HorseThirst);
     Ini.WriteInteger('State', 'Turns', S.Turns);
@@ -48,6 +50,7 @@ begin
     Ini.WriteBool('ScoreFlags', 'ScoredFirstFill', S.ScoredFirstFill);
     Ini.WriteBool('ScoreFlags', 'ScoredLampLight', S.ScoredLampLight);
     Ini.WriteBool('ScoreFlags', 'ScoredBoxOpen', S.ScoredBoxOpen);
+    Ini.WriteBool('ScoreFlags', 'ScoredTelegraphFix', S.ScoredTelegraphFix);
     Ini.WriteBool('ScoreFlags', 'ScoredOutlawKill', S.ScoredOutlawKill);
     Ini.WriteBool('ScoreFlags', 'ScoredNoteFound', S.ScoredNoteFound);
     WriteLn('💾 Game saved.');
@@ -77,6 +80,8 @@ begin
     S.HasWater := Ini.ReadBool('State', 'HasWater', False);
     S.IsHorseSaddled := Ini.ReadBool('State', 'IsHorseSaddled', False);
     S.IsRiding := Ini.ReadBool('State', 'IsRiding', False);
+    S.IsTelegraphFixed := Ini.ReadBool('State', 'IsTelegraphFixed', False);
+    S.TempLightTurns := Ini.ReadInteger('State', 'TempLightTurns', 0);
     S.Thirst := Ini.ReadInteger('State', 'Thirst', 0);
     S.HorseThirst := Ini.ReadInteger('State', 'HorseThirst', 0);
     S.Turns := Ini.ReadInteger('State', 'Turns', 0);
@@ -100,8 +105,11 @@ begin
     S.ScoredFirstFill := Ini.ReadBool('ScoreFlags', 'ScoredFirstFill', False);
     S.ScoredLampLight := Ini.ReadBool('ScoreFlags', 'ScoredLampLight', False);
     S.ScoredBoxOpen := Ini.ReadBool('ScoreFlags', 'ScoredBoxOpen', False);
+    S.ScoredTelegraphFix := Ini.ReadBool('ScoreFlags', 'ScoredTelegraphFix', False);
     S.ScoredOutlawKill := Ini.ReadBool('ScoreFlags', 'ScoredOutlawKill', False);
     S.ScoredNoteFound := Ini.ReadBool('ScoreFlags', 'ScoredNoteFound', False);
+    if S.IsTelegraphFixed and (S.RoomRegistry[2] <> nil) then
+      S.RoomRegistry[2]^.Description := 'The telegraph has been repaired. The line hums faintly with life.';
     WriteLn('📂 Game loaded.');
     Look(S);
   finally

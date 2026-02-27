@@ -18,6 +18,8 @@ type
     HasWater: Boolean;
     IsHeadless: Boolean;
     IsBoxOpen: Boolean;
+    IsTelegraphFixed: Boolean;
+    TempLightTurns: Integer;
     IsHorseSaddled: Boolean;
     IsRiding: Boolean;
     SnakeRoom: Integer;
@@ -32,6 +34,7 @@ type
     ScoredFirstFill: Boolean;
     ScoredLampLight: Boolean;
     ScoredBoxOpen: Boolean;
+    ScoredTelegraphFix: Boolean;
     ScoredOutlawKill: Boolean;
     ScoredNoteFound: Boolean;
     History: array[0..MAX_HISTORY] of string;
@@ -61,6 +64,8 @@ begin
   S.HasWater := False;
   S.IsHeadless := False;
   S.IsBoxOpen := False;
+  S.IsTelegraphFixed := False;
+  S.TempLightTurns := 0;
   S.IsHorseSaddled := False;
   S.IsRiding := False;
   S.SnakeRoom := 0;
@@ -75,6 +80,7 @@ begin
   S.ScoredFirstFill := False;
   S.ScoredLampLight := False;
   S.ScoredBoxOpen := False;
+  S.ScoredTelegraphFix := False;
   S.ScoredOutlawKill := False;
   S.ScoredNoteFound := False;
   for i := 0 to MAX_HISTORY do S.History[i] := '';

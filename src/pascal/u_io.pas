@@ -45,7 +45,7 @@ end;
 
 function IsDark(const S: TGameState): Boolean;
 begin
-  Result := (S.Turns >= DARK_TURN) and not S.IsLampLit;
+  Result := (S.Turns >= DARK_TURN) and not S.IsLampLit and (S.TempLightTurns = 0);
 end;
 
 function CustomReadLn(var S: TGameState; const Prompt: string): string;
