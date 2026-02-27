@@ -1,11 +1,13 @@
 FPC ?= fpc
+PYTHON ?= python
 SRC_DIR := src/pascal
 SRC := $(SRC_DIR)/dustwood.pas
 BIN_DIR := bin
 BIN := $(BIN_DIR)/dustwood
 BUILD_DIR := build
+TEST_DIR := tests
 
-.PHONY: all build run clean clean-obj
+.PHONY: all build run test clean clean-obj
 
 all: build
 
@@ -18,8 +20,13 @@ $(BIN): $(SRC)
 run: $(BIN)
 	./$(BIN)
 
+test:
+	$(PYTHON) -m pytest -q $(TEST_DIR)
+
 clean: clean-obj
 	$(RM) $(BIN)
+	$(RM) -r .pytest_cache
+	find . -type d -name "__pycache__" -prune -exec $(RM) -r {} +
 
 clean-obj:
 	$(RM) $(BUILD_DIR)/*.o $(BUILD_DIR)/*.ppu

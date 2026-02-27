@@ -12,16 +12,8 @@ def send_command(command: str):
         response.raise_for_status()
         data = response.json()
         
-        # Extract the response output
         output = data.get("output", "")
-        # Parsing for cleaner display
-        if "> Game loaded." in output:
-            parts = output.split("> Game loaded.")
-            content = parts[1].split("> Game saved.")[0].strip()
-            # Clean up the extra look output that LOAD always prints
-            print(content)
-        else:
-            print(output)
+        print(output)
             
     except Exception as e:
         print(f"Error: {e}")

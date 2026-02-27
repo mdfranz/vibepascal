@@ -28,12 +28,12 @@ The game features automatic word-wrapping for long descriptions and a custom inp
 
 ## Architecture
 
-Echoes of Dustwood uses a **Stateless Sidecar** architecture to bridge a legacy-style CLI game with modern AI agents and REST interfaces.
+Echoes of Dustwood uses a **Persistent Sidecar** architecture to bridge a legacy-style CLI game with modern AI agents and REST interfaces.
 
 ### Component Overview
 
 - **Pascal Engine (`bin/dustwood`):** The core game logic. Written in modular Free Pascal, it features a `--headless` mode for non-interactive I/O via `stdin/stdout`.
-- **Sidecar API (`scripts/sidecar.py`):** A FastAPI wrapper that exposes the game as a REST service. It manages state by spawning a fresh Pascal process for every turn, using `LOAD` and `SAVE` commands to persist state to `data/save.ini`.
+- **Sidecar API (`scripts/sidecar.py`):** A FastAPI wrapper that exposes the game as a REST service. It manages state by keeping a single headless Pascal process alive and streaming commands to it. Optional `/save`, `/load`, and `/reset` endpoints provide explicit persistence and clean starts.
 - **AI Client (`scripts/ai_client.py`):** A `pydantic-ai` agent that "plays" the game. It interprets game output and selects the next command based on external guidance files.
 - **Orchestrator (`scripts/ai-game.sh`):** A shell script that manages the lifecycle of the sidecar and the AI agent.
 
@@ -45,6 +45,7 @@ Echoes of Dustwood uses a **Stateless Sidecar** architecture to bridge a legacy-
 ├── data/               # Configuration and state (world.ini, save.ini)
 ├── logs/               # Sidecar and AI client logs
 ├── scripts/            # Python sidecar, AI agents, and runners
+├── tests/              # Pytest end-to-end tests for the sidecar
 └── src/
     └── pascal/         # Modular Free Pascal source code
         ├── dustwood.pas      # Main entry point
@@ -92,6 +93,22 @@ This produces `bin/dustwood`.
 
 ```bash
 ./bin/dustwood
+```
+
+## AI Models (Pydantic AI)
+
+The AI client uses Pydantic AI model strings. For Anthropic, set `ANTHROPIC_API_KEY` and pass an Anthropic model string, for example:
+
+```bash
+export ANTHROPIC_API_KEY="your-api-key"
+./scripts/ai-game.sh medium anthropic:claude-sonnet-4-6 5
+```
+
+If you use Pydantic AI Gateway, set `PYDANTIC_AI_GATEWAY_API_KEY` and prefix with `gateway/`:
+
+```bash
+export PYDANTIC_AI_GATEWAY_API_KEY="paig_..."
+./scripts/ai-game.sh medium gateway/anthropic:claude-sonnet-4-6 5
 ```
 
 ## Commands

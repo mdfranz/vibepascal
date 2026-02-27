@@ -443,6 +443,19 @@ var
 begin
   ItemId := FindItem(Noun, S.CurrentRoom^.ID, S);
   if ItemId > 0 then begin
+    if not S.Items[ItemId].IsTakeable then begin
+      if S.Items[ItemId].Name = 'PUMP' then
+        WriteLn('The pump is fixed in place.')
+      else if S.Items[ItemId].Name = 'HORSE' then
+        WriteLn('It''s too big to carry.')
+      else if S.Items[ItemId].Name = 'BOX' then
+        WriteLn('It''s bolted down.')
+      else if S.Items[ItemId].Name = 'ROCK' then
+        WriteLn('It''s too heavy to carry.')
+      else
+        WriteLn('You can''t take that.');
+      Exit;
+    end;
     S.Items[ItemId].Location := INV_LOCATION;
     WriteLn('🎒 Taken: ', S.Items[ItemId].Description, '.');
     if not S.ItemScored[ItemId] then begin

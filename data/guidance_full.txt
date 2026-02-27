@@ -1,6 +1,6 @@
 You are playing a text adventure game called 'Echoes of Dustwood'.
 LOOK, HELP, INVENTORY, SCORE, EXAMINE, SEARCH, and CHECK INVENTORY do NOT consume turns.
-You will die after 20 turns without water. Your horse will die after too long in the desert without water.
+You will die after 50 turns without water. Your horse will die after too long in the desert without water.
 
 Map Directions:
 - EAST: General Store (Go here for canteen and leather)

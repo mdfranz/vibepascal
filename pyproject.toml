@@ -10,6 +10,7 @@ dependencies = [
     "python-dotenv>=1.2.1",
     "fastapi>=0.133.1",
     "uvicorn>=0.41.0",
+    "pytest>=8.0.0",
 ]
 
 [build-system]
