@@ -179,19 +179,19 @@ This is not the only way to play, but it will show you the current content:
 
 ```mermaid
 graph TD
-  R1["1 Main Street"] --> R2["2 Telegraph Office"]
-  R1 --> R3["3 Livery Stables"]
-  R1 --> R5["5 General Store"]
-  R1 --> R7["7 Sheriff's Office"]
-  R7 --> R4["4 Assayer's Office"]
-  R3 --> R6["6 Desert Edge"]
-  R6 --> R8["8 Dry Wash"]
-  R8 --> R9["9 Howling Desert"]
-  R8 --> R11["11 Howling Desert"]
-  R9 --> R10["10 Howling Desert"]
-  R11 --> R10
-  R10 --> R12["12 Butte"]
-  R12 --> R13["13 Hidden Stream"]
+  R1["1 Main Street"] -- N --> R2["2 Telegraph Office"]
+  R1 -- S --> R3["3 Livery Stables"]
+  R1 -- E --> R5["5 General Store"]
+  R1 -- W --> R7["7 Sheriff's Office"]
+  R7 -- W --> R4["4 Assayer's Office"]
+  R3 -- S --> R6["6 Desert Edge"]
+  R6 -- S --> R8["8 Dry Wash"]
+  R8 -- S --> R9["9 Howling Desert"]
+  R8 -- E --> R11["11 Howling Desert"]
+  R9 -- S --> R10["10 Howling Desert"]
+  R11 -- W --> R10
+  R10 -- S --> R12["12 Butte"]
+  R12 -- S --> R13["13 Hidden Stream"]
 ```
 
 ### Items
