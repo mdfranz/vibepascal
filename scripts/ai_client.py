@@ -25,6 +25,12 @@ MESSAGE_HISTORY_LIMIT = 4
 REASONING_ENV_VAR = "AI_REASONING"
 LOOP_REPEAT_LIMIT = 2
 EXPLORE_COMMANDS = ["LOOK", "NORTH", "EAST", "SOUTH", "WEST"]
+OUTLAW_SAFE_COMMANDS = {
+    "SHOOT", "KILL", "WAIT",
+    "NORTH", "SOUTH", "EAST", "WEST",
+    "LOOK", "L", "INVENTORY", "I",
+    "DISMOUNT", "MOUNT",
+}
 
 # --- Setup Logging ---
 logger = logging.getLogger(__name__)
@@ -212,6 +218,8 @@ def sanitize_command(command: str) -> str:
     if "DRINK WATER" in cmd: cmd = "DRINK"
     if "FILL CANTEEN" in cmd: cmd = "FILL"
     if "WATER HORSE" in cmd: cmd = "WATER"
+    if "UNLOCK" in cmd: cmd = "OPEN BOX"
+    if "FORCE" in cmd: cmd = "EXAMINE BOX"
     
     # Smart item mapping for common model hallucinations
     if "WIRE" in cmd:
@@ -226,6 +234,26 @@ def sanitize_command(command: str) -> str:
         if "TAKE" in cmd: cmd = "TAKE SADDLE"
     
     return cmd
+
+def extract_command_from_raw(raw_text: str) -> tuple[str, Optional[str]]:
+    """Extracts command (and optional reasoning) from raw model output."""
+    import re
+    import json
+
+    reasoning = None
+    json_matches = list(re.finditer(r'\{.*\}', raw_text, re.DOTALL))
+    if json_matches:
+        json_str = json_matches[-1].group()
+        try:
+            data = json.loads(json_str)
+            if isinstance(data, dict):
+                if "reasoning" in data:
+                    reasoning = str(data.get("reasoning", "")).strip()
+                if "command" in data:
+                    return sanitize_command(str(data["command"])), reasoning
+        except Exception:
+            pass
+    return sanitize_command(raw_text), reasoning
 
 def is_valid_command(command: str) -> bool:
     """Verifies if the command starts with a valid verb."""
@@ -295,20 +323,31 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
     output_model = CommandResponse if reasoning_enabled else CommandOnlyResponse
     example_json = '{"command": "LOOK", "reasoning": "Gather current room details."}' if reasoning_enabled else '{"command": "LOOK"}'
 
-    agent = Agent(
-        model_name,
-        deps_type=GameDeps,
-        output_type=output_model,
-        output_retries=3,  # Set retries here for self-correction
-        system_prompt=(
-            f"{system_instruction}\n\n"
-            "You are an expert adventurer. Provide your next action as a single command.\n"
-            "CRITICAL: Use ONLY the valid verbs listed below. Do NOT attempt complex phrases or actions not in this list.\n"
-            "Valid verbs: " + ", ".join(sorted(ALLOWED_VERBS)) + ".\n"
-            "Return JSON only. No extra text.\n"
-            f"Example JSON: {example_json}"
-        )
+    use_raw_json = model_name.startswith('ollama')
+
+    system_prompt = (
+        f"{system_instruction}\n\n"
+        "You are an expert adventurer. Provide your next action as a single command.\n"
+        "CRITICAL: Use ONLY the valid verbs listed below. Do NOT attempt complex phrases or actions not in this list.\n"
+        "Valid verbs: " + ", ".join(sorted(ALLOWED_VERBS)) + ".\n"
+        "Return JSON only. No extra text.\n"
+        f"Example JSON: {example_json}"
     )
+
+    if use_raw_json:
+        agent = Agent(
+            model_name,
+            deps_type=GameDeps,
+            system_prompt=system_prompt
+        )
+    else:
+        agent = Agent(
+            model_name,
+            deps_type=GameDeps,
+            output_type=output_model,
+            output_retries=3,  # Set retries here for self-correction
+            system_prompt=system_prompt
+        )
 
     logger.info(f"--- AI Player starting (Model: {model_name}) ---")
     
@@ -324,6 +363,9 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
     last_output_sig = ""
     repeat_count = 0
     explore_index = 0
+    last_invalid_command = ""
+    invalid_repeat_count = 0
+    last_score_update_turn = 0
 
     # Advanced State Tracking
     inventory = []
@@ -398,6 +440,25 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
                 last_error = "ERROR: Your inventory is FULL. You must DROP something before taking more."
             else:
                 last_error = ""
+            
+            # Track invalid actions to prevent loops
+            invalid_action = any(
+                phrase in last_output
+                for phrase in [
+                    "Not here.",
+                    "You can't take that.",
+                    "You don't see that here.",
+                    "You cannot go that way.",
+                ]
+            )
+            if invalid_action and last_command:
+                if last_command == last_invalid_command:
+                    invalid_repeat_count += 1
+                else:
+                    invalid_repeat_count = 1
+                    last_invalid_command = last_command
+            else:
+                invalid_repeat_count = 0
 
             logger.info(f"\n--- Turn {turns} ---")
             
@@ -429,6 +490,8 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
             
             if last_error:
                 context += f"\n### IMPORTANT CORRECTION:\n{last_error}\n"
+            elif len(inventory) >= 5:
+                context += "\n### STRATEGY HINT:\nYour inventory is FULL (5/5). You cannot take new items. Consider dropping a non-essential item like the BOOK or NOTE if you need space for survival gear.\n"
 
             context += (
                 f"\nTASK: Provide your next action as a {schema_desc}.\n"
@@ -450,10 +513,16 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
                     deps=deps,
                     message_history=message_history
                 )
-                choice = result.output
-                command = sanitize_command(choice.command)
-                if reasoning_enabled and hasattr(choice, "reasoning"):
-                    logger.info(f"AI THINKING: {choice.reasoning}")
+                if use_raw_json:
+                    raw_text = str(result.output)
+                    command, extracted_reasoning = extract_command_from_raw(raw_text)
+                    if reasoning_enabled and extracted_reasoning:
+                        logger.info(f"AI THINKING: {extracted_reasoning}")
+                else:
+                    choice = result.output
+                    command = sanitize_command(choice.command)
+                    if reasoning_enabled and hasattr(choice, "reasoning"):
+                        logger.info(f"AI THINKING: {choice.reasoning}")
                 message_history = result.new_messages()[-MESSAGE_HISTORY_LIMIT:]
             except Exception as e:
                 logger.warning(f"Agent failed to provide structured output: {e}. Attempting robust fallback...")
@@ -461,25 +530,10 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
                     # Fallback to simple string if structured fails
                     fallback_agent = Agent(model_name, instructions=system_instruction)
                     raw_result = fallback_agent.run_sync(f"{context}\n\nProvide the JSON object ONLY. No thinking, no intro text.")
-                    # In pydantic-ai, result data is in .output
                     raw_text = str(raw_result.output)
-                    
-                    # Robust extraction logic for JSON blocks
-                    import re
-                    # Look for the last { } block in case it thought first
-                    json_matches = list(re.finditer(r'\{.*\}', raw_text, re.DOTALL))
-                    if json_matches:
-                        json_str = json_matches[-1].group()
-                        import json
-                        try:
-                            data = json.loads(json_str)
-                            command = sanitize_command(data.get("command", "LOOK"))
-                            if reasoning_enabled and "reasoning" in data:
-                                logger.info(f"AI THINKING (extracted): {data['reasoning']}")
-                        except:
-                            command = sanitize_command(json_str)
-                    else:
-                        command = sanitize_command(raw_text)
+                    command, extracted_reasoning = extract_command_from_raw(raw_text)
+                    if reasoning_enabled and extracted_reasoning:
+                        logger.info(f"AI THINKING (extracted): {extracted_reasoning}")
                 except Exception as e2:
                     logger.error(f"Fallback also failed: {e2}")
                     command = "LOOK"
@@ -502,6 +556,30 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
                 )
                 command = forced_command
                 repeat_count = 0
+            
+            # Invalid-action loop breaker
+            if invalid_repeat_count >= 2:
+                forced_command, explore_index = next_explore_command(last_command, explore_index)
+                logger.warning(
+                    f"Repeated invalid action '{last_invalid_command}'. Forcing exploration: {forced_command}"
+                )
+                command = forced_command
+                invalid_repeat_count = 0
+
+            # Outlaw safety rule
+            outlaw_present = "DIRTY OUTLAW" in last_output
+            if outlaw_present and command not in OUTLAW_SAFE_COMMANDS:
+                logger.warning(f"Outlaw present. Overriding unsafe action '{command}' with WAIT.")
+                command = "WAIT"
+
+            # Late-game stall: avoid wasting turns on LOOK/SEARCH
+            if turns >= max_turns - 5 and (turns - last_score_update_turn) >= 5:
+                if command in {"LOOK", "SEARCH"}:
+                    forced_command, explore_index = next_explore_command(last_command, explore_index)
+                    logger.warning(
+                        f"Late-game stall detected. Forcing exploration: {forced_command}"
+                    )
+                    command = forced_command
 
             logger.info(f"AI COMMAND: {command}")
             last_command = command
@@ -521,10 +599,12 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
             score_match = re.search(r"🏆 Score:\s*(\d+)", last_output)
             if score_match:
                 logger.info(f"🏆 [SCORE UPDATE]: {score_match.group(1)}")
+                last_score_update_turn = turns
             # Also catch the final score if it's there
             final_match = re.search(r"Final score:\s*(\d+)", last_output)
             if final_match:
                 logger.info(f"🏆 [FINAL SCORE]: {final_match.group(1)}")
+                last_score_update_turn = turns
 
             if "GAME OVER" in last_output or "Final score" in last_output:
                 logger.info("\n--- Game Ended ---")

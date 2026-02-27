@@ -17,6 +17,22 @@ Only TAKE items that are visibly listed in the room's item list.
 Take the MAP as soon as you find it; it reveals exits in rooms.
 If you have done everything in a room, MOVE to the next room immediately. Don't linger.
 
+Inventory Management:
+- Your inventory is limited to 5 items (including the book/note). 
+- If your inventory is full (5/5), you MUST 'DROP' an item before you can 'TAKE' something else.
+- ESSENTIAL ITEMS: MAP, CANTEEN, LEATHER, SADDLE, MATCHES, KEY, REVOLVER.
+- DISPOSABLE ITEMS (Points only): BOOK, NOTE, WIRE (after fixing telegraph), PAGE.
+- If you need space, always 'DROP BOOK' or 'DROP NOTE' first.
+- Use 'INVENTORY' to see what you are carrying.
+
+Fixed Items:
+- Some items (like the 'torn ledger page' or 'rusted iron water pump') are bolted down or fixed in place.
+- If 'TAKE' fails with 'You can't take that', do NOT try to take it again. Use 'EXAMINE' to read or inspect it.
+
+Puzzle Notes:
+- The locked gun box requires a specific KEY. You cannot 'UNLOCK' it with wire, 'FORCE' it, or 'OPEN' it without the key.
+- Once you find the KEY at the stream, return to the Sheriff's Office to 'OPEN BOX'.
+
 Map Directions:
 - EAST: General Store (Go here for canteen and leather)
 - WEST: Sheriff's Office (Go here for the gun box)

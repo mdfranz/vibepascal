@@ -29,6 +29,12 @@ MESSAGE_HISTORY_LIMIT = 4
 REASONING_ENV_VAR = "AI_REASONING"
 LOOP_REPEAT_LIMIT = 2
 EXPLORE_COMMANDS = ["LOOK", "NORTH", "EAST", "SOUTH", "WEST"]
+OUTLAW_SAFE_COMMANDS = {
+    "SHOOT", "KILL", "WAIT",
+    "NORTH", "SOUTH", "EAST", "WEST",
+    "LOOK", "L", "INVENTORY", "I",
+    "DISMOUNT", "MOUNT",
+}
 
 # --- Setup Logging ---
 logger = logging.getLogger(__name__)
@@ -211,6 +217,8 @@ def sanitize_command(command: str) -> str:
     if "DRINK WATER" in cmd: cmd = "DRINK"
     if "FILL CANTEEN" in cmd: cmd = "FILL"
     if "WATER HORSE" in cmd: cmd = "WATER"
+    if "UNLOCK" in cmd: cmd = "OPEN BOX"
+    if "FORCE" in cmd: cmd = "EXAMINE BOX"
 
     # Smart item mapping for common model hallucinations
     if "WIRE" in cmd:
@@ -337,6 +345,9 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
     last_output_sig = ""
     repeat_count = 0
     explore_index = 0
+    last_invalid_command = ""
+    invalid_repeat_count = 0
+    last_score_update_turn = 0
 
     # Advanced State Tracking
     inventory = []
@@ -411,6 +422,25 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
                 last_error = "ERROR: Your inventory is FULL. You must DROP something before taking more."
             else:
                 last_error = ""
+            
+            # Track invalid actions to prevent loops
+            invalid_action = any(
+                phrase in last_output
+                for phrase in [
+                    "Not here.",
+                    "You can't take that.",
+                    "You don't see that here.",
+                    "You cannot go that way.",
+                ]
+            )
+            if invalid_action and last_command:
+                if last_command == last_invalid_command:
+                    invalid_repeat_count += 1
+                else:
+                    invalid_repeat_count = 1
+                    last_invalid_command = last_command
+            else:
+                invalid_repeat_count = 0
 
             logger.info(f"\n--- Turn {turns} ---")
             
@@ -441,6 +471,8 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
             
             if last_error:
                 context += f"\n### IMPORTANT CORRECTION:\n{last_error}\n"
+            elif len(inventory) >= 5:
+                context += "\n### STRATEGY HINT:\nYour inventory is FULL (5/5). You cannot take new items. Consider dropping a non-essential item like the BOOK or NOTE if you need space for survival gear.\n"
 
             context += (
                 f"\nTASK: Provide your next action as a {schema_desc}.\n"
@@ -518,6 +550,30 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
                 )
                 command = forced_command
                 repeat_count = 0
+            
+            # Invalid-action loop breaker
+            if invalid_repeat_count >= 2:
+                forced_command, explore_index = next_explore_command(last_command, explore_index)
+                logger.warning(
+                    f"Repeated invalid action '{last_invalid_command}'. Forcing exploration: {forced_command}"
+                )
+                command = forced_command
+                invalid_repeat_count = 0
+
+            # Outlaw safety rule
+            outlaw_present = "DIRTY OUTLAW" in last_output
+            if outlaw_present and command not in OUTLAW_SAFE_COMMANDS:
+                logger.warning(f"Outlaw present. Overriding unsafe action '{command}' with WAIT.")
+                command = "WAIT"
+
+            # Late-game stall: avoid wasting turns on LOOK/SEARCH
+            if turns >= max_turns - 5 and (turns - last_score_update_turn) >= 5:
+                if command in {"LOOK", "SEARCH"}:
+                    forced_command, explore_index = next_explore_command(last_command, explore_index)
+                    logger.warning(
+                        f"Late-game stall detected. Forcing exploration: {forced_command}"
+                    )
+                    command = forced_command
 
             logger.info(f"AI COMMAND: {command}")
             last_command = command
@@ -537,10 +593,12 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
             score_match = re.search(r"🏆 Score:\s*(\d+)", last_output)
             if score_match:
                 logger.info(f"🏆 [SCORE UPDATE]: {score_match.group(1)}")
+                last_score_update_turn = turns
             # Also catch the final score if it's there
             final_match = re.search(r"Final score:\s*(\d+)", last_output)
             if final_match:
                 logger.info(f"🏆 [FINAL SCORE]: {final_match.group(1)}")
+                last_score_update_turn = turns
 
             if "GAME OVER" in last_output or "Final score" in last_output:
                 logger.info("\n--- Game Ended ---")
