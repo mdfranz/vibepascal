@@ -134,6 +134,10 @@ export PYDANTIC_AI_GATEWAY_API_KEY="paig_..."
 
 - **Thirst:** You must find water. If your thirst reaches its limit, the game ends.
 - **Time:** The sun sinks as you move. At twilight and night, visibility changes. You may need a light source to see in the dark.
+- **Turns:** You have a maximum of 50 turns before the game ends.
+- **Inventory Limit:** You can carry at most 5 items.
+- **Canteen Capacity:** A full canteen provides 3 drinks.
+- **Light:** `LIGHT` works without a lamp; it briefly illuminates the room for a few turns.
 
 ## Objective
 
@@ -200,13 +204,14 @@ This is not the only way to play, but it will show you the current content:
 - **BOOK** (Inventory at start): A worn copy of *Plutarch's Lives* with a folded note.
 - **CANTEEN** (General Store): An old, empty army canteen.
 - **PUMP** (Livery Stables): An iron water pump; not takeable.
-- **WIRE** (Telegraph Office): A spool of conductive copper wire.
+- **WIRE** (Telegraph Office): A spool of conductive copper wire. Can be used to fix the telegraph.
 - **LEATHER** (General Store): A scrap of tough leather.
 - **MATCHES** (General Store): A small box of matches.
 - **BOX** (Sheriff's Office): A locked gun box.
 - **REVOLVER** (Sheriff's Office): A loaded .44 revolver (inside the gun box).
 - **HORSE** (Livery Stables): A skittish horse that needs a saddle.
 - **SADDLE** (General Store): A worn leather saddle.
+- **MAP** (Random town room): A faded map that reveals exits in rooms.
 - **KEY** (Hidden Stream): A small brass key hidden under a rock.
 - **ROCK** (Hidden Stream): A flat rock hiding something underneath.
 
