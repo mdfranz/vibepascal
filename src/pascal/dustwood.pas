@@ -18,7 +18,7 @@ begin
   WriteLn('Options:');
   WriteLn('  -h, --h, --help Show this help message');
   WriteLn('  --headless      Run in headless mode');
-  WriteLn('  --turns <n>     Set the turn limit (default: 50)');
+  WriteLn('  --turns <n>     Set the turn limit (default: 25)');
   WriteLn('  --seed <n>      Set the random seed');
   Halt(0);
 end;

@@ -109,7 +109,7 @@ This produces `bin/dustwood`.
 
 - `-h`, `--h`, `--help`: Show the help message.
 - `--headless`: Run in headless mode (for AI agents or scripts).
-- `--turns <n>`: Set the maximum number of turns (default: 50).
+- `--turns <n>`: Set the maximum number of turns (default: 25).
 - `--seed <n>`: Set the random seed for deterministic gameplay.
 
 ## AI Models
@@ -170,7 +170,7 @@ Uses the Pydantic AI framework.
 
 - **Thirst:** You must find water. If your thirst reaches its limit, the game ends.
 - **Time:** The sun sinks as you move. At twilight and night, visibility changes. You may need a light source to see in the dark.
-- **Turns:** You have a maximum of 50 turns before the game ends.
+- **Turns:** You have a maximum of 25 turns before the game ends.
 - **Inventory Limit:** You can carry at most 5 items.
 - **Canteen Capacity:** A full canteen provides 3 drinks before it empties.
 - **Light:** `LIGHT` works without a lamp; it briefly illuminates the room for a few turns.

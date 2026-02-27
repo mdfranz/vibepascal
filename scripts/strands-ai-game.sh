@@ -26,7 +26,7 @@ if [[ $# -eq 0 || "$1" == "--help" || "$1" == "-h" ]]; then
     echo "  difficulty    full, medium, minimal (default: full)"
     echo "  model         LiteLLM model string (default: gemini/gemini-3-flash-preview)"
     echo "  delay         Seconds to wait between turns (default: 1)"
-    echo "  max_turns     Maximum turns before stopping (default: 50)"
+    echo "  max_turns     Maximum turns before stopping (default: 25)"
     echo ""
     echo "Examples:"
     echo "  ./scripts/strands-ai-game.sh full                        # Run with full help and Gemini 3"
@@ -38,7 +38,7 @@ fi
 LEVEL=${1:-full}
 MODEL=${2:-gemini/gemini-3-flash-preview}
 DELAY=${3:-1}
-MAX_TURNS=${4:-50}
+MAX_TURNS=${4:-25}
 
 echo "--- Starting Strands AI Player (Level: $LEVEL, Model: $MODEL, Delay: ${DELAY}s) ---"
 # Run the Strands AI client

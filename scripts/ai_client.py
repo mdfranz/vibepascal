@@ -16,7 +16,9 @@ load_dotenv()
 # --- Configuration ---
 BINARY_PATH = "bin/dustwood"
 DEFAULT_MODEL: KnownModelName = "google-gla:gemini-3-flash-preview"
-LOG_FILE = "logs/ai_client.log"
+# Create a unique log file for each session
+EPOCH = int(time.time())
+LOG_FILE = f"logs/ai_client-{EPOCH}.log"
 TURN_DELAY = 1
 MAX_OUTPUT_CHARS = 2000
 MESSAGE_HISTORY_LIMIT = 4
@@ -163,14 +165,39 @@ ALLOWED_VERBS = {
 }
 
 def sanitize_command(command: str) -> str:
-    """Cleans up the command string from the AI."""
-    cmd = command.strip().upper()
-    # Remove common prefixes/suffixes or punctuation that AI might add
-    for ch in [".", ",", "!", "?", ";", ":", "`"]:
+    """Cleans up the command string from the AI, handling raw JSON or thinking blocks."""
+    cmd = command.strip()
+    
+    # Handle thinking blocks
+    if "<thought>" in cmd:
+        cmd = cmd.split("</thought>")[-1].strip()
+    
+    # Check if the output is the whole JSON or a fragment
+    if "{" in cmd:
+        import re
+        # Try to find "command": "VALUE"
+        match = re.search(r'"command"\s*:\s*"([^"]+)"', cmd, re.IGNORECASE)
+        if match:
+            cmd = match.group(1)
+        else:
+            # Maybe it's unquoted? command: VALUE
+            match = re.search(r'command\s*:\s*([^,\}\n]+)', cmd, re.IGNORECASE)
+            if match:
+                cmd = match.group(1).strip().strip('"').strip("'")
+            else:
+                # Last resort for JSON: just find the first string value
+                match = re.search(r':\s*"([^"]+)"', cmd)
+                if match:
+                    cmd = match.group(1)
+
+    cmd = cmd.upper()
+    # Remove all common punctuation that isn't part of a command
+    for ch in [".", ",", "!", "?", ";", ":", "`", "(", ")", "[", "]", "{", "}", "\"", "'"]:
         cmd = cmd.replace(ch, "")
-    # Take only the first line if it leaked multiple lines
+    
+    # Take only the first line
     cmd = cmd.split("\n")[0].strip()
-    # Handle common synonyms
+    
     if cmd.startswith("INSPECT "): cmd = cmd.replace("INSPECT ", "EXAMINE ")
     if cmd == "INSPECT": cmd = "LOOK"
     return cmd
@@ -242,10 +269,12 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
         model_name,
         deps_type=GameDeps,
         output_type=output_model,
-        instructions=(
+        output_retries=3,  # Set retries here for self-correction
+        system_prompt=(
             f"{system_instruction}\n\n"
             "You are an expert adventurer. Provide your next action as a single command.\n"
-            "Valid verbs include: " + ", ".join(sorted(ALLOWED_VERBS)) + ".\n"
+            "CRITICAL: Use ONLY the valid verbs listed below. Do NOT attempt complex phrases or actions not in this list.\n"
+            "Valid verbs: " + ", ".join(sorted(ALLOWED_VERBS)) + ".\n"
             "Return JSON only. No extra text.\n"
             f"Example JSON: {example_json}"
         )
@@ -272,10 +301,19 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
             
             # Prepare context for the agent
             trimmed_output = trim_output(last_output)
+            
+            # Create a very explicit schema description for the model
+            if reasoning_enabled:
+                schema_desc = "JSON object with keys: 'command' (string) and 'reasoning' (string)"
+            else:
+                schema_desc = "JSON object with key: 'command' (string)"
+
             context = (
                 f"Current Game Output:\n{trimmed_output}\n\n"
                 f"Last Command: {last_command or 'None'}\n\n"
-                "Return JSON only."
+                f"TASK: Provide your next action as a {schema_desc}.\n"
+                "IMPORTANT: For 'TAKE', 'DROP', or 'EXAMINE', you MUST include the item name (e.g., 'TAKE CANTEEN').\n"
+                "Output ONLY the JSON. No conversational text, no thought blocks."
             )
 
             # Use retry logic for robustness against model hallucinations
@@ -291,11 +329,33 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
                     logger.info(f"AI THINKING: {choice.reasoning}")
                 message_history = result.new_messages()[-MESSAGE_HISTORY_LIMIT:]
             except Exception as e:
-                logger.warning(f"Agent failed to provide structured output: {e}. Attempting fallback...")
-                # Fallback to simple string if structured fails
-                fallback_agent = Agent(model_name, instructions=system_instruction)
-                result = fallback_agent.run_sync(f"The previous output was:\n{trimmed_output}\n\nGive me ONE command.")
-                command = sanitize_command(result.output)
+                logger.warning(f"Agent failed to provide structured output: {e}. Attempting robust fallback...")
+                try:
+                    # Fallback to simple string if structured fails
+                    fallback_agent = Agent(model_name, instructions=system_instruction)
+                    raw_result = fallback_agent.run_sync(f"{context}\n\nProvide the JSON object ONLY. No thinking, no intro text.")
+                    # In pydantic-ai, result data is in .output
+                    raw_text = str(raw_result.output)
+                    
+                    # Robust extraction logic for JSON blocks
+                    import re
+                    # Look for the last { } block in case it thought first
+                    json_matches = list(re.finditer(r'\{.*\}', raw_text, re.DOTALL))
+                    if json_matches:
+                        json_str = json_matches[-1].group()
+                        import json
+                        try:
+                            data = json.loads(json_str)
+                            command = sanitize_command(data.get("command", "LOOK"))
+                            if reasoning_enabled and "reasoning" in data:
+                                logger.info(f"AI THINKING (extracted): {data['reasoning']}")
+                        except:
+                            command = sanitize_command(json_str)
+                    else:
+                        command = sanitize_command(raw_text)
+                except Exception as e2:
+                    logger.error(f"Fallback also failed: {e2}")
+                    command = "LOOK"
 
             if not is_valid_command(command):
                 logger.warning(f"Invalid command generated: '{command}'. Defaulting to 'LOOK'.")
@@ -340,7 +400,7 @@ if __name__ == "__main__":
     level = sys.argv[1] if len(sys.argv) > 1 else "full"
     model = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_MODEL
     delay = int(sys.argv[3]) if len(sys.argv) > 3 else TURN_DELAY
-    max_turns = int(sys.argv[4]) if len(sys.argv) > 4 else 50
+    max_turns = int(sys.argv[4]) if len(sys.argv) > 4 else 25
     
     guidance_map = {
         "full": "data/guidance_full.txt",

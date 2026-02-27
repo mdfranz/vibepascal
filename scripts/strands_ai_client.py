@@ -20,7 +20,9 @@ load_dotenv()
 BINARY_PATH = "bin/dustwood"
 # Map Pydantic AI style model names to LiteLLM style
 DEFAULT_MODEL_ID = "gemini/gemini-3-flash-preview" 
-LOG_FILE = "logs/strands_ai_client.log"
+# Create a unique log file for each session
+EPOCH = int(time.time())
+LOG_FILE = f"logs/strands_ai_client-{EPOCH}.log"
 TURN_DELAY = 1
 MAX_OUTPUT_CHARS = 2000
 MESSAGE_HISTORY_LIMIT = 4
@@ -284,7 +286,8 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
         system_prompt=(
             f"{system_instruction}\n\n"
             "You are an expert adventurer. Provide your next action as a single command.\n"
-            "Valid verbs include: " + ", ".join(sorted(ALLOWED_VERBS)) + ".\n"
+            "CRITICAL: Use ONLY the valid verbs listed below. Do NOT attempt complex phrases or actions not in this list.\n"
+            "Valid verbs: " + ", ".join(sorted(ALLOWED_VERBS)) + ".\n"
             "IMPORTANT: Your final response MUST be a valid JSON object. "
             "Do NOT include <thought> blocks or any text outside the JSON object.\n"
             f"Example JSON: {example_json}"
@@ -333,6 +336,7 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
                         # Call agent without structured_output_model to avoid forced tool calls
                         # This allows reasoning models to "think" if they must, 
                         # and then we extract the JSON ourselves.
+                        # AgentResult can be cast to string to get content
                         result = agent(context)
                         raw_text = str(result)
                         
@@ -412,7 +416,7 @@ if __name__ == "__main__":
     level = sys.argv[1] if len(sys.argv) > 1 else "full"
     model = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_MODEL_ID
     delay = int(sys.argv[3]) if len(sys.argv) > 3 else TURN_DELAY
-    max_turns = int(sys.argv[4]) if len(sys.argv) > 4 else 50
+    max_turns = int(sys.argv[4]) if len(sys.argv) > 4 else 25
     
     guidance_map = {
         "full": "data/guidance_full.txt",

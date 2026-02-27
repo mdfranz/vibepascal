@@ -8,7 +8,10 @@ Survival Hints:
 - You need water. The pump in the Livery Stables is broken.
 - You'll need a canteen to carry water and a leather scrap to fix the pump.
 - The General Store usually has supplies.
-- Watch your thirst; you only have about 50 turns.
+- STICK TO THE VERB LIST. Do not attempt complex actions like 'SEARCH FOR WIRE'.
+- ONCE YOU HAVE AN ITEM, MOVE ON. Use 'INVENTORY' to confirm what you have.
+- IF STUCK, try a different direction or 'LOOK' to refresh your surroundings.
+- Watch your thirst; you only have about 25 turns.
 - LOOK, HELP, INVENTORY, and SCORE do NOT consume turns.
 - There is a horse in the Livery Stables. You need a saddle to ride into the desert.
 - The desert is a howling maze of dunes. Look for a butte and CLIMB to reach a stream.

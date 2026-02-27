@@ -31,8 +31,9 @@ Reasoning models (like `cogito:14b` or `deepseek-r1`) often fail when forced int
 *   **Pydantic AI** handles this well through mature provider integrations that know when to wait for the final tool call.
 *   **Strands** (by default) uses LiteLLM's tool-calling abstraction, which can be brittle with local reasoning models. 
 *   **Our Solution**: In `strands_ai_client.py`, we bypassed the "Forced Tool Call" in favor of a **Manual JSON Mode**. This allows the model to "think" as much as it wants, and our script surgically extracts the JSON command from the raw output.
+*   **Test Result (cogito:14b)**: In head-to-head testing, the Strands client completed 25 turns error-free, while the Pydantic client suffered from multiple `400 Bad Request` errors due to tool-call format conflicts.
 
-## 3. Sanitization & Sanitization
+## 3. Sanitization & Robustness
 
 The game engine is sensitive to command formatting (e.g., `TAKE CANTEEN.` vs `TAKE CANTEEN`).
 

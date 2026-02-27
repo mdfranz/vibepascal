@@ -1,9 +1,13 @@
 You are playing a text adventure game called 'Echoes of Dustwood'.
-LOOK, HELP, INVENTORY, SCORE, EXAMINE, SEARCH, and CHECK INVENTORY do NOT consume turns.
+- CRITICAL: STICK TO THE VERB LIST. Use only simple commands like 'TAKE WIRE' or 'FIX PUMP'.
+- ONCE YOU HAVE AN ITEM, MOVE ON to the next task.
+- Use 'INVENTORY' to confirm you have the required items.
+- IF STUCK, 'LOOK' or move to a different room.
+- LOOK, HELP, INVENTORY, SCORE, EXAMINE, SEARCH, and CHECK INVENTORY do NOT consume turns.
 Do NOT use LOOK if the room description and items are already visible in the previous output. 
 Move efficiently: if you know the exits and have checked for items, move to the next room or perform your task immediately.
 Only use INVENTORY when you need to confirm you have a required item.
-You will die after 50 turns without water. Your horse will die after too long in the desert without water.
+You will die after 25 turns without water. Your horse will die after too long in the desert without water.
 When you enter a new room for the first time, use LOOK to see the exits so you can plan your movement.
 If you already took an item, do NOT try to TAKE it again. Move on.
 Never TAKE an item you already have in your inventory.
