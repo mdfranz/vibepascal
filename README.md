@@ -102,8 +102,15 @@ This produces `bin/dustwood`.
 ## Run
 
 ```bash
-./bin/dustwood
+./bin/dustwood [options]
 ```
+
+### Options
+
+- `-h`, `--h`, `--help`: Show the help message.
+- `--headless`: Run in headless mode (for AI agents or scripts).
+- `--turns <n>`: Set the maximum number of turns (default: 50).
+- `--seed <n>`: Set the random seed for deterministic gameplay.
 
 ## AI Models (Pydantic AI)
 
