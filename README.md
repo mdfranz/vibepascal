@@ -122,7 +122,9 @@ export PYDANTIC_AI_GATEWAY_API_KEY="paig_..."
 - `DRINK` to quench your thirst if your canteen has water
 - `FILL` to refill your canteen at a water source
 - `WATER` to water your horse at a water source
-- `LIGHT` to light your lamp (requires matches)
+- `LIGHT` to create light (lamp if you have one, otherwise a brief match-light)
+- `BURN <ITEM>` to burn flammable items (requires matches)
+- `FIRE` to start a fire in certain rooms (requires matches)
 - `FIX <ITEM>` to repair something in the room
 - `SADDLE` to saddle the horse in the stables
 - `CLIMB` to climb a steep obstacle
@@ -136,8 +138,9 @@ export PYDANTIC_AI_GATEWAY_API_KEY="paig_..."
 - **Time:** The sun sinks as you move. At twilight and night, visibility changes. You may need a light source to see in the dark.
 - **Turns:** You have a maximum of 50 turns before the game ends.
 - **Inventory Limit:** You can carry at most 5 items.
-- **Canteen Capacity:** A full canteen provides 3 drinks.
+- **Canteen Capacity:** A full canteen provides 3 drinks before it empties.
 - **Light:** `LIGHT` works without a lamp; it briefly illuminates the room for a few turns.
+- **Fire:** You can start fires in certain rooms; after 3 turns, items left there are destroyed.
 
 ## Objective
 
