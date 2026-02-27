@@ -18,6 +18,11 @@ BINARY_PATH = "bin/dustwood"
 DEFAULT_MODEL: KnownModelName = "google-gla:gemini-3-flash-preview"
 LOG_FILE = "logs/ai_client.log"
 TURN_DELAY = 1
+MAX_OUTPUT_CHARS = 2000
+MESSAGE_HISTORY_LIMIT = 4
+REASONING_ENV_VAR = "AI_REASONING"
+LOOP_REPEAT_LIMIT = 2
+EXPLORE_COMMANDS = ["LOOK", "NORTH", "EAST", "SOUTH", "WEST"]
 
 # --- Setup Logging ---
 logger = logging.getLogger(__name__)
@@ -134,6 +139,10 @@ class CommandResponse(BaseModel):
     command: str = Field(..., description="A single valid game command (e.g., 'NORTH', 'TAKE CANTEEN', 'LOOK')")
     reasoning: str = Field(..., description="Brief explanation of why this command was chosen")
 
+class CommandOnlyResponse(BaseModel):
+    """Structured response format without reasoning to reduce tokens."""
+    command: str = Field(..., description="A single valid game command (e.g., 'NORTH', 'TAKE CANTEEN', 'LOOK')")
+
 class GameDeps:
     """Dependencies for the Pydantic AI agent."""
     def __init__(self, game: DustwoodGame):
@@ -173,6 +182,25 @@ def is_valid_command(command: str) -> bool:
     verb = command.split(" ", 1)[0]
     return verb in ALLOWED_VERBS
 
+def trim_output(text: str, max_chars: int = MAX_OUTPUT_CHARS) -> str:
+    """Trims long game output to keep prompts compact."""
+    if len(text) <= max_chars:
+        return text
+    # Keep the most recent portion
+    return text[-max_chars:]
+
+def output_signature(text: str) -> str:
+    """Normalizes output to detect repeated non-progress states."""
+    return " ".join(text.strip().split()).lower()
+
+def next_explore_command(last_command: str, explore_index: int) -> tuple[str, int]:
+    """Selects a simple exploratory command to break loops."""
+    for i in range(len(EXPLORE_COMMANDS)):
+        idx = (explore_index + i) % len(EXPLORE_COMMANDS)
+        cmd = EXPLORE_COMMANDS[idx]
+        if cmd != last_command:
+            return cmd, idx + 1
+    return "LOOK", explore_index + 1
 def setup_ollama(model_name: str):
     """Configures Ollama environment variables if needed."""
     if model_name.startswith('ollama:'):
@@ -206,15 +234,20 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
     game = DustwoodGame()
     deps = GameDeps(game)
     
+    reasoning_enabled = os.environ.get(REASONING_ENV_VAR, "0") not in {"0", "false", "False"}
+    output_model = CommandResponse if reasoning_enabled else CommandOnlyResponse
+    example_json = '{"command": "LOOK", "reasoning": "Gather current room details."}' if reasoning_enabled else '{"command": "LOOK"}'
+
     agent = Agent(
         model_name,
         deps_type=GameDeps,
-        output_type=CommandResponse,
+        output_type=output_model,
         instructions=(
             f"{system_instruction}\n\n"
-            "You are an expert adventurer. Provide your next action as a single command. "
+            "You are an expert adventurer. Provide your next action as a single command.\n"
             "Valid verbs include: " + ", ".join(sorted(ALLOWED_VERBS)) + ".\n"
-            "Always respond in the specified JSON format."
+            "Return JSON only. No extra text.\n"
+            f"Example JSON: {example_json}"
         )
     )
 
@@ -229,15 +262,21 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
     turns = 0
     message_history = []
     last_command = ""
+    last_output_sig = ""
+    repeat_count = 0
+    explore_index = 0
     try:
         while turns < max_turns:
             turns += 1
             logger.info(f"\n--- Turn {turns} ---")
             
             # Prepare context for the agent
-            context = f"Current Game Output:\n{last_output}\n\nWhat is your next move?"
-            if last_command:
-                context = f"Your last command was '{last_command}'.\n\n" + context
+            trimmed_output = trim_output(last_output)
+            context = (
+                f"Current Game Output:\n{trimmed_output}\n\n"
+                f"Last Command: {last_command or 'None'}\n\n"
+                "Return JSON only."
+            )
 
             # Use retry logic for robustness against model hallucinations
             try:
@@ -248,24 +287,34 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
                 )
                 choice = result.output
                 command = sanitize_command(choice.command)
-                logger.info(f"AI THINKING: {choice.reasoning}")
-                message_history = result.new_messages()
+                if reasoning_enabled and hasattr(choice, "reasoning"):
+                    logger.info(f"AI THINKING: {choice.reasoning}")
+                message_history = result.new_messages()[-MESSAGE_HISTORY_LIMIT:]
             except Exception as e:
                 logger.warning(f"Agent failed to provide structured output: {e}. Attempting fallback...")
                 # Fallback to simple string if structured fails
                 fallback_agent = Agent(model_name, instructions=system_instruction)
-                result = fallback_agent.run_sync(f"The previous output was:\n{last_output}\n\nGive me ONE command.")
+                result = fallback_agent.run_sync(f"The previous output was:\n{trimmed_output}\n\nGive me ONE command.")
                 command = sanitize_command(result.output)
 
             if not is_valid_command(command):
                 logger.warning(f"Invalid command generated: '{command}'. Defaulting to 'LOOK'.")
                 command = "LOOK"
             
-            # Simple loop detection
-            if command == last_command and "🤷" in last_output:
-                logger.warning(f"Command '{command}' repeated but failed. Forcing exploration.")
-                # We don't force it here, but we could add a system message to the history
-                pass
+            # Simple loop detection: repeated command with identical output
+            current_sig = output_signature(last_output)
+            if command == last_command and current_sig == last_output_sig:
+                repeat_count += 1
+            else:
+                repeat_count = 0
+
+            if repeat_count >= LOOP_REPEAT_LIMIT:
+                forced_command, explore_index = next_explore_command(last_command, explore_index)
+                logger.warning(
+                    f"Detected loop on '{command}' with unchanged output. Forcing exploration: {forced_command}"
+                )
+                command = forced_command
+                repeat_count = 0
 
             logger.info(f"AI COMMAND: {command}")
             last_command = command
@@ -276,6 +325,7 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
 
             last_output = game.send_command(command)
             logger.info(f"GAME RESPONSE:\n{last_output.strip()}")
+            last_output_sig = output_signature(last_output)
 
             if "GAME OVER" in last_output or "Final score" in last_output:
                 logger.info("\n--- Game Ended ---")
