@@ -124,6 +124,10 @@ begin
     Exit;
   end;
 
+  if S.RoomBurning[S.CurrentRoom^.ID] > 0 then begin
+    WriteLn('🔥 The room is lit by a growing fire.');
+  end;
+
   if S.Turns >= DARK_TURN then WriteLn('🌕 [The moon hangs in the black sky]')
   else if S.Turns >= TWILIGHT_TURN then WriteLn('🌇 [The sky is purple as the sun sets]');
 

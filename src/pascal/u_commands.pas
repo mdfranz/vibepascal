@@ -123,11 +123,32 @@ begin
 end;
 
 procedure UpdateWorld(var S: TGameState);
+var
+  i: Integer;
 begin
   Inc(S.Turns);
   Inc(S.Thirst);
   if (S.TempLightTurns > 0) and (not S.IsLampLit) then Dec(S.TempLightTurns);
   if S.IsHorseSaddled and IsDesertRoom(S.CurrentRoom^.ID) then Inc(S.HorseThirst);
+  for i := 1 to MAX_ITEMS do
+    if S.Items[i].Location > 0 then
+      if S.RoomBurning[S.Items[i].Location] = 0 then
+        continue
+      else if S.RoomBurning[S.Items[i].Location] > 1 then
+        continue
+      else begin
+        S.Items[i].Location := 0;
+        WriteLn('🔥 The fire destroys ', S.Items[i].Description, '.');
+      end;
+
+  for i := 1 to MAX_ROOMS do
+    if S.RoomBurning[i] > 0 then
+      Dec(S.RoomBurning[i]);
+
+  if (S.SnakeRoom > 0) and (S.RoomBurning[S.SnakeRoom] > 0) then begin
+    S.SnakeRoom := 0;
+    WriteLn('🔥 The fire drives away the rattlesnake.');
+  end;
   if (S.SnakeRoom > 0) and (Random(100) < 30) then S.SnakeRoom := 0;
   if S.Thirst > THIRST_LIMIT - 5 then begin
     WriteLn;
@@ -231,6 +252,8 @@ begin
   WriteLn('  🔧 FIX             - Repair something');
   WriteLn('  🏇 SADDLE          - Put a saddle on the horse');
   WriteLn('  ❄️  FREEZE (WAIT)   - Stay still to avoid danger');
+  WriteLn('  🔥 BURN            - Burn a flammable item (requires matches)');
+  WriteLn('  🔥 FIRE            - Start a fire in certain rooms (requires matches)');
   WriteLn('  🧗 CLIMB           - Climb a steep obstacle');
   WriteLn('  💾 SAVE / LOAD     - Save or load your progress');
   WriteLn('  🏆 SCORE           - Show current score');
@@ -533,6 +556,59 @@ begin
     WriteLn('You aren''t carrying that.');
 end;
 
+procedure HandleBurn(var S: TGameState; const Noun: string; var ConsumeTurn: Boolean);
+var
+  ItemId: Integer;
+  Target: string;
+begin
+  Target := UpperCase(Trim(Noun));
+  if Target = '' then begin
+    WriteLn('Burn what?');
+    Exit;
+  end;
+  if FindItem('MATCHES', INV_LOCATION, S) = 0 then begin
+    WriteLn('You have nothing to burn it with.');
+    Exit;
+  end;
+  ItemId := FindItem(Target, INV_LOCATION, S);
+  if ItemId = 0 then
+    ItemId := FindItem(Target, S.CurrentRoom^.ID, S);
+  if ItemId = 0 then begin
+    WriteLn('You don''t see that here.');
+    Exit;
+  end;
+  if (S.Items[ItemId].Name <> 'BOOK') and (S.Items[ItemId].Name <> 'LEDGER') and
+     (S.Items[ItemId].Name <> 'LEATHER') and (S.Items[ItemId].Name <> 'MAP') and
+     (S.Items[ItemId].Name <> 'SADDLE') then begin
+    WriteLn('It doesn''t burn.');
+    Exit;
+  end;
+  S.Items[ItemId].Location := 0;
+  WriteLn('You burn it to ash.');
+end;
+
+procedure HandleFire(var S: TGameState; const Noun: string; var ConsumeTurn: Boolean);
+begin
+  if FindItem('MATCHES', INV_LOCATION, S) = 0 then begin
+    WriteLn('You have nothing to start a fire with.');
+    Exit;
+  end;
+  if (S.CurrentRoom^.ID <> 2) and (S.CurrentRoom^.ID <> 3) and (S.CurrentRoom^.ID <> 5) then begin
+    WriteLn('There is nothing here that will catch fire.');
+    Exit;
+  end;
+  if S.RoomBurning[S.CurrentRoom^.ID] > 0 then begin
+    WriteLn('A fire is already burning here.');
+    Exit;
+  end;
+  S.RoomBurning[S.CurrentRoom^.ID] := 3;
+  WriteLn('🔥 You start a fire. The room glows with heat.');
+  if S.SnakeRoom = S.CurrentRoom^.ID then begin
+    S.SnakeRoom := 0;
+    WriteLn('🔥 The rattlesnake recoils from the flames and disappears.');
+  end;
+end;
+
 function CheckHazards(var S: TGameState; const Verb: string): Boolean;
 begin
   Result := True;
@@ -579,7 +655,7 @@ var
   i: Integer;
   Handled: Boolean;
 const
-  Commands: array[1..31] of TCommandEntry = (
+  Commands: array[1..33] of TCommandEntry = (
     (Verb: 'N'; Handler: nil),
     (Verb: 'NORTH'; Handler: nil),
     (Verb: 'S'; Handler: nil),
@@ -610,7 +686,9 @@ const
     (Verb: 'SAVE'; Handler: @HandleSave),
     (Verb: 'LOAD'; Handler: @HandleLoad),
     (Verb: 'DROP'; Handler: @HandleDrop),
-    (Verb: 'D'; Handler: @HandleDrop)
+    (Verb: 'D'; Handler: @HandleDrop),
+    (Verb: 'BURN'; Handler: @HandleBurn),
+    (Verb: 'FIRE'; Handler: @HandleFire)
   );
 begin
   SplitCommand(Cmd, Verb, Noun);

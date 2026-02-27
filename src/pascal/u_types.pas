@@ -6,7 +6,7 @@ interface
 
 const
   MAX_ROOMS = 20;
-  MAX_ITEMS = 20;
+  MAX_ITEMS = 24;
   INV_LOCATION = -1;
   MAX_HISTORY = 10;
   MAX_CARRY = 5;

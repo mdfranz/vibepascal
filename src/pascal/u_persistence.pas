@@ -17,7 +17,7 @@ var
   Ini: TIniFile;
   i: Integer;
   Section: string;
-  RoomsStr, ItemsStr: string;
+  RoomsStr, ItemsStr, BurningStr: string;
 begin
   Ini := TIniFile.Create(Path);
   try
@@ -42,10 +42,17 @@ begin
     RoomsStr := '';
     for i := 1 to MAX_ROOMS do
       if S.RoomVisited[i] then RoomsStr := RoomsStr + '1' else RoomsStr := RoomsStr + '0';
+    BurningStr := '';
+    for i := 1 to MAX_ROOMS do begin
+      if S.RoomBurning[i] < 0 then BurningStr := BurningStr + '9'
+      else if S.RoomBurning[i] > 9 then BurningStr := BurningStr + '9'
+      else BurningStr := BurningStr + Chr(Ord('0') + S.RoomBurning[i]);
+    end;
     ItemsStr := '';
     for i := 1 to MAX_ITEMS do
       if S.ItemScored[i] then ItemsStr := ItemsStr + '1' else ItemsStr := ItemsStr + '0';
     Ini.WriteString('ScoreFlags', 'RoomVisited', RoomsStr);
+    Ini.WriteString('State', 'RoomBurning', BurningStr);
     Ini.WriteString('ScoreFlags', 'ItemScored', ItemsStr);
     Ini.WriteBool('ScoreFlags', 'ScoredPumpFix', S.ScoredPumpFix);
     Ini.WriteBool('ScoreFlags', 'ScoredFirstFill', S.ScoredFirstFill);
@@ -66,7 +73,7 @@ var
   i: Integer;
   Section: string;
   RoomID: Integer;
-  RoomsStr, ItemsStr: string;
+  RoomsStr, ItemsStr, BurningStr: string;
 begin
   if not FileExists(Path) then begin
     WriteLn('No save file found.');
@@ -98,6 +105,13 @@ begin
     RoomsStr := Ini.ReadString('ScoreFlags', 'RoomVisited', '');
     for i := 1 to MAX_ROOMS do begin
       if (Length(RoomsStr) >= i) and (RoomsStr[i] = '1') then S.RoomVisited[i] := True else S.RoomVisited[i] := False;
+    end;
+    BurningStr := Ini.ReadString('State', 'RoomBurning', '');
+    for i := 1 to MAX_ROOMS do begin
+      if (Length(BurningStr) >= i) and (BurningStr[i] >= '0') and (BurningStr[i] <= '9') then
+        S.RoomBurning[i] := Ord(BurningStr[i]) - Ord('0')
+      else
+        S.RoomBurning[i] := 0;
     end;
     ItemsStr := Ini.ReadString('ScoreFlags', 'ItemScored', '');
     for i := 1 to MAX_ITEMS do begin

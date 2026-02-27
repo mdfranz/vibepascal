@@ -209,6 +209,7 @@ graph TD
 - **MAP** (Random town room): A faded map that reveals exits in rooms.
 - **KEY** (Hidden Stream): A small brass key hidden under a rock.
 - **ROCK** (Hidden Stream): A flat rock hiding something underneath.
+- **LEDGER** (Assayer's Office): A torn ledger page with a clue about the key.
 
 ## World Data Format
 

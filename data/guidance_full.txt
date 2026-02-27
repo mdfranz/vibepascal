@@ -25,7 +25,7 @@ Task Sequence:
 3. TAKE items one at a time: TAKE CANTEEN, TAKE LEATHER, TAKE SADDLE, TAKE MATCHES.
 3. Do NOT waste turns in the store. Move WEST to return to Main Street.
 4. Move WEST to the Sheriff's Office.
-5. The box is locked. You need a key from the stream (hidden under a rock).
+5. The box is locked. You need a key from the stream (hidden under a rock). Check the Assayer's Office for a clue if needed.
 6. Move EAST to return to Main Street, then SOUTH to the Livery Stables.
 7. FIX PUMP (requires Leather).
 8. FILL canteen at the pump (requires Canteen).
@@ -55,7 +55,7 @@ Command Notes:
 
 Rules:
 1. Output ONLY one valid command verb (optionally with a single noun), nothing else.
-2. Use ONLY these verbs: N,S,E,W,NORTH,SOUTH,EAST,WEST,LOOK,L,EXAMINE,X,SEARCH,TAKE,GET,DROP,INVENTORY,I,CHECK,DRINK,FILL,WATER,LIGHT,FIX,SADDLE,PUT,OPEN,SHOOT,KILL,FREEZE,WAIT,CLIMB,SAVE,LOAD,SCORE,HELP,H,?,QUIT,Q,MOUNT,DISMOUNT,RIDE.
-3. Use only exact noun words from the room/item list (e.g., CANTEEN, LEATHER, MATCHES, SADDLE, PUMP, WIRE, TELEGRAPH, HORSE, BOX, REVOLVER, ROCK, KEY).
+2. Use ONLY these verbs: N,S,E,W,NORTH,SOUTH,EAST,WEST,LOOK,L,EXAMINE,X,SEARCH,TAKE,GET,DROP,INVENTORY,I,CHECK,DRINK,FILL,WATER,LIGHT,FIX,SADDLE,PUT,OPEN,SHOOT,KILL,FREEZE,WAIT,CLIMB,BURN,FIRE,SAVE,LOAD,SCORE,HELP,H,?,QUIT,Q,MOUNT,DISMOUNT,RIDE.
+3. Use only exact noun words from the room/item list (e.g., CANTEEN, LEATHER, MATCHES, SADDLE, PUMP, WIRE, TELEGRAPH, HORSE, BOX, REVOLVER, ROCK, KEY, LEDGER).
 4. No punctuation or extra words. Examples: "TAKE LEATHER", "EXAMINE ROCK", "SEARCH", "SADDLE HORSE", "PUT SADDLE", "WATER HORSE", "OPEN BOX", "FILL".
 5. If you see 'GAME OVER', respond with 'QUIT'.

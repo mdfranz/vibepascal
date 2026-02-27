@@ -38,6 +38,7 @@ type
     ScoredTelegraphFix: Boolean;
     ScoredOutlawKill: Boolean;
     ScoredNoteFound: Boolean;
+    RoomBurning: array[1..MAX_ROOMS] of Integer;
     History: array[0..MAX_HISTORY] of string;
     HistoryCount: Integer;
   end;
@@ -85,6 +86,7 @@ begin
   S.ScoredTelegraphFix := False;
   S.ScoredOutlawKill := False;
   S.ScoredNoteFound := False;
+  for i := 1 to MAX_ROOMS do S.RoomBurning[i] := 0;
   for i := 0 to MAX_HISTORY do S.History[i] := '';
   S.HistoryCount := 0;
 end;
