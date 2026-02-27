@@ -38,15 +38,34 @@ begin
     V := UpperCase(Trimmed);
 end;
 
+function GetCanonicalName(const Noun: string): string;
+var
+  U: string;
+begin
+  U := UpperCase(Trim(Noun));
+  if (U = 'MATCH') or (U = 'MATCHES') or (U = 'BOX OF MATCHES') then Result := 'MATCHES'
+  else if (U = 'MARE') or (U = 'HORSE') or (U = 'CHESTNUT MARE') then Result := 'HORSE'
+  else if (U = 'WIRES') or (U = 'WIRE') or (U = 'COPPER WIRE') then Result := 'WIRE'
+  else if (U = 'GUN') or (U = 'REVOLVER') or (U = 'COLT') or (U = 'PEACEMAKER') then Result := 'REVOLVER'
+  else if (U = 'WATER PUMP') or (U = 'PUMP') or (U = 'IRON PUMP') then Result := 'PUMP'
+  else if (U = 'LEATHER SCRAP') or (U = 'LEATHER') or (U = 'SCRAP') then Result := 'LEATHER'
+  else if (U = 'TACK ROOM KEY') or (U = 'KEY') or (U = 'BRASS KEY') then Result := 'KEY'
+  else if (U = 'GUN BOX') or (U = 'BOX') or (U = 'WOODEN BOX') then Result := 'BOX'
+  else if (U = 'LEDGER PAGE') or (U = 'LEDGER') or (U = 'PAGE') then Result := 'LEDGER'
+  else if (U = 'FOLDED NOTE') or (U = 'NOTE') then Result := 'NOTE'
+  else if (U = 'PARCHMENT MAP') or (U = 'MAP') then Result := 'MAP'
+  else Result := U;
+end;
+
 function FindItem(const ItemName: string; Loc: Integer; const S: TGameState): Integer;
 var
   i: Integer;
-  UpperName: string;
+  Canonical: string;
 begin
   Result := 0;
-  UpperName := UpperCase(ItemName);
+  Canonical := GetCanonicalName(ItemName);
   for i := 1 to MAX_ITEMS do
-    if (S.Items[i].Location = Loc) and (S.Items[i].Name = UpperName) then begin
+    if (S.Items[i].Location = Loc) and (S.Items[i].Name = Canonical) then begin
       Result := i;
       Exit;
     end;
@@ -55,12 +74,12 @@ end;
 function FindItemAny(const ItemName: string; const S: TGameState): Integer;
 var
   i: Integer;
-  UpperName: string;
+  Canonical: string;
 begin
   Result := 0;
-  UpperName := UpperCase(ItemName);
+  Canonical := GetCanonicalName(ItemName);
   for i := 1 to MAX_ITEMS do
-    if S.Items[i].Name = UpperName then begin
+    if S.Items[i].Name = Canonical then begin
       Result := i;
       Exit;
     end;
@@ -231,8 +250,11 @@ begin
 end;
 
 procedure LightLamp(var S: TGameState; const Noun: string; var ConsumeTurn: Boolean);
+var
+  Canonical: string;
 begin
-  if (Noun <> '') and (UpperCase(Trim(Noun)) <> 'MATCH') and (UpperCase(Trim(Noun)) <> 'MATCHES') then begin
+  Canonical := GetCanonicalName(Noun);
+  if (Noun <> '') and (Canonical <> 'MATCHES') and (Canonical <> 'LAMP') then begin
     WriteLn('Light what?');
     Exit;
   end;
@@ -321,7 +343,7 @@ procedure FixSomething(var S: TGameState; const TargetNoun: string; var ConsumeT
 var
   Noun: string;
 begin
-  Noun := UpperCase(Trim(TargetNoun));
+  Noun := GetCanonicalName(TargetNoun);
   if (Noun = 'PUMP') and (S.CurrentRoom^.ID = 3) then begin
     if FindItem('LEATHER', INV_LOCATION, S) > 0 then begin
       S.IsPumpFixed := True;
@@ -333,7 +355,7 @@ begin
       end;
     end else
       WriteLn('You need leather.');
-  end else if ((Noun = 'WIRE') or (Noun = 'WIRES') or (Noun = 'TELEGRAPH')) and (S.CurrentRoom^.ID = 2) then begin
+  end else if ((Noun = 'WIRE') or (Noun = 'TELEGRAPH')) and (S.CurrentRoom^.ID = 2) then begin
     if S.IsTelegraphFixed then begin
       WriteLn('The telegraph is already repaired.');
     end else if FindItem('WIRE', INV_LOCATION, S) > 0 then begin
@@ -356,8 +378,8 @@ procedure WaterHorse(var S: TGameState; const TargetNoun: string; var ConsumeTur
 var
   Noun: string;
 begin
-  Noun := UpperCase(Trim(TargetNoun));
-  if (Noun <> '') and (Noun <> 'HORSE') and (Noun <> 'MARE') then begin
+  Noun := GetCanonicalName(TargetNoun);
+  if (Noun <> '') and (Noun <> 'HORSE') then begin
     WriteLn('Water what?');
     Exit;
   end;
@@ -379,8 +401,8 @@ var
   SaddleID: Integer;
   Noun: string;
 begin
-  Noun := UpperCase(Trim(TargetNoun));
-  if (Noun <> '') and (Noun <> 'HORSE') and (Noun <> 'ON HORSE') and (Noun <> 'MARE') then begin
+  Noun := GetCanonicalName(TargetNoun);
+  if (Noun <> '') and (Noun <> 'HORSE') and (Noun <> 'ON HORSE') then begin
     WriteLn('Saddle what?');
     Exit;
   end;
@@ -407,10 +429,10 @@ end;
 
 procedure HandleMount(var S: TGameState; const Noun: string; var ConsumeTurn: Boolean);
 var
-  NounUpper: string;
+  NounCanonical: string;
 begin
-  NounUpper := UpperCase(Trim(Noun));
-  if (NounUpper <> '') and (NounUpper <> 'HORSE') and (NounUpper <> 'MARE') then begin
+  NounCanonical := GetCanonicalName(Noun);
+  if (Noun <> '') and (NounCanonical <> 'HORSE') then begin
     WriteLn('Mount what?');
     Exit;
   end;
@@ -429,10 +451,10 @@ end;
 
 procedure HandleDismount(var S: TGameState; const Noun: string; var ConsumeTurn: Boolean);
 var
-  NounUpper: string;
+  NounCanonical: string;
 begin
-  NounUpper := UpperCase(Trim(Noun));
-  if (NounUpper <> '') and (NounUpper <> 'HORSE') and (NounUpper <> 'MARE') then begin
+  NounCanonical := GetCanonicalName(Noun);
+  if (Noun <> '') and (NounCanonical <> 'HORSE') then begin
     WriteLn('Dismount what?');
     Exit;
   end;
@@ -447,8 +469,11 @@ begin
 end;
 
 procedure HandleOpen(var S: TGameState; const Noun: string; var ConsumeTurn: Boolean);
+var
+  Canonical: string;
 begin
-  if (Noun = 'BOX') and (S.CurrentRoom^.ID = 7) then begin
+  Canonical := GetCanonicalName(Noun);
+  if (Canonical = 'BOX') and (S.CurrentRoom^.ID = 7) then begin
     if S.IsBoxOpen then WriteLn('It is already open.')
     else begin
       if FindItem('KEY', INV_LOCATION, S) = 0 then
@@ -605,7 +630,7 @@ var
   ItemId: Integer;
   Target: string;
 begin
-  Target := UpperCase(Trim(Noun));
+  Target := GetCanonicalName(Noun);
   if Target = '' then begin
     WriteLn('Burn what?');
     Exit;
@@ -745,14 +770,13 @@ begin
   end else if Verb = 'DISMOUNT' then begin
     HandleDismount(S, Noun, ConsumeTurn);
   end else if Verb = 'OPEN' then begin
-    NounUpper := UpperCase(Trim(Noun));
-    HandleOpen(S, NounUpper, ConsumeTurn);
+    HandleOpen(S, Noun, ConsumeTurn);
   end else if (Verb = 'SHOOT') or (Verb = 'KILL') then begin
     HandleShoot(S, Noun, ConsumeTurn);
   end else if (Verb = 'FREEZE') or (Verb = 'WAIT') then begin
     HandleFreeze(S, Noun, ConsumeTurn);
   end else if (Verb = 'CHECK') then begin
-    NounUpper := UpperCase(Trim(Noun));
+    NounUpper := GetCanonicalName(Noun);
     if (NounUpper = 'INVENTORY') or (NounUpper = 'INV') or (NounUpper = 'I') then
       HandleInventory(S, Noun, ConsumeTurn)
   end else if (Verb = 'SCORE') then begin

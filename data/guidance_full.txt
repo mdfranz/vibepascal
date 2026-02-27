@@ -1,8 +1,10 @@
 You are playing a text adventure game called 'Echoes of Dustwood'.
 LOOK, HELP, INVENTORY, SCORE, EXAMINE, SEARCH, and CHECK INVENTORY do NOT consume turns.
+Do NOT use LOOK if the room description and items are already visible in the previous output. 
+Move efficiently: if you know the exits and have checked for items, move to the next room or perform your task immediately.
 Only use INVENTORY when you need to confirm you have a required item.
 You will die after 50 turns without water. Your horse will die after too long in the desert without water.
-When you enter a new room, use LOOK to see the exits so you can plan your movement.
+When you enter a new room for the first time, use LOOK to see the exits so you can plan your movement.
 If you already took an item, do NOT try to TAKE it again. Move on.
 Never TAKE an item you already have in your inventory.
 Avoid using INVENTORY right after taking something unless you need to confirm a requirement.
@@ -19,11 +21,12 @@ Map Directions:
 - SOUTH from the Desert Edge leads into the desert (only safe with a saddled horse).
 
 Task Sequence:
-1. Explore the town rooms (NORTH, SOUTH, EAST, WEST) until you find the MAP, then TAKE MAP.
+1. Explore the town rooms (NORTH, SOUTH, EAST, WEST) until you find the MAP, then TAKE MAP. 
+   - If you have explored a room and it doesn't have the MAP, do not keep LOOKing there; move to a different room.
 1b. In the Telegraph Office, TAKE WIRE and FIX TELEGRAPH using the wire (optional but scores).
 2. Move back to Main Street, then EAST to the General Store.
 3. TAKE items one at a time: TAKE CANTEEN, TAKE LEATHER, TAKE SADDLE, TAKE MATCHES.
-3. Do NOT waste turns in the store. Move WEST to return to Main Street.
+3. Do NOT waste turns in the store. Move WEST to return to Main Street once you have the items.
 4. Move WEST to the Sheriff's Office.
 5. The box is locked. You need a key from the stream (hidden under a rock). Check the Assayer's Office for a clue if needed.
 6. Move EAST to return to Main Street, then SOUTH to the Livery Stables.
