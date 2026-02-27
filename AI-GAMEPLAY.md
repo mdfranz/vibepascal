@@ -11,9 +11,16 @@ The `scripts/ai-game.sh` and `scripts/strands-ai-game.sh` scripts act as entry p
 
 ## The "Brains": `scripts/ai_client.py` and `scripts/strands_ai_client.py`
 
-The system supports two implementation backends:
--   **Pydantic AI** (`ai_client.py`): The original implementation using `pydantic-ai`.
--   **Strands SDK** (`strands_ai_client.py`): A modern port using the **Strands Agents SDK**, which leverages LiteLLM for broad model support and built-in conversation management.
+The system supports two implementation backends that share the same high-level logic but use different orchestration frameworks:
+
+### 1. Pydantic AI Backend (`ai_client.py`)
+The original implementation. It uses `pydantic-ai` to manage model interactions and structured output validation. It is highly optimized for direct provider integrations (Google, OpenAI, Anthropic).
+
+### 2. Strands SDK Backend (`strands_ai_client.py`)
+A modern port using the **Strands Agents SDK** and **LiteLLM**. 
+-   **Conversation Management**: Uses a built-in `SlidingWindowConversationManager` to automatically handle history pruning.
+-   **LiteLLM Integration**: Supports a vast array of models through a unified interface.
+-   **Manual JSON Mode**: To support reasoning models (like `cogito:14b` or `deepseek-r1`) which often conflict with "Forced Tool Calling," the Strands client uses a custom validation loop. It allows the model to output raw text (including `<thought>` blocks) and then surgically extracts and validates the JSON command.
 
 ### 1. Direct Process Interaction
 Unlike the web UI, the AI client does not use a web server. It spawns the Pascal binary as a direct subprocess using the `--headless` flag. It communicates via `stdin` and `stdout` using a non-blocking selector pattern to detect when the game is waiting for input (the `> ` prompt).
@@ -41,9 +48,10 @@ The AI's behavior changes based on the "difficulty" (guidance level) selected:
 
 ### Loop Detection and Robustness
 The client includes several "peer-over-the-shoulder" features to handle common LLM failure modes:
--   **Sanitization**: Automatically cleans up punctuation and formatting errors in commands.
+-   **Enhanced Sanitization**: Automatically cleans up punctuation, formatting errors, and artifacts from reasoning models (like leaked `<thought>` tags or malformed JSON strings).
 -   **Repeat Detection**: If the agent repeats the same command and the game output is unchanged for multiple turns, the client forces a simple exploratory command (e.g., `LOOK`, `NORTH`, `EAST`, `SOUTH`, `WEST`) to break loops.
 -   **Validation**: Every command is checked against the game's valid verb list before being sent to the engine.
+-   **Repair Logic**: Both clients feature retry loops that detect validation failures and provide immediate corrective feedback to the model.
 
 ## Supported Providers
 By using `pydantic-ai`, the system is model-agnostic. It supports:

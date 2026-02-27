@@ -162,11 +162,39 @@ ALLOWED_VERBS = {
 }
 
 def sanitize_command(command: str) -> str:
-    """Cleans up the command string from the AI."""
-    cmd = command.strip().upper()
-    for ch in [".", ",", "!", "?", ";", ":", "`"]:
+    """Cleans up the command string from the AI, handling raw JSON or thinking blocks."""
+    cmd = command.strip()
+    
+    # Handle thinking blocks
+    if "<thought>" in cmd:
+        cmd = cmd.split("</thought>")[-1].strip()
+    
+    # Check if the output is the whole JSON or a fragment
+    if "{" in cmd:
+        import re
+        # Try to find "command": "VALUE"
+        match = re.search(r'"command"\s*:\s*"([^"]+)"', cmd, re.IGNORECASE)
+        if match:
+            cmd = match.group(1)
+        else:
+            # Maybe it's unquoted? command: VALUE
+            match = re.search(r'command\s*:\s*([^,\}\n]+)', cmd, re.IGNORECASE)
+            if match:
+                cmd = match.group(1).strip().strip('"').strip("'")
+            else:
+                # Last resort for JSON: just find the first string value
+                match = re.search(r':\s*"([^"]+)"', cmd)
+                if match:
+                    cmd = match.group(1)
+
+    cmd = cmd.upper()
+    # Remove all common punctuation that isn't part of a command
+    for ch in [".", ",", "!", "?", ";", ":", "`", "(", ")", "[", "]", "{", "}", "\"", "'"]:
         cmd = cmd.replace(ch, "")
+    
+    # Take only the first line
     cmd = cmd.split("\n")[0].strip()
+    
     if cmd.startswith("INSPECT "): cmd = cmd.replace("INSPECT ", "EXAMINE ")
     if cmd == "INSPECT": cmd = "LOOK"
     return cmd
@@ -238,7 +266,15 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
 
     # Initialize Strands Agent
     # LiteLLMModel handles the interaction with LiteLLM
-    llm_model = LiteLLMModel(model_id=model_id)
+    client_args = {}
+    if model_id.startswith("ollama/"):
+        host = os.environ.get('OLLAMA_HOST', 'http://localhost:11434')
+        if not host.startswith(('http://', 'https://')):
+            host = 'http://' + host
+        client_args["api_base"] = host.rstrip('/')
+        logger.info(f"Configuring LiteLLM with api_base: {client_args['api_base']}")
+
+    llm_model = LiteLLMModel(model_id=model_id, client_args=client_args)
     
     # SlidingWindowConversationManager handles history pruning automatically
     conv_manager = SlidingWindowConversationManager(window_size=MESSAGE_HISTORY_LIMIT)
@@ -249,7 +285,8 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
             f"{system_instruction}\n\n"
             "You are an expert adventurer. Provide your next action as a single command.\n"
             "Valid verbs include: " + ", ".join(sorted(ALLOWED_VERBS)) + ".\n"
-            "Return JSON only. No extra text.\n"
+            "IMPORTANT: Your final response MUST be a valid JSON object. "
+            "Do NOT include <thought> blocks or any text outside the JSON object.\n"
             f"Example JSON: {example_json}"
         ),
         conversation_manager=conv_manager
@@ -274,34 +311,63 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
             logger.info(f"\n--- Turn {turns} ---")
             
             trimmed_output = trim_output(last_output)
+            
+            # Create a very explicit schema description for the model
+            if reasoning_enabled:
+                schema_desc = "JSON object with keys: 'command' (string) and 'reasoning' (string)"
+            else:
+                schema_desc = "JSON object with key: 'command' (string)"
+
             context = (
                 f"Current Game Output:\n{trimmed_output}\n\n"
                 f"Last Command: {last_command or 'None'}\n\n"
-                "Return JSON only."
+                f"TASK: Provide your next action as a {schema_desc}.\n"
+                "IMPORTANT: Output ONLY the JSON. No conversational text, no thought blocks, no markdown formatting."
             )
 
+            choice = None
             try:
-                # Use Strands agent call with structured_output_model
-                result = agent(
-                    context,
-                    structured_output_model=output_model
-                )
+                # Use a manual retry/repair loop to mimic Pydantic AI's robustness
+                for attempt in range(3):
+                    try:
+                        # Call agent without structured_output_model to avoid forced tool calls
+                        # This allows reasoning models to "think" if they must, 
+                        # and then we extract the JSON ourselves.
+                        result = agent(context)
+                        raw_text = str(result)
+                        
+                        # Extract JSON
+                        import re
+                        import json
+                        # Find the last/most complete { } block
+                        json_matches = list(re.finditer(r'\{.*\}', raw_text, re.DOTALL))
+                        if not json_matches:
+                            raise ValueError("No JSON block found in response")
+                            
+                        json_str = json_matches[-1].group()
+                        data = json.loads(json_str)
+                        
+                        # Validate against our Pydantic model
+                        choice = output_model(**data)
+                        break
+                    except Exception as e:
+                        if attempt == 2: raise e
+                        logger.warning(f"JSON Parse/Validation attempt {attempt+1} failed: {e}. Retrying...")
+                        # On retry, be even more explicit
+                        context += "\n\nCRITICAL: You must output valid JSON only. Your previous attempt failed validation."
+                        time.sleep(1)
                 
-                choice = result.structured_output
+                if not choice:
+                    raise ValueError("Failed to get valid choice after retries")
+
                 command = sanitize_command(choice.command)
                 if reasoning_enabled and hasattr(choice, "reasoning"):
                     logger.info(f"AI THINKING: {choice.reasoning}")
                 
             except Exception as e:
-                logger.warning(f"Strands Agent failed to provide structured output: {e}. Attempting fallback...")
-                # Simple fallback to raw text if structured fails
-                try:
-                    fallback_response = agent(f"The previous output was:\n{trimmed_output}\n\nGive me ONE command.")
-                    # Strands agent returns an AgentResult, which can be cast to string
-                    command = sanitize_command(str(fallback_response))
-                except Exception as e2:
-                    logger.error(f"Fallback also failed: {e2}")
-                    command = "LOOK"
+                logger.error(f"Strands Agent failed to provide valid JSON: {e}. Final fallback to raw extraction.")
+                # Last ditch effort: sanitize whatever the model said
+                command = sanitize_command(str(result) if 'result' in locals() else "LOOK")
 
             if not is_valid_command(command):
                 logger.warning(f"Invalid command generated: '{command}'. Defaulting to 'LOOK'.")

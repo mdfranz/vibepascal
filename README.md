@@ -33,9 +33,13 @@ Echoes of Dustwood uses a modular architecture designed for both human play and 
 ### Component Overview
 
 - **Pascal Engine (`bin/dustwood`):** The core game logic. Written in modular Free Pascal, it features a `--headless` mode for non-interactive I/O, turn limits, and deterministic seeding.
-- **AI Client (`scripts/ai_client.py`):** A `pydantic-ai` agent that "plays" the game. It directly manages the Pascal binary as a subprocess, interpreting output and selecting the next command based on external guidance files.
+- **AI Clients:**
+  - **Pydantic AI (`scripts/ai_client.py`):** The original implementation using `pydantic-ai`.
+  - **Strands SDK (`scripts/strands_ai_client.py`):** A modern port using the **Strands Agents SDK** and **LiteLLM**, providing broad model support and robust state management.
 - **Sidecar API (`scripts/sidecar.py`):** A FastAPI wrapper (optional) that exposes the game as a REST service for the Web UI.
-- **Orchestrator (`scripts/ai-game.sh`):** A shell script that manages the environment and launches the AI agent.
+- **Orchestrators:**
+  - `scripts/ai-game.sh`: Runner for the Pydantic AI client.
+  - `scripts/strands-ai-game.sh`: Runner for the Strands SDK client.
 
 ## Project Structure
 
@@ -108,28 +112,37 @@ This produces `bin/dustwood`.
 - `--turns <n>`: Set the maximum number of turns (default: 50).
 - `--seed <n>`: Set the random seed for deterministic gameplay.
 
-## AI Models (Pydantic AI)
+## AI Models
 
-The AI client uses Pydantic AI model strings. Set the appropriate API key for your provider:
+The system supports two backends for AI gameplay. Both require the appropriate API keys or a local Ollama instance.
 
-### Google Gemini (Default)
-```bash
-export GOOGLE_API_KEY="your-api-key"
-./scripts/ai-game.sh full
-```
+### 1. Strands SDK (Recommended)
+Uses the Strands Agents SDK and LiteLLM. It is highly robust with reasoning models.
 
-### Anthropic
-```bash
-export ANTHROPIC_API_KEY="your-api-key"
-./scripts/ai-game.sh medium anthropic:claude-3-5-sonnet-latest
-```
+- **Google Gemini (Default):**
+  ```bash
+  export GEMINI_API_KEY="your-api-key"
+  ./scripts/strands-ai-game.sh full
+  ```
+- **Ollama (Local):**
+  ```bash
+  export OLLAMA_HOST="127.0.0.1:11434"
+  ./scripts/strands-ai-game.sh minimal ollama/granite4:latest
+  ```
 
-### Ollama (Local)
-Ensure Ollama is running, then specify the model:
-```bash
-export OLLAMA_HOST="http://localhost:11434" # Optional, defaults to localhost
-./scripts/ai-game.sh minimal ollama:granite4:latest
-```
+### 2. Pydantic AI (Original)
+Uses the Pydantic AI framework.
+
+- **Google Gemini:**
+  ```bash
+  export GOOGLE_API_KEY="your-api-key"
+  ./scripts/ai-game.sh full
+  ```
+- **Anthropic:**
+  ```bash
+  export ANTHROPIC_API_KEY="your-api-key"
+  ./scripts/ai-game.sh medium anthropic:claude-3-5-sonnet-latest
+  ```
 
 ## Commands
 
