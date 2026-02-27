@@ -19,7 +19,7 @@ begin
   State.CurrentRoom := State.RoomRegistry[1];
   State.IsPlaying := True;
   Look(State);
-  while State.IsPlaying do
+  while State.IsPlaying do begin
     ProcessCommand(State, CustomReadLn(State, '> '));
     if (State.Turns >= TurnLimit) and State.IsPlaying then begin
       WriteLn;
@@ -27,6 +27,7 @@ begin
       WriteLn('GAME OVER.');
       State.IsPlaying := False;
     end;
+  end;
   WriteLn;
   WriteLn('🏆 Final score: ', State.Score);
 end.

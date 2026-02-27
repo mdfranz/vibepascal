@@ -52,6 +52,20 @@ begin
     end;
 end;
 
+function FindItemAny(const ItemName: string; const S: TGameState): Integer;
+var
+  i: Integer;
+  UpperName: string;
+begin
+  Result := 0;
+  UpperName := UpperCase(ItemName);
+  for i := 1 to MAX_ITEMS do
+    if S.Items[i].Name = UpperName then begin
+      Result := i;
+      Exit;
+    end;
+end;
+
 function IsDesertRoom(RoomID: Integer): Boolean;
 begin
   Result := (RoomID >= 8) and (RoomID <= 13);
@@ -266,6 +280,8 @@ end;
 procedure ExamineItem(var S: TGameState; const TargetNoun: string; var ConsumeTurn: Boolean);
 var
   ItemID: Integer;
+  KeyId: Integer;
+  NoteId: Integer;
   Noun: string;
 begin
   Noun := TargetNoun;
@@ -274,18 +290,24 @@ begin
   if ItemID = 0 then ItemID := FindItem(Noun, S.CurrentRoom^.ID, S);
   if ItemID > 0 then begin
     WrapWriteLn(S.Items[ItemID].Details);
-    if (S.Items[ItemID].Name = 'ROCK') and (S.Items[11].Location = 0) then begin
-      S.Items[11].Location := S.CurrentRoom^.ID;
-      WriteLn;
-      WriteLn('You lift the rock. A small brass key is hidden beneath it.');
+    if S.Items[ItemID].Name = 'ROCK' then begin
+      KeyId := FindItemAny('KEY', S);
+      if (KeyId > 0) and (S.Items[KeyId].Location = 0) then begin
+        S.Items[KeyId].Location := S.CurrentRoom^.ID;
+        WriteLn;
+        WriteLn('You lift the rock. A small brass key is hidden beneath it.');
+      end;
     end;
-    if (S.Items[ItemID].Name = 'BOOK') and (S.Items[5].Location = 0) then begin
-      S.Items[5].Location := INV_LOCATION;
-      WriteLn;
-      WriteLn('A small folded note falls out of the book.');
-      if not S.ScoredNoteFound then begin
-        S.ScoredNoteFound := True;
-        Inc(S.Score, SCORE_NOTE_FOUND);
+    if S.Items[ItemID].Name = 'BOOK' then begin
+      NoteId := FindItemAny('NOTE', S);
+      if (NoteId > 0) and (S.Items[NoteId].Location = 0) then begin
+        S.Items[NoteId].Location := INV_LOCATION;
+        WriteLn;
+        WriteLn('A small folded note falls out of the book.');
+        if not S.ScoredNoteFound then begin
+          S.ScoredNoteFound := True;
+          Inc(S.Score, SCORE_NOTE_FOUND);
+        end;
       end;
     end;
   end else if Noun = '' then
@@ -422,6 +444,9 @@ begin
         end;
       end;
     end;
+  end else begin
+    WriteLn('There is nothing to open here.');
+    ConsumeTurn := False;
   end;
 end;
 
