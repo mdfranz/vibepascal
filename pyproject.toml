@@ -11,6 +11,8 @@ dependencies = [
     "fastapi>=0.133.1",
     "uvicorn>=0.41.0",
     "pytest>=8.0.0",
+    "strands-agents>=1.28.0",
+    "litellm>=1.81.16",
 ]
 
 [build-system]

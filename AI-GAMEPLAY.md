@@ -2,16 +2,18 @@
 
 This document explains the technical implementation and reasoning logic behind the autonomous AI agents that play *Echoes of Dustwood*.
 
-## Orchestration: `ai-game.sh`
+## Orchestration: `ai-game.sh` and `strands-ai-game.sh`
 
-The `scripts/ai-game.sh` script acts as the entry point and environment manager. Its primary responsibilities are:
+The `scripts/ai-game.sh` and `scripts/strands-ai-game.sh` scripts act as entry points and environment managers. Their primary responsibilities are:
 1.  **Binary Integrity**: Ensures the Pascal engine (`bin/dustwood`) is compiled and up-to-date.
 2.  **Environment Setup**: Cleans up previous save states and ensures logging directories exist.
 3.  **Parameter Passing**: Translates high-level arguments (difficulty, model, delay) into the specific configuration needed by the AI client.
 
-## The "Brain": `scripts/ai_client.py`
+## The "Brains": `scripts/ai_client.py` and `scripts/strands_ai_client.py`
 
-The AI client is the core logic hub. It uses the **Pydantic AI** framework to wrap Large Language Models (LLMs) like Gemini, Claude, or local Llama models.
+The system supports two implementation backends:
+-   **Pydantic AI** (`ai_client.py`): The original implementation using `pydantic-ai`.
+-   **Strands SDK** (`strands_ai_client.py`): A modern port using the **Strands Agents SDK**, which leverages LiteLLM for broad model support and built-in conversation management.
 
 ### 1. Direct Process Interaction
 Unlike the web UI, the AI client does not use a web server. It spawns the Pascal binary as a direct subprocess using the `--headless` flag. It communicates via `stdin` and `stdout` using a non-blocking selector pattern to detect when the game is waiting for input (the `> ` prompt).
