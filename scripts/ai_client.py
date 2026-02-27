@@ -119,6 +119,9 @@ class DustwoodGame:
         self.proc.stdin.write((command + "\n").encode())
         self.proc.stdin.flush()
         
+        # Give the process a tiny bit of time to react before reading
+        time.sleep(0.05)
+        
         output = self._read_until_prompt()
         # Strip the prompt from the end for cleaner display
         if output.endswith(self.prompt):
@@ -201,6 +204,14 @@ def sanitize_command(command: str) -> str:
     
     if cmd.startswith("INSPECT "): cmd = cmd.replace("INSPECT ", "EXAMINE ")
     if cmd == "INSPECT": cmd = "LOOK"
+    if cmd in ["OUT", "EXIT", "LEAVE"]: cmd = "SOUTH"
+    if cmd.startswith("GET "): cmd = cmd.replace("GET ", "TAKE ")
+    if cmd.startswith("GO "): cmd = cmd.replace("GO ", "")
+    if "USE KEY" in cmd: cmd = "OPEN BOX"
+    if "USE SADDLE" in cmd: cmd = "SADDLE HORSE"
+    if "DRINK WATER" in cmd: cmd = "DRINK"
+    if "FILL CANTEEN" in cmd: cmd = "FILL"
+    if "WATER HORSE" in cmd: cmd = "WATER"
     
     # Smart item mapping for common model hallucinations
     if "WIRE" in cmd:
@@ -268,6 +279,11 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
         return
 
     setup_ollama(model_name)
+    
+    # Dynamic delay: lower for local models
+    if model_name.startswith('ollama'):
+        delay = max(0.1, delay * 0.2)
+        logger.info(f"Dynamic delay applied: {delay:.2f}s")
 
     with open(guidance_file, 'r') as f:
         system_instruction = f.read().strip()
@@ -308,14 +324,95 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
     last_output_sig = ""
     repeat_count = 0
     explore_index = 0
+
+    # Advanced State Tracking
+    inventory = []
+    knowledge_base = {} # Room -> list of items seen
+    current_room = "Unknown"
+    last_error = ""
+
     try:
         while turns < max_turns:
             turns += 1
+            
+            # --- Parse State from last_output ---
+            import re
+            
+            # 1. Detect Room
+            room_match = re.search(r"📍 === (.*?) ===", last_output)
+            if room_match:
+                current_room = room_match.group(1).strip()
+                if current_room not in knowledge_base:
+                    knowledge_base[current_room] = []
+            
+            # 2. Detect Items in Room
+            if "You see the following here:" in last_output:
+                items_part = last_output.split("You see the following here:")[1].split("\n\n")[0]
+                found_items = []
+                for line in items_part.split("\n"):
+                    if "-" in line:
+                        item_desc = line.split("-")[1].strip()
+                        # Extract the last word as the canonical item name
+                        item_name = item_desc.split()[-1].strip(".").upper()
+                        found_items.append(item_name)
+                knowledge_base[current_room] = found_items
+            
+            # 3. Detect Inventory Changes
+            taken_match = re.search(r"Taken:\s*(.*?)\.", last_output)
+            if taken_match:
+                item_desc = taken_match.group(1)
+                item_name = item_desc.split()[-1].strip(".").upper()
+                if item_name not in inventory:
+                    inventory.append(item_name)
+                # Remove from room knowledge
+                if current_room in knowledge_base and item_name in knowledge_base[current_room]:
+                    knowledge_base[current_room].remove(item_name)
+
+            dropped_match = re.search(r"Dropped:\s*(.*?)\.", last_output)
+            if dropped_match:
+                item_desc = dropped_match.group(1)
+                item_name = item_desc.split()[-1].strip(".").upper()
+                if item_name in inventory:
+                    inventory.remove(item_name)
+                # Add back to room knowledge
+                if current_room in knowledge_base and item_name not in knowledge_base[current_room]:
+                    knowledge_base[current_room].append(item_name)
+
+            # 4. Detect Inventory Full Refresh
+            if "You are carrying:" in last_output:
+                inv_part = last_output.split("You are carrying:")[1].split("\n\n")[0]
+                new_inv = []
+                for line in inv_part.split("\n"):
+                    if "-" in line:
+                        item_desc = line.split("-")[1].strip()
+                        item_name = item_desc.split()[-1].strip(".").upper()
+                        new_inv.append(item_name)
+                inventory = new_inv
+
+            # 5. Detect Errors
+            if "Not here" in last_output:
+                last_error = f"ERROR: The item you tried to interact with is NOT in '{current_room}'."
+            elif "You cannot go that way" in last_output:
+                last_error = f"ERROR: There is no exit in that direction from '{current_room}'."
+            elif "You can't carry any more" in last_output:
+                last_error = "ERROR: Your inventory is FULL. You must DROP something before taking more."
+            else:
+                last_error = ""
+
             logger.info(f"\n--- Turn {turns} ---")
             
             # Prepare context for the agent
             trimmed_output = trim_output(last_output)
             
+            # Format Knowledge Base for context
+            kb_summary = []
+            for room, items in knowledge_base.items():
+                if items:
+                    kb_summary.append(f"- {room}: Items remaining: {', '.join(items)}")
+                else:
+                    kb_summary.append(f"- {room}: Cleared.")
+            kb_text = "\n".join(kb_summary)
+
             # Create a very explicit schema description for the model
             if reasoning_enabled:
                 schema_desc = "JSON object with keys: 'command' (string) and 'reasoning' (string)"
@@ -323,9 +420,18 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
                 schema_desc = "JSON object with key: 'command' (string)"
 
             context = (
-                f"Current Game Output:\n{trimmed_output}\n\n"
-                f"Last Command: {last_command or 'None'}\n\n"
-                f"TASK: Provide your next action as a {schema_desc}.\n"
+                f"### RESULT of your LAST COMMAND ('{last_command or 'START'}'):\n{trimmed_output}\n\n"
+                f"### STATE TRACKING:\n"
+                f"CURRENT ROOM: {current_room}\n"
+                f"CURRENT INVENTORY ({len(inventory)}/5): {', '.join(inventory) if inventory else 'Empty'}\n"
+                f"KNOWLEDGE BASE (Rooms Visited):\n{kb_text}\n"
+            )
+            
+            if last_error:
+                context += f"\n### IMPORTANT CORRECTION:\n{last_error}\n"
+
+            context += (
+                f"\nTASK: Provide your next action as a {schema_desc}.\n"
                 "PERCEPTION GUIDE:\n"
                 "1. Narrative text is flavor. Focus on lines with icons:\n"
                 "   - 📦 'You see the following here:' lists interactable items.\n"
@@ -406,6 +512,8 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
 
             last_output = game.send_command(command)
             logger.info(f"GAME RESPONSE:\n{last_output.strip()}")
+            if "Not here" in last_output:
+                logger.warning(f"⚠️ Hallucination detected: AI tried to interact with an item that isn't present.")
             last_output_sig = output_signature(last_output)
 
             # --- Score Tracking ---
