@@ -175,28 +175,23 @@ This is not the only way to play, but it will show you the current content:
 - **Butte** (Room 12): A steep rise with a narrow climb.
 - **Hidden Stream** (Room 13): A cool stream beyond the butte.
 
-### ASCII Map
+### Map (Mermaid)
 
-```
-      [2] Telegraph Office
-              |
-[4] Assayer --[7] Sheriff --[1] Main Street --[5] General Store
-              |
-       [3] Livery Stables
-              |
-       [6] Desert Edge
-              |
-       [8] Dry Wash
-         /       \
-   [9] Howling  [11] Howling
-       Desert       Desert
-         \       /
-      [10] Howling
-           Desert
-              |
-           [12] Butte
-              |
-        [13] Hidden Stream
+```mermaid
+graph TD
+  R1["1 Main Street"] --> R2["2 Telegraph Office"]
+  R1 --> R3["3 Livery Stables"]
+  R1 --> R5["5 General Store"]
+  R1 --> R7["7 Sheriff's Office"]
+  R7 --> R4["4 Assayer's Office"]
+  R3 --> R6["6 Desert Edge"]
+  R6 --> R8["8 Dry Wash"]
+  R8 --> R9["9 Howling Desert"]
+  R8 --> R11["11 Howling Desert"]
+  R9 --> R10["10 Howling Desert"]
+  R11 --> R10
+  R10 --> R12["12 Butte"]
+  R12 --> R13["13 Hidden Stream"]
 ```
 
 ### Items
