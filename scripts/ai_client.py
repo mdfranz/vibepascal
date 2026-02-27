@@ -25,6 +25,9 @@ MESSAGE_HISTORY_LIMIT = 4
 REASONING_ENV_VAR = "AI_REASONING"
 LOOP_REPEAT_LIMIT = 2
 EXPLORE_COMMANDS = ["LOOK", "NORTH", "EAST", "SOUTH", "WEST"]
+FRUSTRATION_THRESHOLD = int(os.environ.get("AI_FRUSTRATION_THRESHOLD", "3"))
+FRUSTRATION_DECAY = int(os.environ.get("AI_FRUSTRATION_DECAY", "1"))
+FRUSTRATION_BURN_ORDER = ["BOOK", "LEDGER", "MAP", "LEATHER", "SADDLE"]
 OUTLAW_SAFE_COMMANDS = {
     "SHOOT", "KILL", "WAIT",
     "NORTH", "SOUTH", "EAST", "WEST",
@@ -172,6 +175,7 @@ ALLOWED_VERBS = {
     "QUIT", "Q",
     "MOUNT", "RIDE", "DISMOUNT",
     "OPEN", "SHOOT", "KILL", "FREEZE", "WAIT", "CHECK",
+    "BURN", "FIRE",
 }
 
 def sanitize_command(command: str) -> str:
@@ -366,6 +370,7 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
     last_invalid_command = ""
     invalid_repeat_count = 0
     last_score_update_turn = 0
+    frustration = 0
 
     # Advanced State Tracking
     inventory = []
@@ -457,6 +462,7 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
                 else:
                     invalid_repeat_count = 1
                     last_invalid_command = last_command
+                frustration += 1
             else:
                 invalid_repeat_count = 0
 
@@ -526,6 +532,7 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
                 message_history = result.new_messages()[-MESSAGE_HISTORY_LIMIT:]
             except Exception as e:
                 logger.warning(f"Agent failed to provide structured output: {e}. Attempting robust fallback...")
+                frustration += 1
                 try:
                     # Fallback to simple string if structured fails
                     fallback_agent = Agent(model_name, instructions=system_instruction)
@@ -540,6 +547,7 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
 
             if not is_valid_command(command):
                 logger.warning(f"Invalid command generated: '{command}'. Defaulting to 'LOOK'.")
+                frustration += 1
                 command = "LOOK"
             
             # Simple loop detection: repeated command with identical output
@@ -555,6 +563,7 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
                     f"Detected loop on '{command}' with unchanged output. Forcing exploration: {forced_command}"
                 )
                 command = forced_command
+                frustration += 1
                 repeat_count = 0
             
             # Invalid-action loop breaker
@@ -564,6 +573,7 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
                     f"Repeated invalid action '{last_invalid_command}'. Forcing exploration: {forced_command}"
                 )
                 command = forced_command
+                frustration += 1
                 invalid_repeat_count = 0
 
             # Outlaw safety rule
@@ -571,6 +581,18 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
             if outlaw_present and command not in OUTLAW_SAFE_COMMANDS:
                 logger.warning(f"Outlaw present. Overriding unsafe action '{command}' with WAIT.")
                 command = "WAIT"
+
+            # Frustration-driven burn override (internal behavior only)
+            if frustration >= FRUSTRATION_THRESHOLD:
+                snake_present = ("🐍" in last_output) or ("rattlesnake" in last_output.lower())
+                if (not outlaw_present) and (not snake_present) and ("MATCHES" in inventory):
+                    burn_target = next((item for item in FRUSTRATION_BURN_ORDER if item in inventory), None)
+                    if burn_target:
+                        logger.warning(
+                            f"Frustration threshold reached ({frustration}). Burning item: {burn_target}"
+                        )
+                        command = f"BURN {burn_target}"
+                        frustration = max(0, frustration - FRUSTRATION_DECAY)
 
             # Late-game stall: avoid wasting turns on LOOK/SEARCH
             if turns >= max_turns - 5 and (turns - last_score_update_turn) >= 5:
@@ -600,11 +622,13 @@ def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
             if score_match:
                 logger.info(f"🏆 [SCORE UPDATE]: {score_match.group(1)}")
                 last_score_update_turn = turns
+                frustration = max(0, frustration - FRUSTRATION_DECAY)
             # Also catch the final score if it's there
             final_match = re.search(r"Final score:\s*(\d+)", last_output)
             if final_match:
                 logger.info(f"🏆 [FINAL SCORE]: {final_match.group(1)}")
                 last_score_update_turn = turns
+                frustration = max(0, frustration - FRUSTRATION_DECAY)
 
             if "GAME OVER" in last_output or "Final score" in last_output:
                 logger.info("\n--- Game Ended ---")

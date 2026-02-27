@@ -29,6 +29,9 @@ MESSAGE_HISTORY_LIMIT = 4
 REASONING_ENV_VAR = "AI_REASONING"
 LOOP_REPEAT_LIMIT = 2
 EXPLORE_COMMANDS = ["LOOK", "NORTH", "EAST", "SOUTH", "WEST"]
+FRUSTRATION_THRESHOLD = int(os.environ.get("AI_FRUSTRATION_THRESHOLD", "3"))
+FRUSTRATION_DECAY = int(os.environ.get("AI_FRUSTRATION_DECAY", "1"))
+FRUSTRATION_BURN_ORDER = ["BOOK", "LEDGER", "MAP", "LEATHER", "SADDLE"]
 OUTLAW_SAFE_COMMANDS = {
     "SHOOT", "KILL", "WAIT",
     "NORTH", "SOUTH", "EAST", "WEST",
@@ -51,7 +54,7 @@ logger.addHandler(file_handler)
 
 # Clean Console Logger
 console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
+console_handler.setLevel(logging.DEBUG)
 console_handler.setFormatter(logging.Formatter('%(message)s'))
 logger.addHandler(console_handler)
 
@@ -171,6 +174,7 @@ ALLOWED_VERBS = {
     "QUIT", "Q",
     "MOUNT", "RIDE", "DISMOUNT",
     "OPEN", "SHOOT", "KILL", "FREEZE", "WAIT", "CHECK",
+    "BURN", "FIRE",
 }
 
 def sanitize_command(command: str) -> str:
@@ -277,7 +281,9 @@ def setup_ollama(model_id: str):
         if not host.startswith(('http://', 'https://')):
             host = 'http://' + host
         base_url = host.rstrip('/')
-        # LiteLLM often uses OLLAMA_API_BASE
+        # Point to the V1 endpoint for better compatibility with LiteLLM's OpenAI provider
+        if not base_url.endswith('/v1'):
+            base_url += '/v1'
         os.environ['OLLAMA_API_BASE'] = base_url
         logger.info(f"Ollama config: OLLAMA_API_BASE set to {base_url}")
 
@@ -305,16 +311,27 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
     example_json = '{"command": "LOOK", "reasoning": "Gather current room details."}' if reasoning_enabled else '{"command": "LOOK"}'
 
     # Initialize Strands Agent
-    # LiteLLMModel handles the interaction with LiteLLM
+    # For Ollama models, we'll use the OpenAI-compatible provider for better results with LiteLLM
     client_args = {}
     if model_id.startswith("ollama/"):
         host = os.environ.get('OLLAMA_HOST', 'http://localhost:11434')
         if not host.startswith(('http://', 'https://')):
             host = 'http://' + host
-        client_args["api_base"] = host.rstrip('/')
-        logger.info(f"Configuring LiteLLM with api_base: {client_args['api_base']}")
+        
+        actual_model = model_id.replace("ollama/", "")
+        # Force the 'openai/' prefix to use LiteLLM's OpenAI compatibility layer
+        model_id = f"openai/{actual_model}"
+        client_args["api_base"] = host.rstrip('/') + "/v1"
+        client_args["api_key"] = "ollama" # Dummy key
+        logger.info(f"Configuring LiteLLM with OpenAI-compatible base: {client_args['api_base']}")
 
-    llm_model = LiteLLMModel(model_id=model_id, client_args=client_args)
+    # include_reasoning is often not supported as a top-level param by Ollama
+    # but the OpenAI layer handles the stream better.
+    llm_model = LiteLLMModel(
+        model_id=model_id, 
+        client_args=client_args, 
+        params={"max_tokens": 4000}
+    )
     
     # SlidingWindowConversationManager handles history pruning automatically
     conv_manager = SlidingWindowConversationManager(window_size=MESSAGE_HISTORY_LIMIT)
@@ -326,8 +343,8 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
             "You are an expert adventurer. Provide your next action as a single command.\n"
             "CRITICAL: Use ONLY the valid verbs listed below. Do NOT attempt complex phrases or actions not in this list.\n"
             "Valid verbs: " + ", ".join(sorted(ALLOWED_VERBS)) + ".\n"
-            "IMPORTANT: Your final response MUST be a valid JSON object. "
-            "Do NOT include <thought> blocks or any text outside the JSON object.\n"
+            "IMPORTANT: Your final response MUST be a valid JSON object only. "
+            "Do NOT include <thought> blocks, explanations, or markdown formatting in your final output.\n"
             f"Example JSON: {example_json}"
         ),
         conversation_manager=conv_manager
@@ -348,6 +365,7 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
     last_invalid_command = ""
     invalid_repeat_count = 0
     last_score_update_turn = 0
+    frustration = 0
 
     # Advanced State Tracking
     inventory = []
@@ -439,6 +457,7 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
                 else:
                     invalid_repeat_count = 1
                     last_invalid_command = last_command
+                frustration += 1
             else:
                 invalid_repeat_count = 0
 
@@ -488,6 +507,7 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
             )
 
             choice = None
+            raw_text = ""
             try:
                 # Use a manual retry/repair loop to mimic Pydantic AI's robustness
                 for attempt in range(3):
@@ -495,23 +515,50 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
                         # Call agent without structured_output_model to avoid forced tool calls
                         # This allows reasoning models to "think" if they must, 
                         # and then we extract the JSON ourselves.
-                        # AgentResult can be cast to string to get content
-                        result = agent(context)
+                        # Explicitly disable streaming to avoid console noise
+                        result = agent(context, stream=False)
                         raw_text = str(result)
+                        logger.debug(f"RAW MODEL RESPONSE:\n{raw_text}")
                         
                         # Extract JSON
                         import re
                         import json
-                        # Find the last/most complete { } block
-                        json_matches = list(re.finditer(r'\{.*\}', raw_text, re.DOTALL))
-                        if not json_matches:
-                            raise ValueError("No JSON block found in response")
-                            
-                        json_str = json_matches[-1].group()
-                        data = json.loads(json_str)
                         
-                        # Validate against our Pydantic model
-                        choice = output_model(**data)
+                        # Strip markdown code blocks if present
+                        if "```json" in raw_text:
+                            raw_text = raw_text.split("```json")[1].split("```")[0]
+                        elif "```" in raw_text:
+                            raw_text = raw_text.split("```")[1].split("```")[0]
+
+                        # Find all { } blocks
+                        json_matches = list(re.finditer(r'\{[\s\S]+?\}', raw_text))
+                        
+                        parsed_valid = False
+                        if json_matches:
+                            # Try matches in reverse order (models often put final answer at the end)
+                            for match in reversed(json_matches):
+                                try:
+                                    json_str = match.group()
+                                    data = json.loads(json_str)
+                                    # Validate against our Pydantic model
+                                    choice = output_model(**data)
+                                    command = sanitize_command(choice.command)
+                                    if reasoning_enabled and hasattr(choice, "reasoning"):
+                                        logger.info(f"AI THINKING: {choice.reasoning}")
+                                    parsed_valid = True
+                                    break
+                                except Exception:
+                                    continue
+                        
+                        if not parsed_valid:
+                            # If no JSON block found or valid, maybe the model responded with raw text?
+                            # We'll try to treat it as a command directly if it's the 3rd attempt
+                            if attempt == 2:
+                                logger.warning("No valid JSON found after extraction. Attempting to use raw text as command.")
+                                command = sanitize_command(raw_text)
+                                break
+                            raise ValueError("No valid JSON block found in response")
+                        
                         break
                     except Exception as e:
                         if attempt == 2: raise e
@@ -519,21 +566,17 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
                         # On retry, be even more explicit
                         context += "\n\nCRITICAL: You must output valid JSON only. Your previous attempt failed validation."
                         time.sleep(1)
-                
-                if not choice:
-                    raise ValueError("Failed to get valid choice after retries")
-
-                command = sanitize_command(choice.command)
-                if reasoning_enabled and hasattr(choice, "reasoning"):
-                    logger.info(f"AI THINKING: {choice.reasoning}")
+                        frustration += 1
                 
             except Exception as e:
                 logger.error(f"Strands Agent failed to provide valid JSON: {e}. Final fallback to raw extraction.")
+                frustration += 1
                 # Last ditch effort: sanitize whatever the model said
-                command = sanitize_command(str(result) if 'result' in locals() else "LOOK")
+                command = sanitize_command(raw_text or "LOOK")
 
             if not is_valid_command(command):
                 logger.warning(f"Invalid command generated: '{command}'. Defaulting to 'LOOK'.")
+                frustration += 1
                 command = "LOOK"
             
             # Simple loop detection
@@ -549,6 +592,7 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
                     f"Detected loop on '{command}' with unchanged output. Forcing exploration: {forced_command}"
                 )
                 command = forced_command
+                frustration += 1
                 repeat_count = 0
             
             # Invalid-action loop breaker
@@ -558,6 +602,7 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
                     f"Repeated invalid action '{last_invalid_command}'. Forcing exploration: {forced_command}"
                 )
                 command = forced_command
+                frustration += 1
                 invalid_repeat_count = 0
 
             # Outlaw safety rule
@@ -565,6 +610,18 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
             if outlaw_present and command not in OUTLAW_SAFE_COMMANDS:
                 logger.warning(f"Outlaw present. Overriding unsafe action '{command}' with WAIT.")
                 command = "WAIT"
+
+            # Frustration-driven burn override (internal behavior only)
+            if frustration >= FRUSTRATION_THRESHOLD:
+                snake_present = ("🐍" in last_output) or ("rattlesnake" in last_output.lower())
+                if (not outlaw_present) and (not snake_present) and ("MATCHES" in inventory):
+                    burn_target = next((item for item in FRUSTRATION_BURN_ORDER if item in inventory), None)
+                    if burn_target:
+                        logger.warning(
+                            f"Frustration threshold reached ({frustration}). Burning item: {burn_target}"
+                        )
+                        command = f"BURN {burn_target}"
+                        frustration = max(0, frustration - FRUSTRATION_DECAY)
 
             # Late-game stall: avoid wasting turns on LOOK/SEARCH
             if turns >= max_turns - 5 and (turns - last_score_update_turn) >= 5:
@@ -594,11 +651,13 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
             if score_match:
                 logger.info(f"🏆 [SCORE UPDATE]: {score_match.group(1)}")
                 last_score_update_turn = turns
+                frustration = max(0, frustration - FRUSTRATION_DECAY)
             # Also catch the final score if it's there
             final_match = re.search(r"Final score:\s*(\d+)", last_output)
             if final_match:
                 logger.info(f"🏆 [FINAL SCORE]: {final_match.group(1)}")
                 last_score_update_turn = turns
+                frustration = max(0, frustration - FRUSTRATION_DECAY)
 
             if "GAME OVER" in last_output or "Final score" in last_output:
                 logger.info("\n--- Game Ended ---")
