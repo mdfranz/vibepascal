@@ -28,30 +28,26 @@ The game features automatic word-wrapping for long descriptions and a custom inp
 
 ## Architecture
 
-Echoes of Dustwood uses a **Persistent Sidecar** architecture to bridge a legacy-style CLI game with modern AI agents and REST interfaces.
+Echoes of Dustwood uses a modular architecture designed for both human play and autonomous AI agents.
 
 ### Component Overview
 
-- **Pascal Engine (`bin/dustwood`):** The core game logic. Written in modular Free Pascal, it features a `--headless` mode for non-interactive I/O via `stdin/stdout`.
-- **Sidecar API (`scripts/sidecar.py`):** A FastAPI wrapper that exposes the game as a REST service. It manages state by keeping a single headless Pascal process alive and streaming commands to it. Optional `/save`, `/load`, and `/reset` endpoints provide explicit persistence and clean starts.
-- **AI Client (`scripts/ai_client.py`):** A `pydantic-ai` agent that "plays" the game. It interprets game output and selects the next command based on external guidance files.
-- **Orchestrator (`scripts/ai-game.sh`):** A shell script that manages the lifecycle of the sidecar and the AI agent.
+- **Pascal Engine (`bin/dustwood`):** The core game logic. Written in modular Free Pascal, it features a `--headless` mode for non-interactive I/O, turn limits, and deterministic seeding.
+- **AI Client (`scripts/ai_client.py`):** A `pydantic-ai` agent that "plays" the game. It directly manages the Pascal binary as a subprocess, interpreting output and selecting the next command based on external guidance files.
+- **Sidecar API (`scripts/sidecar.py`):** A FastAPI wrapper (optional) that exposes the game as a REST service for the Web UI.
+- **Orchestrator (`scripts/ai-game.sh`):** A shell script that manages the environment and launches the AI agent.
 
 ## Project Structure
 
 ```text
 .
 ├── bin/                # Compiled Pascal binaries
-├── data/               # Configuration and state (world.ini, save.ini)
-├── logs/               # Sidecar and AI client logs
-├── scripts/            # Python sidecar, AI agents, and runners
-├── tests/              # Pytest end-to-end tests for the sidecar
+├── data/               # Configuration, guidance, and state
+├── logs/               # AI client logs
+├── scripts/            # Python AI agents and runners
+├── tests/              # Pytest end-to-end tests
 └── src/
     └── pascal/         # Modular Free Pascal source code
-        ├── dustwood.pas      # Main entry point
-        ├── u_commands.pas    # Game verbs and logic
-        ├── u_io.pas          # Emoji-rich output handling
-        └── u_state.pas       # Global state definitions
 ```
 
 ## Pascal Source Reference
@@ -114,24 +110,32 @@ This produces `bin/dustwood`.
 
 ## AI Models (Pydantic AI)
 
-The AI client uses Pydantic AI model strings. For Anthropic, set `ANTHROPIC_API_KEY` and pass an Anthropic model string, for example:
+The AI client uses Pydantic AI model strings. Set the appropriate API key for your provider:
 
+### Google Gemini (Default)
 ```bash
-export ANTHROPIC_API_KEY="your-api-key"
-./scripts/ai-game.sh medium anthropic:claude-sonnet-4-6 5
+export GOOGLE_API_KEY="your-api-key"
+./scripts/ai-game.sh full
 ```
 
-If you use Pydantic AI Gateway, set `PYDANTIC_AI_GATEWAY_API_KEY` and prefix with `gateway/`:
-
+### Anthropic
 ```bash
-export PYDANTIC_AI_GATEWAY_API_KEY="paig_..."
-./scripts/ai-game.sh medium gateway/anthropic:claude-sonnet-4-6 5
+export ANTHROPIC_API_KEY="your-api-key"
+./scripts/ai-game.sh medium anthropic:claude-3-5-sonnet-latest
+```
+
+### Ollama (Local)
+Ensure Ollama is running, then specify the model:
+```bash
+export OLLAMA_HOST="http://localhost:11434" # Optional, defaults to localhost
+./scripts/ai-game.sh minimal ollama:granite4:latest
 ```
 
 ## Commands
 
 - `N`, `S`, `E`, `W` or `NORTH`, `SOUTH`, `EAST`, `WEST` to move
 - `LOOK` or `L` to reprint the room description
+- `LOOK <DIR>` to peer into an adjacent room (e.g., `LOOK NORTH`)
 - `INVENTORY` or `I` to list what you are carrying
 - `TAKE <ITEM>` or `GET <ITEM>` to pick up an item
 - `DROP <ITEM>` to drop an item
