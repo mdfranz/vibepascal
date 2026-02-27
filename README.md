@@ -54,6 +54,16 @@ Echoes of Dustwood uses a **Persistent Sidecar** architecture to bridge a legacy
         └── u_state.pas       # Global state definitions
 ```
 
+## Pascal Source Reference
+
+- **`dustwood.pas`**: Main program entry point. Initializes state, loads world data, manages the main game loop, and enforces turn limits.
+- **`u_commands.pas`**: Core game logic. Implements command parsing, movement, item interactions, survival mechanics (thirst, light), and hazard encounters.
+- **`u_io.pas`**: Input and output handling. Features word-wrapping for descriptions, emoji support, and a custom input reader with command history.
+- **`u_persistence.pas`**: State management for persistence. Handles saving and loading game progress to/from `data/save.ini`.
+- **`u_state.pas`**: Defines the global `TGameState` record, tracking everything from inventory and room status to thirst and scores.
+- **`u_types.pas`**: Centralized constants and record types (e.g., `TRoom`, `TItem`) used across the engine.
+- **`u_world.pas`**: World data loader. Reads rooms and items from `data/world.ini` and handles initial randomization.
+
 ## Build
 
 ### Linux dependencies
