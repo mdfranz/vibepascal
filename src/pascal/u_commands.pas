@@ -168,7 +168,8 @@ begin
     WriteLn('Your canteen is empty.')
   else begin
     S.Thirst := 0;
-    S.HasWater := False;
+    if S.CanteenDrinks > 0 then Dec(S.CanteenDrinks);
+    if S.CanteenDrinks <= 0 then S.HasWater := False;
     WrapWriteLn('💧 The water is warm but refreshing.');
     WriteLn('Your thirst is quenched.');
   end;
@@ -180,6 +181,7 @@ begin
     WriteLn('You have nothing to fill.')
   else if (S.CurrentRoom^.ID = 3) and S.IsPumpFixed then begin
     S.HasWater := True;
+    S.CanteenDrinks := 3;
     WriteLn('💧 You fill your canteen with fresh water from the pump.');
     if not S.ScoredFirstFill then begin
       S.ScoredFirstFill := True;
@@ -187,6 +189,7 @@ begin
     end;
   end else if (S.CurrentRoom^.ID = STREAM_ROOM_ID) then begin
     S.HasWater := True;
+    S.CanteenDrinks := 3;
     WriteLn('💧 You fill your canteen with cold stream water.');
   end else
     WriteLn('There is no water here.');

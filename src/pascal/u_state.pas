@@ -20,6 +20,7 @@ type
     IsBoxOpen: Boolean;
     IsTelegraphFixed: Boolean;
     TempLightTurns: Integer;
+    CanteenDrinks: Integer;
     IsHorseSaddled: Boolean;
     IsRiding: Boolean;
     SnakeRoom: Integer;
@@ -66,6 +67,7 @@ begin
   S.IsBoxOpen := False;
   S.IsTelegraphFixed := False;
   S.TempLightTurns := 0;
+  S.CanteenDrinks := 0;
   S.IsHorseSaddled := False;
   S.IsRiding := False;
   S.SnakeRoom := 0;

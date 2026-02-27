@@ -29,6 +29,7 @@ begin
     Ini.WriteBool('State', 'IsRiding', S.IsRiding);
     Ini.WriteBool('State', 'IsTelegraphFixed', S.IsTelegraphFixed);
     Ini.WriteInteger('State', 'TempLightTurns', S.TempLightTurns);
+    Ini.WriteInteger('State', 'CanteenDrinks', S.CanteenDrinks);
     Ini.WriteInteger('State', 'Thirst', S.Thirst);
     Ini.WriteInteger('State', 'HorseThirst', S.HorseThirst);
     Ini.WriteInteger('State', 'Turns', S.Turns);
@@ -82,6 +83,7 @@ begin
     S.IsRiding := Ini.ReadBool('State', 'IsRiding', False);
     S.IsTelegraphFixed := Ini.ReadBool('State', 'IsTelegraphFixed', False);
     S.TempLightTurns := Ini.ReadInteger('State', 'TempLightTurns', 0);
+    S.CanteenDrinks := Ini.ReadInteger('State', 'CanteenDrinks', 0);
     S.Thirst := Ini.ReadInteger('State', 'Thirst', 0);
     S.HorseThirst := Ini.ReadInteger('State', 'HorseThirst', 0);
     S.Turns := Ini.ReadInteger('State', 'Turns', 0);
