@@ -26,6 +26,7 @@ build/
 go.work
 go.work.sum
 
+.env
 # Python
 .venv/
 __pycache__/
