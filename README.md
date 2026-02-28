@@ -30,24 +30,26 @@ The game features automatic word-wrapping for long descriptions and a custom inp
 
 Echoes of Dustwood uses a **Persistent Sidecar** architecture to bridge a legacy-style CLI game with modern AI agents and REST interfaces. The game engine is available in two implementations:
 
-- **Pascal Engine (`bin/dustwood`):** The original core game logic. Written in modular Free Pascal.
+- **Pascal Engine (`bin/dustwood`):** The original core game logic. Written in modular Free Pascal, it features a `--headless` mode for non-interactive I/O, turn limits, and deterministic seeding.
 - **Go Engine (`bin/dustwood-go`):** A modern port of the engine, providing identical logic and behavior with improved terminal handling.
-
-Both engines feature a `--headless` mode for non-interactive I/O via `stdin/stdout`, allowing them to be wrapped by the sidecar.
 
 ### Component Overview
 
 - **Game Engine:** Either the Pascal or Go implementation.
 - **Sidecar API (`scripts/sidecar.py`):** A FastAPI wrapper that exposes the game as a REST service. It manages state by keeping a single headless process alive and streaming commands to it. The binary used can be configured via the `DUSTWOOD_BIN` environment variable.
-- **AI Client (`scripts/ai_client.py`):** A `pydantic-ai` agent that "plays" the game. It interprets game output and selects the next command based on external guidance files.
-- **Orchestrator (`scripts/ai-game.sh`):** A shell script that manages the lifecycle of the sidecar and the AI agent.
+- **AI Clients:**
+  - **Pydantic AI (`scripts/ai_client.py`):** The original implementation using `pydantic-ai` for autonomous gameplay.
+  - **Strands SDK (`scripts/strands_ai_client.py`):** A modern port using the **Strands Agents SDK** and **LiteLLM**, providing broad model support and robust state management.
+- **Orchestrators:**
+  - `scripts/ai-game.sh`: Runner for the Pydantic AI client.
+  - `scripts/strands-ai-game.sh`: Runner for the Strands SDK client.
 
 ## Project Structure
 
 ```text
 .
 ├── bin/                # Compiled Pascal and Go binaries
-├── data/               # Configuration and state (world.ini, save.ini)
+├── data/               # Configuration, guidance, and state (world.ini, save.ini)
 ├── logs/               # Sidecar and AI client logs
 ├── scripts/            # Python sidecar, AI agents, and runners
 ├── tests/              # Pytest end-to-end tests for the sidecar
@@ -91,33 +93,57 @@ From the project root:
 
 - Pascal version:
   ```bash
-  ./bin/dustwood
+  ./bin/dustwood [options]
   ```
 - Go version:
   ```bash
-  ./bin/dustwood-go
+  ./bin/dustwood-go [options]
   ```
 
-## AI Models (Pydantic AI)
+### Options
 
-The AI client uses Pydantic AI model strings. For Anthropic, set `ANTHROPIC_API_KEY` and pass an Anthropic model string, for example:
+- `-h`, `--h`, `--help`: Show the help message.
+- `--headless`: Run in headless mode (for AI agents or scripts).
+- `--turns <n>`: Set the maximum number of turns (default: 25).
+- `--seed <n>`: Set the random seed for deterministic gameplay.
 
-```bash
-export ANTHROPIC_API_KEY="your-api-key"
-./scripts/ai-game.sh medium anthropic:claude-sonnet-4-6 5
-```
+## AI Models
 
-If you use Pydantic AI Gateway, set `PYDANTIC_AI_GATEWAY_API_KEY` and prefix with `gateway/`:
+The system supports two backends for AI gameplay. Both require the appropriate API keys or a local Ollama instance.
 
-```bash
-export PYDANTIC_AI_GATEWAY_API_KEY="paig_..."
-./scripts/ai-game.sh medium gateway/anthropic:claude-sonnet-4-6 5
-```
+### 1. Strands SDK (Recommended)
+Uses the Strands Agents SDK and LiteLLM. It is highly robust with reasoning models.
+
+- **Google Gemini (Default):**
+  ```bash
+  export GEMINI_API_KEY="your-api-key"
+  ./scripts/strands-ai-game.sh full
+  ```
+- **Ollama (Local):**
+  ```bash
+  export OLLAMA_HOST="127.0.0.1:11434"
+  ./scripts/strands-ai-game.sh minimal ollama/granite4:latest
+  ```
+
+### 2. Pydantic AI (Original)
+Uses the Pydantic AI framework.
+
+- **Google Gemini:**
+  ```bash
+  export GOOGLE_API_KEY="your-api-key"
+  ./scripts/ai-game.sh full
+  ```
+- **Anthropic:**
+  ```bash
+  export ANTHROPIC_API_KEY="your-api-key"
+  ./scripts/ai-game.sh medium anthropic:claude-3-5-sonnet-latest
+  ```
 
 ## Commands
 
 - `N`, `S`, `E`, `W` or `NORTH`, `SOUTH`, `EAST`, `WEST` to move
 - `LOOK` or `L` to reprint the room description
+- `LOOK <DIR>` to peer into an adjacent room (e.g., `LOOK NORTH`)
 - `INVENTORY` or `I` to list what you are carrying
 - `TAKE <ITEM>` or `GET <ITEM>` to pick up an item
 - `DROP <ITEM>` to drop an item
@@ -139,7 +165,7 @@ export PYDANTIC_AI_GATEWAY_API_KEY="paig_..."
 
 - **Thirst:** You must find water. If your thirst reaches its limit, the game ends.
 - **Time:** The sun sinks as you move. At twilight and night, visibility changes. You may need a light source to see in the dark.
-- **Turns:** You have a maximum of 50 turns before the game ends.
+- **Turns:** You have a maximum of 25 turns before the game ends.
 - **Inventory Limit:** You can carry at most 5 items.
 - **Canteen Capacity:** A full canteen provides 3 drinks before it empties.
 - **Light:** `LIGHT` works without a lamp; it briefly illuminates the room for a few turns.

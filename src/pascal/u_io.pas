@@ -55,6 +55,10 @@ var
   HistIdx: Integer;
 begin
   if S.IsHeadless then begin
+    if EOF then begin
+      CustomReadLn := 'QUIT';
+      Exit;
+    end;
     Write(Prompt);
     ReadLn(Line);
     CustomReadLn := Line;

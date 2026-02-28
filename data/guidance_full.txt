@@ -1,13 +1,37 @@
 You are playing a text adventure game called 'Echoes of Dustwood'.
-LOOK, HELP, INVENTORY, SCORE, EXAMINE, SEARCH, and CHECK INVENTORY do NOT consume turns.
+- CRITICAL: STICK TO THE VERB LIST. Use only simple commands like 'TAKE WIRE' or 'FIX PUMP'.
+- ONCE YOU HAVE AN ITEM, MOVE ON to the next task.
+- Use 'INVENTORY' to confirm you have the required items.
+- IF STUCK, 'LOOK' or move to a different room.
+- LOOK, HELP, INVENTORY, SCORE, EXAMINE, SEARCH, and CHECK INVENTORY do NOT consume turns.
+- Use 'SCORE' periodically (every 5-10 turns) to check your progress.
+Do NOT use LOOK if the room description and items are already visible in the previous output. 
+Move efficiently: if you know the exits and have checked for items, move to the next room or perform your task immediately.
 Only use INVENTORY when you need to confirm you have a required item.
-You will die after 50 turns without water. Your horse will die after too long in the desert without water.
-When you enter a new room, use LOOK to see the exits so you can plan your movement.
+You will die after 25 turns without water. Your horse will die after too long in the desert without water.
+When you enter a new room for the first time, use LOOK to see the exits so you can plan your movement.
 If you already took an item, do NOT try to TAKE it again. Move on.
 Never TAKE an item you already have in your inventory.
 Avoid using INVENTORY right after taking something unless you need to confirm a requirement.
 Only TAKE items that are visibly listed in the room's item list.
 Take the MAP as soon as you find it; it reveals exits in rooms.
+If you have done everything in a room, MOVE to the next room immediately. Don't linger.
+
+Inventory Management:
+- Your inventory is limited to 5 items (including the book/note). 
+- If your inventory is full (5/5), you MUST 'DROP' an item before you can 'TAKE' something else.
+- ESSENTIAL ITEMS: MAP, CANTEEN, LEATHER, SADDLE, MATCHES, KEY, REVOLVER.
+- DISPOSABLE ITEMS (Points only): BOOK, NOTE, WIRE (after fixing telegraph), PAGE.
+- If you need space, always 'DROP BOOK' or 'DROP NOTE' first.
+- Use 'INVENTORY' to see what you are carrying.
+
+Fixed Items:
+- Some items (like the 'torn ledger page' or 'rusted iron water pump') are bolted down or fixed in place.
+- If 'TAKE' fails with 'You can't take that', do NOT try to take it again. Use 'EXAMINE' to read or inspect it.
+
+Puzzle Notes:
+- The locked gun box requires a specific KEY. You cannot 'UNLOCK' it with wire, 'FORCE' it, or 'OPEN' it without the key.
+- Once you find the KEY at the stream, return to the Sheriff's Office to 'OPEN BOX'.
 
 Map Directions:
 - EAST: General Store (Go here for canteen and leather)
@@ -19,11 +43,13 @@ Map Directions:
 - SOUTH from the Desert Edge leads into the desert (only safe with a saddled horse).
 
 Task Sequence:
-1. Explore the town rooms (NORTH, SOUTH, EAST, WEST) until you find the MAP, then TAKE MAP.
-1b. In the Telegraph Office, TAKE WIRE and FIX TELEGRAPH using the wire (optional but scores).
-2. Move back to Main Street, then EAST to the General Store.
+1. PRIMARY GOAL: Explore the town rooms (NORTH, SOUTH, EAST, WEST) until you find the MAP, then TAKE MAP. 
+   - This is your top priority. Do not stop searching for the map unless you start to get thirsty.
+   - If you have explored a room and it doesn't have the MAP, do not keep LOOKing there; move to a different room.
+1b. While searching for the map: If you are in the Telegraph Office, TAKE WIRE and FIX TELEGRAPH using the wire (optional but scores).
+2. ONLY IF YOU ARE THIRSTY or have the MAP: Move to the General Store (EAST from Main Street).
 3. TAKE items one at a time: TAKE CANTEEN, TAKE LEATHER, TAKE SADDLE, TAKE MATCHES.
-3. Do NOT waste turns in the store. Move WEST to return to Main Street.
+3. Do NOT waste turns in the store. Move WEST to return to Main Street once you have the items.
 4. Move WEST to the Sheriff's Office.
 5. The box is locked. You need a key from the stream (hidden under a rock). Check the Assayer's Office for a clue if needed.
 6. Move EAST to return to Main Street, then SOUTH to the Livery Stables.

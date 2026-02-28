@@ -4,23 +4,25 @@ import logging
 import sys
 import subprocess
 import selectors
-import re
-import json
-from typing import Optional, Literal
+from typing import Optional, Literal, Union
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
-from pydantic_ai import Agent, RunContext
-from pydantic_ai.models import KnownModelName
+
+# Strands Imports
+from strands import Agent
+from strands.models.litellm import LiteLLMModel
+from strands.agent.conversation_manager import SlidingWindowConversationManager
 
 # Load environment variables from .env if present
 load_dotenv()
 
 # --- Configuration ---
-BINARY_PATH = os.environ.get("DUSTWOOD_BIN", "bin/dustwood")
-DEFAULT_MODEL: KnownModelName = "google-gla:gemini-3-flash-preview"
+BINARY_PATH = "bin/dustwood"
+# Map Pydantic AI style model names to LiteLLM style
+DEFAULT_MODEL_ID = "gemini/gemini-3-flash-preview" 
 # Create a unique log file for each session
 EPOCH = int(time.time())
-LOG_FILE = f"logs/ai_client-{EPOCH}.log"
+LOG_FILE = f"logs/strands_ai_client-{EPOCH}.log"
 TURN_DELAY = 1
 MAX_OUTPUT_CHARS = 2000
 MESSAGE_HISTORY_LIMIT = 4
@@ -35,21 +37,6 @@ OUTLAW_SAFE_COMMANDS = {
     "NORTH", "SOUTH", "EAST", "WEST",
     "LOOK", "L", "INVENTORY", "I",
     "DISMOUNT", "MOUNT",
-}
-
-ITEM_KEYWORDS = {
-    "BOOK", "CANTEEN", "WIRE", "LEATHER", "SADDLE", "MATCHES", "REVOLVER", "MAP", "KEY", "LEDGER", "BOX", "PUMP"
-}
-
-NOUN_ALIASES = {
-    "GUN BOX": "BOX",
-    "GUNBOX": "BOX",
-    "MARE": "HORSE",
-    "STURDY CHESTNUT MARE": "HORSE",
-    "FADED HAND-DRAWN MAP": "MAP",
-    "FADED MAP": "MAP",
-    "RUSTED IRON WATER PUMP": "PUMP",
-    "WATER PUMP": "PUMP",
 }
 
 # --- Setup Logging ---
@@ -67,14 +54,14 @@ logger.addHandler(file_handler)
 
 # Clean Console Logger
 console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
+console_handler.setLevel(logging.DEBUG)
 console_handler.setFormatter(logging.Formatter('%(message)s'))
 logger.addHandler(console_handler)
 
 # --- Game Interface ---
 
 class DustwoodGame:
-    """Manages the lifecycle of the headless game process."""
+    """Manages the lifecycle of the headless Pascal game process."""
     def __init__(self, binary_path: str = BINARY_PATH, prompt: str = "> "):
         self.binary_path = binary_path
         self.prompt = prompt
@@ -175,20 +162,15 @@ class CommandOnlyResponse(BaseModel):
     """Structured response format without reasoning to reduce tokens."""
     command: str = Field(..., description="A single valid game command (e.g., 'NORTH', 'TAKE CANTEEN', 'LOOK')")
 
-class GameDeps:
-    """Dependencies for the Pydantic AI agent."""
-    def __init__(self, game: DustwoodGame):
-        self.game = game
-
 # --- AI Logic ---
 
 ALLOWED_VERBS = {
     "N", "NORTH", "S", "SOUTH", "E", "EAST", "W", "WEST",
     "LOOK", "L", "EXAMINE", "X", "SEARCH",
-    "HELP", "H", "?", "INVENTORY", "I", "INV",
+    "HELP", "H", "?", "INVENTORY", "I",
     "DRINK", "FILL", "WATER", "LIGHT", "FIX", "SADDLE",
     "PUT", "CLIMB", "SAVE", "LOAD", "SCORE",
-    "TAKE", "GET", "DROP", "D",
+    "TAKE", "GET", "DROP",
     "QUIT", "Q",
     "MOUNT", "RIDE", "DISMOUNT",
     "OPEN", "SHOOT", "KILL", "FREEZE", "WAIT", "CHECK",
@@ -205,6 +187,7 @@ def sanitize_command(command: str) -> str:
     
     # Check if the output is the whole JSON or a fragment
     if "{" in cmd:
+        import re
         # Try to find "command": "VALUE"
         match = re.search(r'"command"\s*:\s*"([^"]+)"', cmd, re.IGNORECASE)
         if match:
@@ -221,12 +204,6 @@ def sanitize_command(command: str) -> str:
                     cmd = match.group(1)
 
     cmd = cmd.upper()
-    
-    # Apply noun aliases
-    for alias, replacement in NOUN_ALIASES.items():
-        if alias in cmd:
-            cmd = cmd.replace(alias, replacement)
-
     # Remove all common punctuation that isn't part of a command
     for ch in [".", ",", "!", "?", ";", ":", "`", "(", ")", "[", "]", "{", "}", "\"", "'"]:
         cmd = cmd.replace(ch, "")
@@ -246,35 +223,20 @@ def sanitize_command(command: str) -> str:
     if "WATER HORSE" in cmd: cmd = "WATER"
     if "UNLOCK" in cmd: cmd = "OPEN BOX"
     if "FORCE" in cmd: cmd = "EXAMINE BOX"
-    
-    # Smart item mapping for common model hallucinations
-    for keyword in ITEM_KEYWORDS:
-        if keyword in cmd:
-            if "TAKE" in cmd or "GET" in cmd:
-                cmd = f"TAKE {keyword}"
-            elif "EXAMINE" in cmd or "READ" in cmd or "X " in cmd:
-                cmd = f"EXAMINE {keyword}"
-            elif "DROP" in cmd:
-                cmd = f"DROP {keyword}"
-    
-    return cmd
 
-def extract_command_from_raw(raw_text: str) -> tuple[str, Optional[str]]:
-    """Extracts command (and optional reasoning) from raw model output."""
-    reasoning = None
-    json_matches = list(re.finditer(r'\{.*\}', raw_text, re.DOTALL))
-    if json_matches:
-        json_str = json_matches[-1].group()
-        try:
-            data = json.loads(json_str)
-            if isinstance(data, dict):
-                if "reasoning" in data:
-                    reasoning = str(data.get("reasoning", "")).strip()
-                if "command" in data:
-                    return sanitize_command(str(data["command"])), reasoning
-        except Exception:
-            pass
-    return sanitize_command(raw_text), reasoning
+    # Smart item mapping for common model hallucinations
+    if "WIRE" in cmd:
+        if "TAKE" in cmd: cmd = "TAKE WIRE"
+        if "EXAMINE" in cmd: cmd = "EXAMINE WIRE"
+    if "MAP" in cmd:
+        if "TAKE" in cmd: cmd = "TAKE MAP"
+        if "EXAMINE" in cmd: cmd = "EXAMINE MAP"
+    if "CANTEEN" in cmd:
+        if "TAKE" in cmd: cmd = "TAKE CANTEEN"
+    if "SADDLE" in cmd and "SADDLE HORSE" not in cmd:
+        if "TAKE" in cmd: cmd = "TAKE SADDLE"
+
+    return cmd
 
 def is_valid_command(command: str) -> bool:
     """Verifies if the command starts with a valid verb."""
@@ -287,7 +249,6 @@ def trim_output(text: str, max_chars: int = MAX_OUTPUT_CHARS) -> str:
     """Trims long game output to keep prompts compact."""
     if len(text) <= max_chars:
         return text
-    # Keep the most recent portion
     return text[-max_chars:]
 
 def output_signature(text: str) -> str:
@@ -304,67 +265,48 @@ def next_explore_command(last_command: str, explore_index: int) -> tuple[str, in
     return "LOOK", explore_index + 1
 
 def map_model_name(model_name: str) -> str:
-    """Maps user-friendly model names to Pydantic AI format."""
+    """Maps Pydantic AI model names to LiteLLM/Strands format."""
+    if model_name.startswith("google-gla:"):
+        # e.g. google-gla:gemini-1.5-flash -> gemini/gemini-1.5-flash
+        return "gemini/" + model_name.replace("google-gla:", "")
+    if model_name.startswith("ollama:"):
+        # e.g. ollama:llama3 -> ollama/llama3
+        return model_name.replace("ollama:", "ollama/")
+    if model_name.startswith("openai:"):
+        # e.g. openai:gpt-4o -> openai/gpt-4o
+        return model_name.replace("openai:", "openai/")
+    if model_name.startswith("anthropic:"):
+        # e.g. anthropic:claude-3-5-sonnet-20240620 -> anthropic/claude-3-5-sonnet-20240620
+        return model_name.replace("anthropic:", "anthropic/")
     if model_name.startswith("claude:"):
-        return "anthropic:" + model_name.replace("claude:", "")
+        # e.g. claude:sonnet -> anthropic/claude-sonnet
+        return "anthropic/" + model_name.replace("claude:", "")
     return model_name
 
-def setup_ollama(model_name: str):
+def setup_ollama(model_id: str):
     """Configures Ollama environment variables if needed."""
-    if model_name.startswith('ollama:'):
-        # Default to localhost if OLLAMA_HOST is not set
+    if model_id.startswith('ollama/'):
         host = os.environ.get('OLLAMA_HOST', 'http://localhost:11434')
-        
-        # Ensure the protocol is present
         if not host.startswith(('http://', 'https://')):
             host = 'http://' + host
-        
         base_url = host.rstrip('/')
+        # Point to the V1 endpoint for better compatibility with LiteLLM's OpenAI provider
         if not base_url.endswith('/v1'):
             base_url += '/v1'
-        
-        os.environ['OLLAMA_BASE_URL'] = base_url
-        logger.info(f"Ollama config: OLLAMA_BASE_URL set to {base_url}")
-
-def _current_room_name(game_output: str) -> str | None:
-    room_match = re.search(r"📍 === (.*?) ===", game_output)
-    if room_match:
-        return room_match.group(1).strip()
-    return None
-
-def _threat_override(game_output: str) -> str | None:
-    upper_output = game_output.upper()
-    if "RATTLESNAKE" in upper_output or "SNAKE" in upper_output:
-        return "FREEZE"
-    if "DIRTY OUTLAW" in upper_output:
-        room = _current_room_name(game_output) or ""
-        escape_map = {
-            "General Store": "WEST",
-            "Sheriff's Office": "EAST",
-            "Assayer's Office": "EAST",
-            "Livery Stables": "NORTH",
-            "Telegraph Office": "SOUTH",
-            "The Desert Edge": "NORTH",
-            "Dry Wash": "NORTH",
-            "Howling Desert": "NORTH",
-            "Butte": "NORTH",
-            "Hidden Stream": "SOUTH",
-            "Main Street": "EAST",
-        }
-        return escape_map.get(room, "NORTH")
-    return None
+        os.environ['OLLAMA_API_BASE'] = base_url
+        logger.info(f"Ollama config: OLLAMA_API_BASE set to {base_url}")
 
 def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int):
-    """Main loop for the AI agent to play the game."""
+    """Main loop for the AI agent to play the game using Strands."""
     if not os.path.exists(guidance_file):
         logger.error(f"Guidance file not found: {guidance_file}")
         return
 
-    model_name = map_model_name(raw_model_name)
-    setup_ollama(model_name)
+    model_id = map_model_name(raw_model_name)
+    setup_ollama(model_id)
     
     # Dynamic delay: lower for local models
-    if model_name.startswith('ollama'):
+    if model_id.startswith('ollama/'):
         delay = max(0.1, delay * 0.2)
         logger.info(f"Dynamic delay applied: {delay:.2f}s")
 
@@ -372,48 +314,59 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
         system_instruction = f.read().strip()
 
     game = DustwoodGame()
-    deps = GameDeps(game)
     
     reasoning_enabled = os.environ.get(REASONING_ENV_VAR, "0") not in {"0", "false", "False"}
     output_model = CommandResponse if reasoning_enabled else CommandOnlyResponse
     example_json = '{"command": "LOOK", "reasoning": "Gather current room details."}' if reasoning_enabled else '{"command": "LOOK"}'
 
-    use_raw_json = model_name.startswith('ollama')
+    # Initialize Strands Agent
+    # For Ollama models, we'll use the OpenAI-compatible provider for better results with LiteLLM
+    client_args = {}
+    if model_id.startswith("ollama/"):
+        host = os.environ.get('OLLAMA_HOST', 'http://localhost:11434')
+        if not host.startswith(('http://', 'https://')):
+            host = 'http://' + host
+        
+        actual_model = model_id.replace("ollama/", "")
+        # Force the 'openai/' prefix to use LiteLLM's OpenAI compatibility layer
+        model_id = f"openai/{actual_model}"
+        client_args["api_base"] = host.rstrip('/') + "/v1"
+        client_args["api_key"] = "ollama" # Dummy key
+        logger.info(f"Configuring LiteLLM with OpenAI-compatible base: {client_args['api_base']}")
 
-    system_prompt = (
-        f"{system_instruction}\n\n"
-        "You are an expert adventurer. Provide your next action as a single command.\n"
-        "CRITICAL: Use ONLY the valid verbs listed below. Do NOT attempt complex phrases or actions not in this list.\n"
-        "Valid verbs: " + ", ".join(sorted(ALLOWED_VERBS)) + ".\n"
-        "Return JSON only. No extra text.\n"
-        f"Example JSON: {example_json}"
+    # include_reasoning is often not supported as a top-level param by Ollama
+    # but the OpenAI layer handles the stream better.
+    llm_model = LiteLLMModel(
+        model_id=model_id, 
+        client_args=client_args, 
+        params={"max_tokens": 4000}
+    )
+    
+    # SlidingWindowConversationManager handles history pruning automatically
+    conv_manager = SlidingWindowConversationManager(window_size=MESSAGE_HISTORY_LIMIT)
+
+    agent = Agent(
+        model=llm_model,
+        system_prompt=(
+            f"{system_instruction}\n\n"
+            "You are an expert adventurer. Provide your next action as a single command.\n"
+            "CRITICAL: Use ONLY the valid verbs listed below. Do NOT attempt complex phrases or actions not in this list.\n"
+            "Valid verbs: " + ", ".join(sorted(ALLOWED_VERBS)) + ".\n"
+            "IMPORTANT: Your final response MUST be a valid JSON object only. "
+            "Do NOT include <thought> blocks, explanations, or markdown formatting in your final output.\n"
+            f"Example JSON: {example_json}"
+        ),
+        conversation_manager=conv_manager
     )
 
-    if use_raw_json:
-        agent = Agent(
-            model_name,
-            deps_type=GameDeps,
-            system_prompt=system_prompt
-        )
-    else:
-        agent = Agent(
-            model_name,
-            deps_type=GameDeps,
-            output_type=output_model,
-            output_retries=3,
-            system_prompt=system_prompt
-        )
-
-    logger.info(f"--- AI Player starting (Model: {model_name}) ---")
+    logger.info(f"--- Strands AI Player starting (Model: {model_id}) ---")
     
-    # Optional seed for reproducibility
     seed = os.environ.get("GAME_SEED")
     last_output = game.start(seed=int(seed) if seed else None, turns=max_turns)
     
     logger.info(f"\n[STARTING GAME]\n{last_output.strip()}")
 
     turns = 0
-    message_history = []
     last_command = ""
     last_output_sig = ""
     repeat_count = 0
@@ -434,10 +387,12 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
             turns += 1
             
             # --- Parse State from last_output ---
+            import re
+            
             # 1. Detect Room
-            room_name = _current_room_name(last_output)
-            if room_name:
-                current_room = room_name
+            room_match = re.search(r"📍 === (.*?) ===", last_output)
+            if room_match:
+                current_room = room_match.group(1).strip()
                 if current_room not in knowledge_base:
                     knowledge_base[current_room] = []
             
@@ -517,7 +472,6 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
 
             logger.info(f"\n--- Turn {turns} ---")
             
-            # Prepare context for the agent
             trimmed_output = trim_output(last_output)
             
             # Format Knowledge Base for context
@@ -558,54 +512,83 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
                 "2. For 'TAKE', 'DROP', or 'EXAMINE', you MUST include the item name (e.g., 'TAKE CANTEEN').\n"
                 "3. SHORT NAMES: Use only the last word of an item description (e.g., for 'a spool of copper wire', use 'WIRE').\n"
                 "4. ONCE YOU HAVE AN ITEM, MOVE ON. Do not keep searching for it.\n"
-                "Output ONLY the JSON. No conversational text, no thought blocks."
+                "Output ONLY the JSON. No conversational text, no thought blocks, no markdown formatting."
             )
 
-            # Use retry logic for robustness against model hallucinations
+            choice = None
+            raw_text = ""
             try:
-                result = agent.run_sync(
-                    context,
-                    deps=deps,
-                    message_history=message_history
-                )
-                if use_raw_json:
-                    raw_text = str(result.output)
-                    command, extracted_reasoning = extract_command_from_raw(raw_text)
-                    if reasoning_enabled and extracted_reasoning:
-                        logger.info(f"AI THINKING: {extracted_reasoning}")
-                else:
-                    choice = result.output
-                    command = sanitize_command(choice.command)
-                    if reasoning_enabled and hasattr(choice, "reasoning"):
-                        logger.info(f"AI THINKING: {choice.reasoning}")
-                message_history = result.new_messages()[-MESSAGE_HISTORY_LIMIT:]
-            except Exception as e:
-                logger.warning(f"Agent failed to provide structured output: {e}. Attempting robust fallback...")
-                frustration += 1
-                try:
-                    # Fallback to simple string if structured fails
-                    fallback_agent = Agent(model_name, instructions=system_instruction)
-                    raw_result = fallback_agent.run_sync(f"{context}\n\nProvide the JSON object ONLY. No thinking, no intro text.")
-                    raw_text = str(raw_result.output)
-                    command, extracted_reasoning = extract_command_from_raw(raw_text)
-                    if reasoning_enabled and extracted_reasoning:
-                        logger.info(f"AI THINKING (extracted): {extracted_reasoning}")
-                except Exception as e2:
-                    logger.error(f"Fallback also failed: {e2}")
-                    command = "LOOK"
+                # Use a manual retry/repair loop to mimic Pydantic AI's robustness
+                for attempt in range(3):
+                    try:
+                        # Call agent without structured_output_model to avoid forced tool calls
+                        # This allows reasoning models to "think" if they must, 
+                        # and then we extract the JSON ourselves.
+                        # Explicitly disable streaming to avoid console noise
+                        result = agent(context, stream=False)
+                        raw_text = str(result)
+                        logger.debug(f"RAW MODEL RESPONSE:\n{raw_text}")
+                        
+                        # Extract JSON
+                        import re
+                        import json
+                        
+                        # Strip markdown code blocks if present
+                        if "```json" in raw_text:
+                            raw_text = raw_text.split("```json")[1].split("```")[0]
+                        elif "```" in raw_text:
+                            raw_text = raw_text.split("```")[1].split("```")[0]
 
-            # Threat Override (Local feature)
-            override = _threat_override(last_output)
-            if override:
-                logger.info(f"THREAT DETECTED: Overriding command with {override}")
-                command = override
+                        # Find all { } blocks
+                        json_matches = list(re.finditer(r'\{[\s\S]+?\}', raw_text))
+                        
+                        parsed_valid = False
+                        if json_matches:
+                            # Try matches in reverse order (models often put final answer at the end)
+                            for match in reversed(json_matches):
+                                try:
+                                    json_str = match.group()
+                                    data = json.loads(json_str)
+                                    # Validate against our Pydantic model
+                                    choice = output_model(**data)
+                                    command = sanitize_command(choice.command)
+                                    if reasoning_enabled and hasattr(choice, "reasoning"):
+                                        logger.info(f"AI THINKING: {choice.reasoning}")
+                                    parsed_valid = True
+                                    break
+                                except Exception:
+                                    continue
+                        
+                        if not parsed_valid:
+                            # If no JSON block found or valid, maybe the model responded with raw text?
+                            # We'll try to treat it as a command directly if it's the 3rd attempt
+                            if attempt == 2:
+                                logger.warning("No valid JSON found after extraction. Attempting to use raw text as command.")
+                                command = sanitize_command(raw_text)
+                                break
+                            raise ValueError("No valid JSON block found in response")
+                        
+                        break
+                    except Exception as e:
+                        if attempt == 2: raise e
+                        logger.warning(f"JSON Parse/Validation attempt {attempt+1} failed: {e}. Retrying...")
+                        # On retry, be even more explicit
+                        context += "\n\nCRITICAL: You must output valid JSON only. Your previous attempt failed validation."
+                        time.sleep(1)
+                        frustration += 1
+                
+            except Exception as e:
+                logger.error(f"Strands Agent failed to provide valid JSON: {e}. Final fallback to raw extraction.")
+                frustration += 1
+                # Last ditch effort: sanitize whatever the model said
+                command = sanitize_command(raw_text or "LOOK")
 
             if not is_valid_command(command):
                 logger.warning(f"Invalid command generated: '{command}'. Defaulting to 'LOOK'.")
                 frustration += 1
                 command = "LOOK"
             
-            # Simple loop detection: repeated command with identical output
+            # Simple loop detection
             current_sig = output_signature(last_output)
             if command == last_command and current_sig == last_output_sig:
                 repeat_count += 1
@@ -672,6 +655,7 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
             last_output_sig = output_signature(last_output)
 
             # --- Score Tracking ---
+            import re
             score_match = re.search(r"🏆 Score:\s*(\d+)", last_output)
             if score_match:
                 logger.info(f"🏆 [SCORE UPDATE]: {score_match.group(1)}")
@@ -692,6 +676,7 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
     finally:
         # One last read to capture final score if game ended
         final_output = game._read_until_prompt(timeout=1.0)
+        import re
         # Check for both regular score and final score at the end
         score_match = re.search(r"🏆 Score:\s*(\d+)", final_output)
         if score_match:
@@ -699,13 +684,13 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
         final_match = re.search(r"Final score:\s*(\d+)", final_output)
         if final_match:
             logger.info(f"🏆 [FINAL SCORE]: {final_match.group(1)}")
-        
+
         game.stop()
-        logger.info("AI session complete.")
+        logger.info("Strands AI session complete.")
 
 if __name__ == "__main__":
     level = sys.argv[1] if len(sys.argv) > 1 else "full"
-    model = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_MODEL
+    model = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_MODEL_ID
     delay = int(sys.argv[3]) if len(sys.argv) > 3 else TURN_DELAY
     max_turns = int(sys.argv[4]) if len(sys.argv) > 4 else 25
     
