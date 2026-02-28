@@ -6,9 +6,10 @@ import (
 	"time"
 )
 
-func NewGame(seed *int64, out io.Writer) *GameState {
+func NewGame(seed *int64, turnLimit int, out io.Writer) *GameState {
 	var s GameState
 	initState(&s)
+	s.TurnLimit = turnLimit
 	if out != nil {
 		s.Out = out
 	}

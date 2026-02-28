@@ -6,10 +6,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -29,12 +27,14 @@ type MCPServer struct {
 	mu          sync.Mutex
 	game        *GameState
 	defaultSeed *int64
+	turnLimit   int
 }
 
-func NewMCPServer(seed *int64) *MCPServer {
+func NewMCPServer(seed *int64, turnLimit int) *MCPServer {
 	return &MCPServer{
-		game:        NewGame(seed, io.Discard),
+		game:        NewGame(seed, turnLimit, io.Discard),
 		defaultSeed: seed,
+		turnLimit:   turnLimit,
 	}
 }
 
@@ -51,6 +51,13 @@ func ExecuteCommand(s *GameState, cmd string) (string, GameSummary) {
 		look(s)
 	} else {
 		processCommand(s, trimmed)
+	}
+
+	if s.IsPlaying && s.TurnLimit > 0 && s.Turns >= s.TurnLimit {
+		outPrintln(s)
+		outPrintln(s, "⏳ You have taken too long. The sun dips below the horizon.")
+		outPrintln(s, "GAME OVER.")
+		s.IsPlaying = false
 	}
 
 	return buf.String(), SummarizeState(s)
@@ -70,7 +77,7 @@ func (s *MCPServer) HandleCommand(_ context.Context, _ *mcp.CallToolRequest, inp
 			seed = input.Seed
 		}
 		var buf bytes.Buffer
-		s.game = NewGame(seed, &buf)
+		s.game = NewGame(seed, s.turnLimit, &buf)
 		resetSummary := SummarizeState(s.game)
 		slog.Info("command",
 			"cmd", "[reset]",
@@ -82,10 +89,7 @@ func (s *MCPServer) HandleCommand(_ context.Context, _ *mcp.CallToolRequest, inp
 		)
 
 		if !resetSummary.IsPlaying {
-			slog.Info("game ended after reset, shutting down server")
-			time.AfterFunc(100*time.Millisecond, func() {
-				os.Exit(0)
-			})
+			slog.Info("game ended after reset")
 		}
 
 		return nil, &CommandOutput{
@@ -105,10 +109,7 @@ func (s *MCPServer) HandleCommand(_ context.Context, _ *mcp.CallToolRequest, inp
 	)
 
 	if !summary.IsPlaying {
-		slog.Info("game ended, shutting down server")
-		time.AfterFunc(100*time.Millisecond, func() {
-			os.Exit(0)
-		})
+		slog.Info("game ended")
 	}
 
 	return nil, &CommandOutput{

@@ -39,26 +39,19 @@ func main() {
 		if len(origins) == 0 {
 			origins = append(origins, "http://localhost", "http://127.0.0.1")
 		}
-		server := NewMCPServer(seed)
+		server := NewMCPServer(seed, *turnLimitFlag)
 		if err := RunMCPHTTP(server, *mcpAddr, *mcpPath, origins, *mcpToken, *mcpJSON, *mcpStateless); err != nil {
 			log.Fatal(err)
 		}
 		return
 	}
 
-	s := NewGame(seed, nil)
+	s := NewGame(seed, *turnLimitFlag, nil)
 	s.IsHeadless = *headless
 
-	turnLimit := *turnLimitFlag
 	for s.IsPlaying {
 		cmd := customReadLn(s, "> ")
 		processCommand(s, cmd)
-		if s.Turns >= turnLimit && s.IsPlaying {
-			outPrintln(s)
-			outPrintln(s, "⏳ You have taken too long. The sun dips below the horizon.")
-			outPrintln(s, "GAME OVER.")
-			s.IsPlaying = false
-		}
 	}
 	outPrintln(s)
 	outPrintf(s, "🏆 Final score: %d\n", s.Score)

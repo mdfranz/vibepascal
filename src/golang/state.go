@@ -29,6 +29,7 @@ type GameState struct {
 	OutlawRoom     int
 	Thirst         int
 	Turns          int
+	TurnLimit      int
 	HorseThirst    int
 	Score          int
 
