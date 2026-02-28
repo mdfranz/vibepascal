@@ -272,6 +272,15 @@ def map_model_name(model_name: str) -> str:
     if model_name.startswith("ollama:"):
         # e.g. ollama:llama3 -> ollama/llama3
         return model_name.replace("ollama:", "ollama/")
+    if model_name.startswith("openai:"):
+        # e.g. openai:gpt-4o -> openai/gpt-4o
+        return model_name.replace("openai:", "openai/")
+    if model_name.startswith("anthropic:"):
+        # e.g. anthropic:claude-3-5-sonnet-20240620 -> anthropic/claude-3-5-sonnet-20240620
+        return model_name.replace("anthropic:", "anthropic/")
+    if model_name.startswith("claude:"):
+        # e.g. claude:sonnet -> anthropic/claude-sonnet
+        return "anthropic/" + model_name.replace("claude:", "")
     return model_name
 
 def setup_ollama(model_id: str):

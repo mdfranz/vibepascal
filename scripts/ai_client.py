@@ -285,6 +285,13 @@ def next_explore_command(last_command: str, explore_index: int) -> tuple[str, in
         if cmd != last_command:
             return cmd, idx + 1
     return "LOOK", explore_index + 1
+
+def map_model_name(model_name: str) -> str:
+    """Maps user-friendly model names to Pydantic AI format."""
+    if model_name.startswith("claude:"):
+        return "anthropic:" + model_name.replace("claude:", "")
+    return model_name
+
 def setup_ollama(model_name: str):
     """Configures Ollama environment variables if needed."""
     if model_name.startswith('ollama:'):
@@ -304,12 +311,13 @@ def setup_ollama(model_name: str):
         os.environ['OLLAMA_BASE_URL'] = base_url
         logger.info(f"Ollama config: OLLAMA_BASE_URL set to {base_url}")
 
-def ai_play(guidance_file: str, model_name: str, delay: int, max_turns: int):
+def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int):
     """Main loop for the AI agent to play the game."""
     if not os.path.exists(guidance_file):
         logger.error(f"Guidance file not found: {guidance_file}")
         return
 
+    model_name = map_model_name(raw_model_name)
     setup_ollama(model_name)
     
     # Dynamic delay: lower for local models
