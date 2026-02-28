@@ -1,0 +1,46 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with Litmus
+*.out
+
+# Go architecture-specific objects
+*.[0-9]
+*.wasm
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Project-specific binaries
+bin/
+build/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Pascal
+*.o
+*.ppu
+src/pascal/dustwood
+
+# Logs
+logs/
+
+# Tools
+.claude/
+node_modules/
