@@ -11,7 +11,7 @@ import (
 func loadWorld(s *GameState, path string) {
 	cfg, err := ini.Load(path)
 	if err != nil {
-		fmt.Printf("Error loading world: %v\n", err)
+		outPrintf(s, "Error loading world: %v\n", err)
 		return
 	}
 

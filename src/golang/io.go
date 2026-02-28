@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -14,11 +13,11 @@ import (
 // headlessReader is created once so buffered data isn't lost between calls.
 var headlessReader *bufio.Reader
 
-func wrapWriteLn(s string) {
+func wrapWriteLn(s *GameState, text string) {
 	const maxWidth = 79
-	for utf8.RuneCountInString(s) > maxWidth {
+	for utf8.RuneCountInString(text) > maxWidth {
 		// Find last space at or before maxWidth
-		runes := []rune(s)
+		runes := []rune(text)
 		spacePos := maxWidth
 		for spacePos > 0 && runes[spacePos] != ' ' {
 			spacePos--
@@ -26,10 +25,10 @@ func wrapWriteLn(s string) {
 		if spacePos == 0 {
 			spacePos = maxWidth
 		}
-		fmt.Println(string(runes[:spacePos]))
-		s = strings.TrimLeft(string(runes[spacePos:]), " ")
+		outPrintln(s, string(runes[:spacePos]))
+		text = strings.TrimLeft(string(runes[spacePos:]), " ")
 	}
-	fmt.Println(s)
+	outPrintln(s, text)
 }
 
 func isDark(s *GameState) bool {
@@ -47,46 +46,46 @@ func findItemInLoc(name string, loc int, s *GameState) int {
 }
 
 func look(s *GameState) {
-	fmt.Println()
+	outPrintln(s)
 	if isDark(s) {
-		wrapWriteLn("🌑 It is pitch black. You can't see anything.")
+		wrapWriteLn(s, "🌑 It is pitch black. You can't see anything.")
 		return
 	}
 
 	if s.RoomBurning[s.CurrentRoom.ID] > 0 {
-		fmt.Println("🔥 The room is lit by a growing fire.")
+		outPrintln(s, "🔥 The room is lit by a growing fire.")
 	}
 
 	if s.Turns >= DarkTurn {
-		fmt.Println("🌕 [The moon hangs in the black sky]")
+		outPrintln(s, "🌕 [The moon hangs in the black sky]")
 	} else if s.Turns >= TwilightTurn {
-		fmt.Println("🌇 [The sky is purple as the sun sets]")
+		outPrintln(s, "🌇 [The sky is purple as the sun sets]")
 	}
 
 	if s.IsRiding {
-		fmt.Print("🏇 ")
+		outPrint(s, "🏇 ")
 	}
-	fmt.Printf("📍 === %s === ", s.CurrentRoom.Name)
+	outPrintf(s, "📍 === %s === ", s.CurrentRoom.Name)
 	switch s.CurrentRoom.ID {
 	case 1:
-		fmt.Print("🏘️")
+		outPrint(s, "🏘️")
 	case 2:
-		fmt.Print("📟")
+		outPrint(s, "📟")
 	case 3:
-		fmt.Print("🐴")
+		outPrint(s, "🐴")
 	case 4:
-		fmt.Print("⚖️")
+		outPrint(s, "⚖️")
 	case 5:
-		fmt.Print("🛒")
+		outPrint(s, "🛒")
 	case 6:
-		fmt.Print("🌵")
+		outPrint(s, "🌵")
 	case 7:
-		fmt.Print("👮")
+		outPrint(s, "👮")
 	case 8, 9, 10, 11, 12, 13:
-		fmt.Print("🏜️")
+		outPrint(s, "🏜️")
 	}
-	fmt.Println()
-	wrapWriteLn(s.CurrentRoom.Description)
+	outPrintln(s)
+	wrapWriteLn(s, s.CurrentRoom.Description)
 
 	if findItemInLoc("MAP", InvLocation, s) > 0 {
 		exits := ""
@@ -104,34 +103,34 @@ func look(s *GameState) {
 		}
 		if exits != "" {
 			exits = exits[:len(exits)-2]
-			fmt.Printf("Exits: [%s]\n", exits)
+			outPrintf(s, "Exits: [%s]\n", exits)
 		}
 	}
 
 	if s.SnakeRoom == s.CurrentRoom.ID {
-		fmt.Println()
-		fmt.Println("!!! A RATTLESNAKE is coiled here, buzzing its tail angrily !!!")
-		fmt.Println("One wrong move could be your last.")
+		outPrintln(s)
+		outPrintln(s, "!!! A RATTLESNAKE is coiled here, buzzing its tail angrily !!!")
+		outPrintln(s, "One wrong move could be your last.")
 	}
 
 	if s.OutlawRoom == s.CurrentRoom.ID {
-		fmt.Println()
-		fmt.Println("!!! A DIRTY OUTLAW is leaning against the wall, hand on his holster !!!")
-		fmt.Println(`"You don't belong here, stranger," he sneers.`)
+		outPrintln(s)
+		outPrintln(s, "!!! A DIRTY OUTLAW is leaning against the wall, hand on his holster !!!")
+		outPrintln(s, `"You don't belong here, stranger," he sneers.`)
 	}
 
 	foundItems := false
 	for i := 1; i <= MaxItems; i++ {
 		if s.Items[i].Location == s.CurrentRoom.ID {
 			if !foundItems {
-				fmt.Println()
-				fmt.Println("📦 You see the following here:")
+				outPrintln(s)
+				outPrintln(s, "📦 You see the following here:")
 				foundItems = true
 			}
-			fmt.Printf("  - %s\n", s.Items[i].Description)
+			outPrintf(s, "  - %s\n", s.Items[i].Description)
 		}
 	}
-	fmt.Println()
+	outPrintln(s)
 }
 
 func customReadLn(s *GameState, prompt string) string {
@@ -139,7 +138,7 @@ func customReadLn(s *GameState, prompt string) string {
 		if headlessReader == nil {
 			headlessReader = bufio.NewReader(os.Stdin)
 		}
-		fmt.Print(prompt)
+		outPrint(s, prompt)
 		line, err := headlessReader.ReadString('\n')
 		line = strings.TrimRight(line, "\r\n")
 		if err == io.EOF {
@@ -148,7 +147,7 @@ func customReadLn(s *GameState, prompt string) string {
 		return line
 	}
 
-	fmt.Print(prompt)
+	outPrint(s, prompt)
 
 	fd := int(os.Stdin.Fd())
 	oldState, err := term.MakeRaw(fd)
@@ -168,7 +167,7 @@ func customReadLn(s *GameState, prompt string) string {
 		n, err := os.Stdin.Read(buf)
 		if err != nil || n == 0 {
 			term.Restore(fd, oldState)
-			fmt.Print("\r\n")
+			outPrint(s, "\r\n")
 			return string(lineRunes)
 		}
 		b := buf[0]
@@ -176,7 +175,7 @@ func customReadLn(s *GameState, prompt string) string {
 		switch {
 		case b == '\r' || b == '\n':
 			term.Restore(fd, oldState)
-			fmt.Print("\r\n")
+			outPrint(s, "\r\n")
 			line := string(lineRunes)
 			if line != "" {
 				prev := ""
@@ -192,13 +191,13 @@ func customReadLn(s *GameState, prompt string) string {
 
 		case b == '\x04': // Ctrl-D
 			term.Restore(fd, oldState)
-			fmt.Print("QUIT\r\n")
+			outPrint(s, "QUIT\r\n")
 			return "QUIT"
 
 		case b == '\x7f' || b == '\x08': // Backspace / DEL
 			if len(lineRunes) > 0 {
 				lineRunes = lineRunes[:len(lineRunes)-1]
-				fmt.Print("\b \b")
+				outPrint(s, "\b \b")
 			}
 
 		case b == '\x1b': // ESC — read 2 more bytes for arrow keys
@@ -210,17 +209,17 @@ func customReadLn(s *GameState, prompt string) string {
 					if histIdx > 0 {
 						// Erase current line
 						for range lineRunes {
-							fmt.Print("\b \b")
+							outPrint(s, "\b \b")
 						}
 						histIdx--
 						lineRunes = []rune(s.History[histIdx%MaxHistory])
-						fmt.Print(string(lineRunes))
+						outPrint(s, string(lineRunes))
 					}
 				case 'B': // Down arrow
 					if histIdx < s.HistoryCount {
 						// Erase current line
 						for range lineRunes {
-							fmt.Print("\b \b")
+							outPrint(s, "\b \b")
 						}
 						histIdx++
 						if histIdx < s.HistoryCount {
@@ -228,7 +227,7 @@ func customReadLn(s *GameState, prompt string) string {
 						} else {
 							lineRunes = nil
 						}
-						fmt.Print(string(lineRunes))
+						outPrint(s, string(lineRunes))
 					}
 				}
 			}
@@ -238,7 +237,7 @@ func customReadLn(s *GameState, prompt string) string {
 				r, _ := utf8.DecodeRune(buf[:n])
 				if r != utf8.RuneError {
 					lineRunes = append(lineRunes, r)
-					fmt.Print(string(r))
+					outPrint(s, string(r))
 				}
 			}
 		}

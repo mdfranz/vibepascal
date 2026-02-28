@@ -1,9 +1,16 @@
 package main
 
+import (
+	"io"
+	"os"
+)
+
 type GameState struct {
 	RoomRegistry [MaxRooms + 1]*Room
 	Items        [MaxItems + 1]Item
 	CurrentRoom  *Room
+
+	Out io.Writer
 
 	IsPlaying       bool
 	IsPumpFixed     bool
@@ -53,6 +60,7 @@ func initState(s *GameState) {
 		s.Items[i].IsTakeable = false
 	}
 	s.CurrentRoom = nil
+	s.Out = os.Stdout
 	s.IsPlaying = true
 	s.IsPumpFixed = false
 	s.IsLampLit = false

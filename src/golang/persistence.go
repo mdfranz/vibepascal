@@ -84,21 +84,21 @@ func saveGame(s *GameState, path string) {
 	flagSec.Key("ScoredNoteFound").SetValue(boolStr(s.ScoredNoteFound))
 
 	if err := cfg.SaveTo(path); err != nil {
-		fmt.Printf("Error saving game: %v\n", err)
+		outPrintf(s, "Error saving game: %v\n", err)
 		return
 	}
-	fmt.Println("💾 Game saved.")
+	outPrintln(s, "💾 Game saved.")
 }
 
 func loadGame(s *GameState, path string) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		fmt.Println("No save file found.")
+		outPrintln(s, "No save file found.")
 		return
 	}
 
 	cfg, err := ini.Load(path)
 	if err != nil {
-		fmt.Printf("Error loading save file: %v\n", err)
+		outPrintf(s, "Error loading save file: %v\n", err)
 		return
 	}
 
@@ -178,7 +178,7 @@ func loadGame(s *GameState, path string) {
 		s.RoomRegistry[2].Description = "The telegraph has been repaired. The line hums faintly with life."
 	}
 
-	fmt.Println("📂 Game loaded.")
+	outPrintln(s, "📂 Game loaded.")
 	look(s)
 }
 

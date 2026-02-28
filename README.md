@@ -68,6 +68,16 @@ Echoes of Dustwood uses a **Persistent Sidecar** architecture to bridge a legacy
 - **`u_types.pas`**: Centralized constants and record types (e.g., `TRoom`, `TItem`) used across the engine.
 - **`u_world.pas`**: World data loader. Reads rooms and items from `data/world.ini` and handles initial randomization.
 
+## Go Source Reference
+
+- **`main.go`**: Main program entry point. Initializes state, loads world data, manages the main game loop, and enforces turn limits.
+- **`commands.go`**: Core game logic. Implements command parsing, movement, item interactions, survival mechanics (thirst, light), and hazard encounters.
+- **`io.go`**: Input and output handling. Features word-wrapping for descriptions, emoji support, and a custom input reader with command history.
+- **`persistence.go`**: State management for persistence. Handles saving and loading game progress to/from `data/save.ini`.
+- **`state.go`**: Defines the global `GameState` struct, tracking everything from inventory and room status to thirst and scores.
+- **`types.go`**: Centralized constants and struct types (e.g., `Room`, `Item`) used across the engine.
+- **`world.go`**: World data loader. Reads rooms and items from `data/world.ini` and handles initial randomization.
+
 ## Build
 
 ### Dependencies
@@ -99,6 +109,112 @@ From the project root:
   ```bash
   ./bin/dustwood-go [options]
   ```
+
+### MCP (Go Engine)
+
+Run the Go engine as an MCP Streamable HTTP server (localhost-only by default):
+
+```bash
+./bin/dustwood-go --mcp-http --mcp-addr 127.0.0.1:8765 --mcp-json-response
+```
+
+Example MCP JSON-RPC calls (using `curl`):
+
+```bash
+curl -s -D /tmp/mcp_headers -o /tmp/mcp_body -X POST http://127.0.0.1:8765/mcp \
+  -H "Content-Type: application/json" \
+  -H "Origin: http://localhost" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"curl","version":"0.1"},"capabilities":{}}}'
+
+SESSION_ID=$(sed -n "s/^Mcp-Session-Id: //p" /tmp/mcp_headers | tr -d "\r")
+
+curl -s -X POST http://127.0.0.1:8765/mcp \
+  -H "Content-Type: application/json" \
+  -H "Origin: http://localhost" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: $SESSION_ID" \
+  -H "MCP-Protocol-Version: 2024-11-05" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+
+curl -s -X POST http://127.0.0.1:8765/mcp \
+  -H "Content-Type: application/json" \
+  -H "Origin: http://localhost" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: $SESSION_ID" \
+  -H "MCP-Protocol-Version: 2024-11-05" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"command","arguments":{"command":"LOOK"}}}'
+```
+
+#### Adding to Claude Code
+
+Start the server in stateless JSON mode (simplest for Claude Code):
+
+```bash
+./bin/dustwood-go --mcp-http --mcp-stateless --mcp-json-response
+```
+
+Then register the server with Claude Code. For a **user-level** (global) installation:
+
+```bash
+claude mcp add --transport http dustwood http://127.0.0.1:8765/mcp
+```
+
+For a **project-level** installation (stored in `.claude/settings.json`):
+
+```bash
+claude mcp add --transport http --scope project dustwood http://127.0.0.1:8765/mcp
+```
+
+If you started the server with `--mcp-token <token>`, add the header:
+
+```bash
+claude mcp add --transport http --header "Authorization: Bearer <token>" dustwood http://127.0.0.1:8765/mcp
+```
+
+Verify the server is recognized:
+
+```bash
+claude mcp list
+```
+
+Once added, Claude Code exposes a `command` tool backed by the game. The tool accepts:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `command` | string | Game command to execute (e.g. `LOOK`, `N`, `TAKE CANTEEN`) |
+| `reset` | bool | Reset the game to a fresh state before executing |
+| `seed` | int64 | Seed to use when resetting (optional) |
+
+The tool returns:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `output` | string | Raw game text output |
+| `state.room_id` | int | Current room number |
+| `state.room_name` | string | Current room name |
+| `state.turns` | int | Turns taken so far |
+| `state.score` | int | Current score |
+| `state.is_playing` | bool | Whether the game is still active |
+| `state.thirst` | int | Player thirst counter |
+| `state.horse_thirst` | int | Horse thirst counter |
+| `state.has_water` | bool | Whether the canteen has water |
+| `state.is_dark` | bool | Whether the current room is dark |
+| `state.lamp_lit` | bool | Whether the lamp is lit |
+| `state.horse_saddled` | bool | Whether the horse is saddled |
+| `state.is_riding` | bool | Whether the player is riding |
+| `state.inventory` | []string | Item descriptions currently carried |
+
+MCP flags:
+
+- `--mcp-http`: Run the MCP server.
+- `--mcp-addr <host:port>`: Listen address (default `127.0.0.1:8765`).
+- `--mcp-path <path>`: MCP endpoint path (default `/mcp`).
+- `--mcp-origin <origin>`: Allowed origin (repeatable; defaults to localhost origins).
+- `--mcp-token <token>`: Require `Authorization: Bearer <token>`.
+- `--mcp-json-response`: Return JSON responses instead of SSE.
+- `--mcp-stateless`: Disable sessions/SSE and accept only POST requests.
+- `--seed <n>`: Deterministic seed (applies to MCP server start and optional reset).
 
 ### Options
 

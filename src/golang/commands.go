@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"math/rand"
 	"strings"
 )
@@ -50,7 +49,7 @@ func isDesertRoom(id int) bool {
 	return id >= 8 && id <= 13
 }
 
-func printMovement(direction string, isRiding bool) {
+func printMovement(s *GameState, direction string, isRiding bool) {
 	idx := rand.Intn(5)
 	var emoji, msg string
 	if isRiding {
@@ -82,16 +81,16 @@ func printMovement(direction string, isRiding bool) {
 			msg = "You trudge " + direction + " across the dry ground."
 		}
 	}
-	fmt.Println(emoji + msg)
+	outPrintln(s, emoji+msg)
 }
 
 func moveTo(s *GameState, newRoom *Room) {
 	if newRoom == nil {
-		fmt.Println("You cannot go that way.")
+		outPrintln(s, "You cannot go that way.")
 	} else if s.IsRiding && (newRoom.ID == 2 || newRoom.ID == 4 || newRoom.ID == 5 || newRoom.ID == 7) {
-		fmt.Println("You can't bring a horse in there. Dismount first.")
+		outPrintln(s, "You can't bring a horse in there. Dismount first.")
 	} else if s.CurrentRoom.ID == 6 && newRoom.ID == DesertEntryRoomID && !s.IsRiding {
-		fmt.Println("The desert is too dangerous on foot. You must be riding a saddled horse.")
+		outPrintln(s, "The desert is too dangerous on foot. You must be riding a saddled horse.")
 	} else {
 		s.CurrentRoom = newRoom
 		if s.IsRiding {
@@ -139,7 +138,7 @@ func updateWorld(s *GameState) {
 				continue
 			} else {
 				s.Items[i].Location = 0
-				fmt.Printf("🔥 The fire destroys %s.\n", s.Items[i].Description)
+				outPrintf(s, "🔥 The fire destroys %s.\n", s.Items[i].Description)
 			}
 		}
 	}
@@ -152,52 +151,52 @@ func updateWorld(s *GameState) {
 
 	if s.SnakeRoom > 0 && s.RoomBurning[s.SnakeRoom] > 0 {
 		s.SnakeRoom = 0
-		fmt.Println("🔥 The fire drives away the rattlesnake.")
+		outPrintln(s, "🔥 The fire drives away the rattlesnake.")
 	}
 	if s.SnakeRoom > 0 && rand.Intn(100) < 30 {
 		s.SnakeRoom = 0
 	}
 
 	if s.Thirst > ThirstLimit-5 {
-		fmt.Println()
-		fmt.Println("🌵 === Your throat is parched. You need water soon. ===")
+		outPrintln(s)
+		outPrintln(s, "🌵 === Your throat is parched. You need water soon. ===")
 	}
 	if s.IsHorseSaddled && isDesertRoom(s.CurrentRoom.ID) && s.HorseThirst > HorseThirstLimit-5 {
-		fmt.Println()
-		fmt.Println("🐎 === Your horse is showing signs of exhaustion. It needs water soon. ===")
+		outPrintln(s)
+		outPrintln(s, "🐎 === Your horse is showing signs of exhaustion. It needs water soon. ===")
 	}
 
 	if s.Thirst >= ThirstLimit {
-		fmt.Println()
-		wrapWriteLn("💀 You have collapsed from dehydration. GAME OVER.")
+		outPrintln(s)
+		wrapWriteLn(s, "💀 You have collapsed from dehydration. GAME OVER.")
 		s.IsPlaying = false
 	}
 
 	if isDesertRoom(s.CurrentRoom.ID) && !s.IsRiding {
-		fmt.Println()
-		wrapWriteLn("🔥 The desert heat is overwhelming on foot. You collapse into the sand. GAME OVER.")
+		outPrintln(s)
+		wrapWriteLn(s, "🔥 The desert heat is overwhelming on foot. You collapse into the sand. GAME OVER.")
 		s.IsPlaying = false
 	}
 
 	if s.IsHorseSaddled && isDesertRoom(s.CurrentRoom.ID) && s.HorseThirst >= HorseThirstLimit {
-		fmt.Println()
-		wrapWriteLn("💀 Your horse collapses from dehydration. You are stranded in the desert. GAME OVER.")
+		outPrintln(s)
+		wrapWriteLn(s, "💀 Your horse collapses from dehydration. You are stranded in the desert. GAME OVER.")
 		s.IsPlaying = false
 	}
 
 	if s.Turns == TwilightTurn {
-		fmt.Println("🌇 The sun is getting low.")
+		outPrintln(s, "🌇 The sun is getting low.")
 	}
 	if s.Turns == DarkTurn {
-		fmt.Println("🌑 It is now dark.")
+		outPrintln(s, "🌑 It is now dark.")
 	}
 }
 
 func cmdDrink(s *GameState, noun string, consumeTurn *bool) {
 	if findItem("CANTEEN", InvLocation, s) == 0 {
-		fmt.Println("You don't have anything to drink from.")
+		outPrintln(s, "You don't have anything to drink from.")
 	} else if !s.HasWater {
-		fmt.Println("Your canteen is empty.")
+		outPrintln(s, "Your canteen is empty.")
 	} else {
 		s.Thirst = 0
 		if s.CanteenDrinks > 0 {
@@ -206,18 +205,18 @@ func cmdDrink(s *GameState, noun string, consumeTurn *bool) {
 		if s.CanteenDrinks <= 0 {
 			s.HasWater = false
 		}
-		wrapWriteLn("💧 The water is warm but refreshing.")
-		fmt.Println("Your thirst is quenched.")
+		wrapWriteLn(s, "💧 The water is warm but refreshing.")
+		outPrintln(s, "Your thirst is quenched.")
 	}
 }
 
 func cmdFillCanteen(s *GameState, noun string, consumeTurn *bool) {
 	if findItem("CANTEEN", InvLocation, s) == 0 {
-		fmt.Println("You have nothing to fill.")
+		outPrintln(s, "You have nothing to fill.")
 	} else if s.CurrentRoom.ID == 3 && s.IsPumpFixed {
 		s.HasWater = true
 		s.CanteenDrinks = 3
-		fmt.Println("💧 You fill your canteen with fresh water from the pump.")
+		outPrintln(s, "💧 You fill your canteen with fresh water from the pump.")
 		if !s.ScoredFirstFill {
 			s.ScoredFirstFill = true
 			s.Score += ScoreFirstFill
@@ -225,55 +224,55 @@ func cmdFillCanteen(s *GameState, noun string, consumeTurn *bool) {
 	} else if s.CurrentRoom.ID == StreamRoomID {
 		s.HasWater = true
 		s.CanteenDrinks = 3
-		fmt.Println("💧 You fill your canteen with cold stream water.")
+		outPrintln(s, "💧 You fill your canteen with cold stream water.")
 	} else {
-		fmt.Println("There is no water here.")
+		outPrintln(s, "There is no water here.")
 	}
 }
 
 func cmdLightLamp(s *GameState, noun string, consumeTurn *bool) {
 	nounUpper := strings.ToUpper(strings.TrimSpace(noun))
 	if noun != "" && nounUpper != "MATCH" && nounUpper != "MATCHES" {
-		fmt.Println("Light what?")
+		outPrintln(s, "Light what?")
 		return
 	}
 	if findItem("LAMP", InvLocation, s) > 0 {
 		s.IsLampLit = true
-		wrapWriteLn("🔦 You light the lamp. A yellow glow illuminates the room.")
+		wrapWriteLn(s, "🔦 You light the lamp. A yellow glow illuminates the room.")
 		if !s.ScoredLampLight {
 			s.ScoredLampLight = true
 			s.Score += ScoreLampLight
 		}
 	} else {
 		s.TempLightTurns = 3
-		wrapWriteLn("🔥 You strike a match. The room brightens for a moment.")
+		wrapWriteLn(s, "🔥 You strike a match. The room brightens for a moment.")
 	}
 }
 
 func cmdShowHelp(s *GameState, noun string, consumeTurn *bool) {
-	fmt.Println()
-	fmt.Println("Available Commands:")
-	fmt.Println("  🚶 N, S, E, W      - Move North, South, East, West")
-	fmt.Println("  👀 LOOK (L)        - Look around")
-	fmt.Println("  🔍 EXAMINE (X)     - Look closely at an item")
-	fmt.Println("  🖐️  TAKE (GET)      - Pick up an item")
-	fmt.Println("  ✋  DROP            - Leave an item")
-	fmt.Println("  🎒 INVENTORY (I)   - Check your gear")
-	fmt.Println("  💧 DRINK           - Drink from your canteen")
-	fmt.Println("  🚰 FILL            - Fill canteen at a water source")
-	fmt.Println("  🐎 WATER           - Water your horse at a water source")
-	fmt.Println("  🔦 LIGHT           - Light your lamp if you have matches")
-	fmt.Println("  🔧 FIX             - Repair something")
-	fmt.Println("  🏇 SADDLE          - Put a saddle on the horse")
-	fmt.Println("  ❄️  FREEZE (WAIT)   - Stay still to avoid danger")
-	fmt.Println("  🔥 BURN            - Burn a flammable item (requires matches)")
-	fmt.Println("  🔥 FIRE            - Start a fire in certain rooms (requires matches)")
-	fmt.Println("  🧗 CLIMB           - Climb a steep obstacle")
-	fmt.Println("  💾 SAVE / LOAD     - Save or load your progress")
-	fmt.Println("  🏆 SCORE           - Show current score")
-	fmt.Println("  ❓ HELP (H)        - Show this list")
-	fmt.Println("  🚪 QUIT (Q)        - Exit")
-	fmt.Println()
+	outPrintln(s)
+	outPrintln(s, "Available Commands:")
+	outPrintln(s, "  🚶 N, S, E, W      - Move North, South, East, West")
+	outPrintln(s, "  👀 LOOK (L)        - Look around")
+	outPrintln(s, "  🔍 EXAMINE (X)     - Look closely at an item")
+	outPrintln(s, "  🖐️  TAKE (GET)      - Pick up an item")
+	outPrintln(s, "  ✋  DROP            - Leave an item")
+	outPrintln(s, "  🎒 INVENTORY (I)   - Check your gear")
+	outPrintln(s, "  💧 DRINK           - Drink from your canteen")
+	outPrintln(s, "  🚰 FILL            - Fill canteen at a water source")
+	outPrintln(s, "  🐎 WATER           - Water your horse at a water source")
+	outPrintln(s, "  🔦 LIGHT           - Light your lamp if you have matches")
+	outPrintln(s, "  🔧 FIX             - Repair something")
+	outPrintln(s, "  🏇 SADDLE          - Put a saddle on the horse")
+	outPrintln(s, "  ❄️  FREEZE (WAIT)   - Stay still to avoid danger")
+	outPrintln(s, "  🔥 BURN            - Burn a flammable item (requires matches)")
+	outPrintln(s, "  🔥 FIRE            - Start a fire in certain rooms (requires matches)")
+	outPrintln(s, "  🧗 CLIMB           - Climb a steep obstacle")
+	outPrintln(s, "  💾 SAVE / LOAD     - Save or load your progress")
+	outPrintln(s, "  🏆 SCORE           - Show current score")
+	outPrintln(s, "  ❓ HELP (H)        - Show this list")
+	outPrintln(s, "  🚪 QUIT (Q)        - Exit")
+	outPrintln(s)
 	*consumeTurn = false
 }
 
@@ -287,21 +286,21 @@ func cmdExamineItem(s *GameState, targetNoun string, consumeTurn *bool) {
 		itemID = findItem(noun, s.CurrentRoom.ID, s)
 	}
 	if itemID > 0 {
-		wrapWriteLn(s.Items[itemID].Details)
+		wrapWriteLn(s, s.Items[itemID].Details)
 		if s.Items[itemID].Name == "ROCK" {
 			keyId := findItemAny("KEY", s)
 			if keyId > 0 && s.Items[keyId].Location == 0 {
 				s.Items[keyId].Location = s.CurrentRoom.ID
-				fmt.Println()
-				fmt.Println("You lift the rock. A small brass key is hidden beneath it.")
+				outPrintln(s)
+				outPrintln(s, "You lift the rock. A small brass key is hidden beneath it.")
 			}
 		}
 		if s.Items[itemID].Name == "BOOK" {
 			noteId := findItemAny("NOTE", s)
 			if noteId > 0 && s.Items[noteId].Location == 0 {
 				s.Items[noteId].Location = InvLocation
-				fmt.Println()
-				fmt.Println("A small folded note falls out of the book.")
+				outPrintln(s)
+				outPrintln(s, "A small folded note falls out of the book.")
 				if !s.ScoredNoteFound {
 					s.ScoredNoteFound = true
 					s.Score += ScoreNoteFound
@@ -311,7 +310,7 @@ func cmdExamineItem(s *GameState, targetNoun string, consumeTurn *bool) {
 	} else if noun == "" {
 		look(s)
 	} else {
-		fmt.Println("You don't see that here.")
+		outPrintln(s, "You don't see that here.")
 	}
 	*consumeTurn = false
 }
@@ -328,21 +327,21 @@ func cmdFixSomething(s *GameState, targetNoun string, consumeTurn *bool) {
 	if noun == "PUMP" && s.CurrentRoom.ID == 3 {
 		if findItem("LEATHER", InvLocation, s) > 0 {
 			s.IsPumpFixed = true
-			fmt.Println("You fix the pump. Water starts to flow.")
+			outPrintln(s, "You fix the pump. Water starts to flow.")
 			s.Items[3].Description = "a working water pump"
 			if !s.ScoredPumpFix {
 				s.ScoredPumpFix = true
 				s.Score += ScorePumpFix
 			}
 		} else {
-			fmt.Println("You need leather.")
+			outPrintln(s, "You need leather.")
 		}
 	} else if (noun == "WIRE" || noun == "WIRES" || noun == "TELEGRAPH") && s.CurrentRoom.ID == 2 {
 		if s.IsTelegraphFixed {
-			fmt.Println("The telegraph is already repaired.")
+			outPrintln(s, "The telegraph is already repaired.")
 		} else if findItem("WIRE", InvLocation, s) > 0 {
 			s.IsTelegraphFixed = true
-			fmt.Println("You splice the copper wire and restore the telegraph line.")
+			outPrintln(s, "You splice the copper wire and restore the telegraph line.")
 			if s.RoomRegistry[2] != nil {
 				s.RoomRegistry[2].Description = "The telegraph has been repaired. The line hums faintly with life."
 			}
@@ -352,140 +351,140 @@ func cmdFixSomething(s *GameState, targetNoun string, consumeTurn *bool) {
 			}
 			s.Items[4].Location = 0
 		} else {
-			fmt.Println("You need copper wire.")
+			outPrintln(s, "You need copper wire.")
 		}
 	} else {
-		fmt.Println("Nothing to fix here.")
+		outPrintln(s, "Nothing to fix here.")
 	}
 }
 
 func cmdWaterHorse(s *GameState, targetNoun string, consumeTurn *bool) {
 	noun := strings.ToUpper(strings.TrimSpace(targetNoun))
 	if noun != "" && noun != "HORSE" && noun != "MARE" {
-		fmt.Println("Water what?")
+		outPrintln(s, "Water what?")
 		return
 	}
 	if !s.IsHorseSaddled {
-		fmt.Println("You don't have a horse with you.")
+		outPrintln(s, "You don't have a horse with you.")
 		return
 	}
 	if s.CurrentRoom.ID != StreamRoomID {
-		fmt.Println("There is no water here for your horse.")
+		outPrintln(s, "There is no water here for your horse.")
 		return
 	}
 	s.HorseThirst = 0
-	fmt.Println("Your horse drinks deeply from the stream.")
+	outPrintln(s, "Your horse drinks deeply from the stream.")
 }
 
 func cmdSaddleHorse(s *GameState, targetNoun string, consumeTurn *bool) {
 	noun := strings.ToUpper(strings.TrimSpace(targetNoun))
 	if noun != "" && noun != "HORSE" && noun != "ON HORSE" && noun != "MARE" {
-		fmt.Println("Saddle what?")
+		outPrintln(s, "Saddle what?")
 		return
 	}
 	horseID := findItem("HORSE", s.CurrentRoom.ID, s)
 	if horseID == 0 {
-		fmt.Println("There is no horse here.")
+		outPrintln(s, "There is no horse here.")
 		return
 	}
 	saddleID := findItem("SADDLE", InvLocation, s)
 	if saddleID == 0 {
-		fmt.Println("You need a saddle.")
+		outPrintln(s, "You need a saddle.")
 		return
 	}
 	if s.IsHorseSaddled {
-		fmt.Println("The horse is already saddled.")
+		outPrintln(s, "The horse is already saddled.")
 		return
 	}
 	s.IsHorseSaddled = true
 	s.Items[saddleID].Location = 0
 	s.Items[horseID].Description = "a saddled horse"
 	s.Items[horseID].Details = "A calm, saddle-ready horse. It looks steady and patient."
-	fmt.Println("You secure the saddle onto the horse. It stands quietly.")
+	outPrintln(s, "You secure the saddle onto the horse. It stands quietly.")
 }
 
 func cmdHandleMount(s *GameState, noun string, consumeTurn *bool) {
 	nounUpper := strings.ToUpper(strings.TrimSpace(noun))
 	if nounUpper != "" && nounUpper != "HORSE" && nounUpper != "MARE" {
-		fmt.Println("Mount what?")
+		outPrintln(s, "Mount what?")
 		return
 	}
 	if s.IsRiding {
-		fmt.Println("You are already riding.")
+		outPrintln(s, "You are already riding.")
 	} else if findItem("HORSE", s.CurrentRoom.ID, s) > 0 {
 		if s.IsHorseSaddled {
 			s.IsRiding = true
 			horseID := findItem("HORSE", s.CurrentRoom.ID, s)
 			s.Items[horseID].Location = InvLocation
-			fmt.Println("You swing yourself into the saddle. You are now riding.")
+			outPrintln(s, "You swing yourself into the saddle. You are now riding.")
 		} else {
-			fmt.Println("The horse needs a saddle before you can ride her.")
+			outPrintln(s, "The horse needs a saddle before you can ride her.")
 		}
 	} else {
-		fmt.Println("There is no horse here.")
+		outPrintln(s, "There is no horse here.")
 	}
 }
 
 func cmdHandleDismount(s *GameState, noun string, consumeTurn *bool) {
 	nounUpper := strings.ToUpper(strings.TrimSpace(noun))
 	if nounUpper != "" && nounUpper != "HORSE" && nounUpper != "MARE" {
-		fmt.Println("Dismount what?")
+		outPrintln(s, "Dismount what?")
 		return
 	}
 	if !s.IsRiding {
-		fmt.Println("You aren't riding anything.")
+		outPrintln(s, "You aren't riding anything.")
 	} else {
 		s.IsRiding = false
 		horseID := findItem("HORSE", InvLocation, s)
 		if horseID > 0 {
 			s.Items[horseID].Location = s.CurrentRoom.ID
 		}
-		fmt.Println("You dismount and stand beside your horse.")
+		outPrintln(s, "You dismount and stand beside your horse.")
 	}
 }
 
 func cmdHandleOpen(s *GameState, noun string, consumeTurn *bool) {
 	if noun == "BOX" && s.CurrentRoom.ID == 7 {
 		if s.IsBoxOpen {
-			fmt.Println("It is already open.")
+			outPrintln(s, "It is already open.")
 		} else if findItem("KEY", InvLocation, s) == 0 {
-			fmt.Println("The box is locked. You need a key.")
+			outPrintln(s, "The box is locked. You need a key.")
 		} else {
 			s.IsBoxOpen = true
 			s.Items[8].Location = 7
-			fmt.Println("You unlock the box. Inside lies a heavy revolver.")
+			outPrintln(s, "You unlock the box. Inside lies a heavy revolver.")
 			if !s.ScoredBoxOpen {
 				s.ScoredBoxOpen = true
 				s.Score += ScoreBoxOpen
 			}
 		}
 	} else {
-		fmt.Println("There is nothing to open here.")
+		outPrintln(s, "There is nothing to open here.")
 		*consumeTurn = false
 	}
 }
 
 func cmdHandleShoot(s *GameState, noun string, consumeTurn *bool) {
 	if findItem("REVOLVER", InvLocation, s) == 0 {
-		fmt.Println("You have nothing to shoot with.")
+		outPrintln(s, "You have nothing to shoot with.")
 	} else if s.OutlawRoom == s.CurrentRoom.ID {
 		s.OutlawRoom = 0
-		wrapWriteLn("💥 You draw your revolver and fire first. The outlaw falls to the ground.")
-		fmt.Println("💀 The threat is gone.")
+		wrapWriteLn(s, "💥 You draw your revolver and fire first. The outlaw falls to the ground.")
+		outPrintln(s, "💀 The threat is gone.")
 		if !s.ScoredOutlawKill {
 			s.ScoredOutlawKill = true
 			s.Score += ScoreOutlawKill
 		}
 	} else {
-		fmt.Println("Nothing here to shoot.")
+		outPrintln(s, "Nothing here to shoot.")
 	}
 }
 
 func cmdHandleFreeze(s *GameState, noun string, consumeTurn *bool) {
-	fmt.Println("You stay perfectly still. The snake watches you...")
+	outPrintln(s, "You stay perfectly still. The snake watches you...")
 	if rand.Intn(100) < 50 {
 		s.SnakeRoom = 0
-		fmt.Println("The snake loses interest and slithers into the shadows.")
+		outPrintln(s, "The snake loses interest and slithers into the shadows.")
 	}
 }
 
@@ -500,17 +499,17 @@ func cmdHandleSearch(s *GameState, noun string, consumeTurn *bool) {
 }
 
 func cmdHandleInventory(s *GameState, noun string, consumeTurn *bool) {
-	fmt.Println("You are carrying:")
+	outPrintln(s, "You are carrying:")
 	for i := 1; i <= MaxItems; i++ {
 		if s.Items[i].Location == InvLocation {
-			fmt.Printf("  - %s\n", s.Items[i].Description)
+			outPrintf(s, "  - %s\n", s.Items[i].Description)
 		}
 	}
 	*consumeTurn = false
 }
 
 func cmdHandleScore(s *GameState, noun string, consumeTurn *bool) {
-	fmt.Printf("🏆 Score: %d\n", s.Score)
+	outPrintf(s, "🏆 Score: %d\n", s.Score)
 	*consumeTurn = false
 }
 
@@ -534,32 +533,32 @@ func cmdHandleTake(s *GameState, noun string, consumeTurn *bool) {
 			}
 		}
 		if carryCount >= MaxCarry {
-			fmt.Println("You can't carry any more. Drop something first.")
+			outPrintln(s, "You can't carry any more. Drop something first.")
 			return
 		}
 		if !s.Items[itemID].IsTakeable {
 			switch s.Items[itemID].Name {
 			case "PUMP":
-				fmt.Println("The pump is fixed in place.")
+				outPrintln(s, "The pump is fixed in place.")
 			case "HORSE":
-				fmt.Println("It's too big to carry.")
+				outPrintln(s, "It's too big to carry.")
 			case "BOX":
-				fmt.Println("It's bolted down.")
+				outPrintln(s, "It's bolted down.")
 			case "ROCK":
-				fmt.Println("It's too heavy to carry.")
+				outPrintln(s, "It's too heavy to carry.")
 			default:
-				fmt.Println("You can't take that.")
+				outPrintln(s, "You can't take that.")
 			}
 			return
 		}
 		s.Items[itemID].Location = InvLocation
-		fmt.Printf("🎒 Taken: %s.\n", s.Items[itemID].Description)
+		outPrintf(s, "🎒 Taken: %s.\n", s.Items[itemID].Description)
 		if !s.ItemScored[itemID] {
 			s.ItemScored[itemID] = true
 			s.Score += ScoreItemPickup
 		}
 	} else {
-		fmt.Println("Not here.")
+		outPrintln(s, "Not here.")
 	}
 }
 
@@ -571,7 +570,7 @@ func cmdHandleClimb(s *GameState, noun string, consumeTurn *bool) {
 	if s.CurrentRoom.ID == 12 {
 		moveTo(s, s.RoomRegistry[StreamRoomID])
 	} else {
-		fmt.Println("There is nothing to climb here.")
+		outPrintln(s, "There is nothing to climb here.")
 	}
 }
 
@@ -585,20 +584,20 @@ func cmdHandleDrop(s *GameState, noun string, consumeTurn *bool) {
 	itemID := findItem(noun, InvLocation, s)
 	if itemID > 0 {
 		s.Items[itemID].Location = s.CurrentRoom.ID
-		fmt.Printf("✋ Dropped: %s.\n", s.Items[itemID].Description)
+		outPrintf(s, "✋ Dropped: %s.\n", s.Items[itemID].Description)
 	} else {
-		fmt.Println("You aren't carrying that.")
+		outPrintln(s, "You aren't carrying that.")
 	}
 }
 
 func cmdHandleBurn(s *GameState, noun string, consumeTurn *bool) {
 	target := strings.ToUpper(strings.TrimSpace(noun))
 	if target == "" {
-		fmt.Println("Burn what?")
+		outPrintln(s, "Burn what?")
 		return
 	}
 	if findItem("MATCHES", InvLocation, s) == 0 {
-		fmt.Println("You have nothing to burn it with.")
+		outPrintln(s, "You have nothing to burn it with.")
 		return
 	}
 	itemID := findItem(target, InvLocation, s)
@@ -606,37 +605,37 @@ func cmdHandleBurn(s *GameState, noun string, consumeTurn *bool) {
 		itemID = findItem(target, s.CurrentRoom.ID, s)
 	}
 	if itemID == 0 {
-		fmt.Println("You don't see that here.")
+		outPrintln(s, "You don't see that here.")
 		return
 	}
 	name := s.Items[itemID].Name
 	if name != "BOOK" && name != "LEDGER" && name != "LEATHER" && name != "MAP" && name != "SADDLE" {
-		fmt.Println("It doesn't burn.")
+		outPrintln(s, "It doesn't burn.")
 		return
 	}
 	s.Items[itemID].Location = 0
-	fmt.Println("You burn it to ash.")
+	outPrintln(s, "You burn it to ash.")
 }
 
 func cmdHandleFire(s *GameState, noun string, consumeTurn *bool) {
 	if findItem("MATCHES", InvLocation, s) == 0 {
-		fmt.Println("You have nothing to start a fire with.")
+		outPrintln(s, "You have nothing to start a fire with.")
 		return
 	}
 	id := s.CurrentRoom.ID
 	if id != 2 && id != 3 && id != 5 {
-		fmt.Println("There is nothing here that will catch fire.")
+		outPrintln(s, "There is nothing here that will catch fire.")
 		return
 	}
 	if s.RoomBurning[id] > 0 {
-		fmt.Println("A fire is already burning here.")
+		outPrintln(s, "A fire is already burning here.")
 		return
 	}
 	s.RoomBurning[id] = 3
-	fmt.Println("🔥 You start a fire. The room glows with heat.")
+	outPrintln(s, "🔥 You start a fire. The room glows with heat.")
 	if s.SnakeRoom == id {
 		s.SnakeRoom = 0
-		fmt.Println("🔥 The rattlesnake recoils from the flames and disappears.")
+		outPrintln(s, "🔥 The rattlesnake recoils from the flames and disappears.")
 	}
 }
 
@@ -652,18 +651,18 @@ var safeVerbs = map[string]bool{
 
 func checkHazards(s *GameState, verb string) bool {
 	if s.SnakeRoom == s.CurrentRoom.ID && !safeVerbs[verb] && verb != "FREEZE" && verb != "WAIT" {
-		fmt.Println()
-		wrapWriteLn("🐍 As you reach out, the rattlesnake strikes! You feel a sharp pain in your hand.")
-		fmt.Println()
-		wrapWriteLn("💀 The venom works quickly. GAME OVER.")
+		outPrintln(s)
+		wrapWriteLn(s, "🐍 As you reach out, the rattlesnake strikes! You feel a sharp pain in your hand.")
+		outPrintln(s)
+		wrapWriteLn(s, "💀 The venom works quickly. GAME OVER.")
 		s.IsPlaying = false
 		return false
 	}
 	if s.OutlawRoom == s.CurrentRoom.ID && !safeVerbs[verb] && verb != "SHOOT" && verb != "KILL" {
-		fmt.Println()
-		wrapWriteLn("🤠 The outlaw doesn't like you poking around. He draws his gun and fires.")
-		fmt.Println()
-		wrapWriteLn("💥 Everything goes dark. GAME OVER.")
+		outPrintln(s)
+		wrapWriteLn(s, "🤠 The outlaw doesn't like you poking around. He draws his gun and fires.")
+		outPrintln(s)
+		wrapWriteLn(s, "💥 Everything goes dark. GAME OVER.")
 		s.IsPlaying = false
 		return false
 	}
@@ -745,22 +744,22 @@ func processCommand(s *GameState, cmd string) {
 					switch verb {
 					case "N", "NORTH":
 						if s.CurrentRoom.North != nil {
-							printMovement("NORTH", s.IsRiding)
+							printMovement(s, "NORTH", s.IsRiding)
 						}
 						moveTo(s, s.CurrentRoom.North)
 					case "S", "SOUTH":
 						if s.CurrentRoom.South != nil {
-							printMovement("SOUTH", s.IsRiding)
+							printMovement(s, "SOUTH", s.IsRiding)
 						}
 						moveTo(s, s.CurrentRoom.South)
 					case "E", "EAST":
 						if s.CurrentRoom.East != nil {
-							printMovement("EAST", s.IsRiding)
+							printMovement(s, "EAST", s.IsRiding)
 						}
 						moveTo(s, s.CurrentRoom.East)
 					case "W", "WEST":
 						if s.CurrentRoom.West != nil {
-							printMovement("WEST", s.IsRiding)
+							printMovement(s, "WEST", s.IsRiding)
 						}
 						moveTo(s, s.CurrentRoom.West)
 					}
@@ -772,7 +771,7 @@ func processCommand(s *GameState, cmd string) {
 			}
 		}
 		if !handled {
-			fmt.Println("🤷 I don't know how to do that.")
+			outPrintln(s, "🤷 I don't know how to do that.")
 		}
 	}
 
