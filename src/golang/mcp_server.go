@@ -6,8 +6,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -69,13 +71,46 @@ func (s *MCPServer) HandleCommand(_ context.Context, _ *mcp.CallToolRequest, inp
 		}
 		var buf bytes.Buffer
 		s.game = NewGame(seed, &buf)
+		resetSummary := SummarizeState(s.game)
+		slog.Info("command",
+			"cmd", "[reset]",
+			"room", resetSummary.RoomName,
+			"turn", resetSummary.Turns,
+			"score", resetSummary.Score,
+			"thirst", resetSummary.Thirst,
+			"playing", resetSummary.IsPlaying,
+		)
+
+		if !resetSummary.IsPlaying {
+			slog.Info("game ended after reset, shutting down server")
+			time.AfterFunc(100*time.Millisecond, func() {
+				os.Exit(0)
+			})
+		}
+
 		return nil, &CommandOutput{
 			Output: buf.String(),
-			State:  SummarizeState(s.game),
+			State:  resetSummary,
 		}, nil
 	}
 
 	output, summary := ExecuteCommand(s.game, input.Command)
+	slog.Info("command",
+		"cmd", input.Command,
+		"room", summary.RoomName,
+		"turn", summary.Turns,
+		"score", summary.Score,
+		"thirst", summary.Thirst,
+		"playing", summary.IsPlaying,
+	)
+
+	if !summary.IsPlaying {
+		slog.Info("game ended, shutting down server")
+		time.AfterFunc(100*time.Millisecond, func() {
+			os.Exit(0)
+		})
+	}
+
 	return nil, &CommandOutput{
 		Output: output,
 		State:  summary,
@@ -130,6 +165,12 @@ func RunMCPHTTP(server *MCPServer, addr, path string, origins []string, token st
 		Addr:    addr,
 		Handler: mux,
 	}
+	slog.Info("listening",
+		"addr", addr,
+		"path", path,
+		"stateless", stateless,
+		"json_response", jsonResponse,
+	)
 	return serverHTTP.ListenAndServe()
 }
 
