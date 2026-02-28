@@ -40,6 +40,8 @@ Echoes of Dustwood uses a **Persistent Sidecar** architecture to bridge a legacy
 - **AI Clients:**
   - **Pydantic AI (`scripts/ai_client.py`):** The original implementation using `pydantic-ai` for autonomous gameplay.
   - **Strands SDK (`scripts/strands_ai_client.py`):** A modern port using the **Strands Agents SDK** and **LiteLLM**, providing broad model support and robust state management.
+  - **MCP Pydantic AI (`scripts/pydantic_mcp_client.py`):** A client that plays the game via the Go MCP server using Pydantic AI.
+  - **MCP Strands Agent (`scripts/strands_mcp_client.py`):** A client that plays the game via the Go MCP server using Strands SDK.
 - **Orchestrators:**
   - `scripts/ai-game.sh`: Runner for the Pydantic AI client.
   - `scripts/strands-ai-game.sh`: Runner for the Strands SDK client.
@@ -215,6 +217,27 @@ MCP flags:
 - `--mcp-json-response`: Return JSON responses instead of SSE.
 - `--mcp-stateless`: Disable sessions/SSE and accept only POST requests.
 - `--seed <n>`: Deterministic seed (applies to MCP server start and optional reset).
+
+### AI Agents via MCP
+
+You can also run AI agents that interact with the game specifically through the MCP interface. These clients are more robust as they use the structured state returned by the server.
+
+**1. Start the MCP Server:**
+```bash
+./bin/dustwood-go --mcp-http --mcp-addr 127.0.0.1:8765 --mcp-json-response --mcp-stateless --turns 1000
+```
+
+**2. Run an MCP Client:**
+
+- **Pydantic AI MCP Client (Recommended):**
+  ```bash
+  uv run python scripts/pydantic_mcp_client.py google-gla:gemini-3-flash-preview "Explore Dustwood."
+  ```
+
+- **Strands Agent MCP Client:**
+  ```bash
+  uv run python scripts/strands_mcp_client.py google/gemini-3-flash-preview "Explore Dustwood."
+  ```
 
 ### Options
 

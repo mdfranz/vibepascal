@@ -76,6 +76,27 @@ The client includes several "peer-over-the-shoulder" features to handle common L
 -   **Outlaw Safety Override**: When `"DIRTY OUTLAW"` appears in game output, any command outside the safe set is replaced with `WAIT`. Safe commands: `SHOOT`, `KILL`, `WAIT`, movement (N/S/E/W), and inspection (`LOOK`, `INVENTORY`, `MOUNT`, `DISMOUNT`).
 -   **Late-Game Stall Prevention**: In the final 5 turns, if the score hasn't changed for 5+ consecutive turns, `LOOK` and `SEARCH` commands are replaced with a forced exploratory move.
 
+## MCP-Based Gameplay (New)
+
+The latest evolution of the AI players moves away from direct subprocess interaction and regex parsing in favor of the **Model Context Protocol (MCP)**.
+
+### Advantages of MCP
+1.  **Structured State**: Instead of parsing raw terminal text, the agent receives a validated JSON `GameSummary` object containing precise values for thirst, turns, inventory, and location.
+2.  **Native Tool Calling**: Agents treat game commands as standard model tools. This allows models to "think" about their next move and then call the `command` tool directly.
+3.  **Engine Independence**: The client no longer needs to know about the binary path or headless flags; it simply communicates with an MCP-compliant server.
+
+### MCP Implementation Variants
+
+#### 1. Pydantic AI MCP Client (`pydantic_mcp_client.py`)
+This is the most robust implementation for the project's current stateless HTTP architecture.
+- **Type-Safe Mapping**: Directly maps the Go server's JSON output to a Pydantic `GameSummary` model.
+- **Explicit Tools**: Defines a `@agent.tool` wrapper that formats both narrative and structured state for the model's consumption.
+
+#### 2. Strands SDK MCP Client (`strands_mcp_client.py`)
+Utilizes the Strands SDK's dynamic tool discovery.
+- **Dynamic Ingestion**: Uses `strands.tools.mcp.MCPClient` to automatically "suck in" tool definitions from the server at runtime.
+- **Agentic Autonomy**: Relies on the SDK's internal loop to manage the tool-calling lifecycle.
+
 ## Supported Providers
 By using `pydantic-ai`, the system is model-agnostic. It supports:
 -   **OpenAI/Gemini/Anthropic**: High-reasoning cloud models.
