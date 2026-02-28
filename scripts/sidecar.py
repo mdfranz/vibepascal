@@ -23,7 +23,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-GAME_BIN = "bin/dustwood"
+GAME_BIN = os.environ.get("DUSTWOOD_BIN", "bin/dustwood")
 SAVE_PATH = "data/save.ini"
 PROMPT = "> "
 

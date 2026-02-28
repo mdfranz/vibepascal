@@ -1,13 +1,16 @@
 FPC ?= fpc
 PYTHON ?= python
+GO ?= go
 SRC_DIR := src/pascal
 SRC := $(SRC_DIR)/dustwood.pas
+GO_SRC := src/golang
 BIN_DIR := bin
 BIN := $(BIN_DIR)/dustwood
+GO_BIN := $(BIN_DIR)/dustwood-go
 BUILD_DIR := build
 TEST_DIR := tests
 
-.PHONY: all build run test clean clean-obj
+.PHONY: all build build-go run test clean clean-obj clean-go
 
 all: build
 
@@ -30,3 +33,12 @@ clean: clean-obj
 
 clean-obj:
 	$(RM) $(BUILD_DIR)/*.o $(BUILD_DIR)/*.ppu
+
+build-go: $(GO_BIN)
+
+$(GO_BIN): $(shell find $(GO_SRC) -name '*.go')
+	@mkdir -p $(BIN_DIR)
+	cd $(GO_SRC) && $(GO) build -o ../../$(GO_BIN) .
+
+clean-go:
+	$(RM) $(GO_BIN)

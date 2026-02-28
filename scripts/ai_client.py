@@ -56,13 +56,14 @@ ITEM_KEYWORDS = [
 ALLOWED_VERBS = {
     "N", "NORTH", "S", "SOUTH", "E", "EAST", "W", "WEST",
     "LOOK", "L", "EXAMINE", "X", "SEARCH",
-    "HELP", "H", "?", "INVENTORY", "I",
+    "HELP", "H", "?", "INVENTORY", "I", "INV",
     "DRINK", "FILL", "WATER", "LIGHT", "FIX", "SADDLE",
     "PUT", "CLIMB", "SAVE", "LOAD", "SCORE",
-    "TAKE", "GET", "DROP",
+    "TAKE", "GET", "DROP", "D",
     "QUIT", "Q",
     "MOUNT", "RIDE", "DISMOUNT",
     "OPEN", "SHOOT", "KILL", "FREEZE", "WAIT", "CHECK",
+    "BURN", "FIRE",
 }
 
 class CommandResponse(BaseModel):
@@ -71,7 +72,8 @@ class CommandResponse(BaseModel):
 ALLOWED_COMMANDS_HINT = (
     "Valid commands include: N, SOUTH, EAST, WEST, LOOK, EXAMINE <ITEM>, "
     "TAKE <ITEM>, DROP <ITEM>, INVENTORY, HELP, SCORE, DRINK, FILL, LIGHT, "
-    "FIX <ITEM>, SADDLE, CLIMB, OPEN <ITEM>, SHOOT <TARGET>, SAVE, LOAD, QUIT."
+    "FIX <ITEM>, SADDLE, CLIMB, OPEN <ITEM>, SHOOT <TARGET>, SAVE, LOAD, QUIT, "
+    "BURN <ITEM>, FIRE."
 )
 
 NOUN_ALIASES = {
@@ -152,9 +154,13 @@ def normalize_command(command: str, last_response: str) -> str:
     cmd = cmd.replace("SEARCH", "LOOK")
     cmd = cmd.replace("ASK FOR WATER", "FILL")
     cmd = cmd.replace("BUY WATER", "FILL")
+    cmd = cmd.replace("BACK AWAY", "LOOK")
+    cmd = cmd.replace("RETREAT", "LOOK")
+    cmd = cmd.replace("STEP BACK", "LOOK")
+    cmd = cmd.replace("GO BACK", "LOOK")
     cmd = cmd.replace("THE ", "")
 
-    if cmd.startswith("TAKE"):
+    if cmd.startswith("TAKE") or cmd.startswith("GET"):
         visible_items = _extract_visible_items(last_response)
         if "ALL" in cmd:
             keyword = _choose_item_keyword(cmd, visible_items)
@@ -163,6 +169,12 @@ def normalize_command(command: str, last_response: str) -> str:
         keyword = _choose_item_keyword(cmd, visible_items)
         if keyword:
             return f"TAKE {keyword}"
+        if cmd.startswith("GET"):
+            return cmd.replace("GET", "TAKE")
+
+    if cmd.startswith("DROP") or cmd.startswith("D "):
+         if cmd.startswith("D "):
+             return cmd.replace("D ", "DROP ")
 
     if cmd.startswith("SADDLE"):
         return "SADDLE"
@@ -177,9 +189,10 @@ def _current_room_name(game_output: str) -> str | None:
     return None
 
 def _threat_override(game_output: str) -> str | None:
-    if "RATTLESNAKE" in game_output:
+    upper_output = game_output.upper()
+    if "RATTLESNAKE" in upper_output or "SNAKE" in upper_output:
         return "FREEZE"
-    if "DIRTY OUTLAW" in game_output:
+    if "DIRTY OUTLAW" in upper_output:
         room = _current_room_name(game_output) or ""
         escape_map = {
             "General Store": "WEST",

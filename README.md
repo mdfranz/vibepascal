@@ -28,12 +28,17 @@ The game features automatic word-wrapping for long descriptions and a custom inp
 
 ## Architecture
 
-Echoes of Dustwood uses a **Persistent Sidecar** architecture to bridge a legacy-style CLI game with modern AI agents and REST interfaces.
+Echoes of Dustwood uses a **Persistent Sidecar** architecture to bridge a legacy-style CLI game with modern AI agents and REST interfaces. The game engine is available in two implementations:
+
+- **Pascal Engine (`bin/dustwood`):** The original core game logic. Written in modular Free Pascal.
+- **Go Engine (`bin/dustwood-go`):** A modern port of the engine, providing identical logic and behavior with improved terminal handling.
+
+Both engines feature a `--headless` mode for non-interactive I/O via `stdin/stdout`, allowing them to be wrapped by the sidecar.
 
 ### Component Overview
 
-- **Pascal Engine (`bin/dustwood`):** The core game logic. Written in modular Free Pascal, it features a `--headless` mode for non-interactive I/O via `stdin/stdout`.
-- **Sidecar API (`scripts/sidecar.py`):** A FastAPI wrapper that exposes the game as a REST service. It manages state by keeping a single headless Pascal process alive and streaming commands to it. Optional `/save`, `/load`, and `/reset` endpoints provide explicit persistence and clean starts.
+- **Game Engine:** Either the Pascal or Go implementation.
+- **Sidecar API (`scripts/sidecar.py`):** A FastAPI wrapper that exposes the game as a REST service. It manages state by keeping a single headless process alive and streaming commands to it. The binary used can be configured via the `DUSTWOOD_BIN` environment variable.
 - **AI Client (`scripts/ai_client.py`):** A `pydantic-ai` agent that "plays" the game. It interprets game output and selects the next command based on external guidance files.
 - **Orchestrator (`scripts/ai-game.sh`):** A shell script that manages the lifecycle of the sidecar and the AI agent.
 
@@ -41,17 +46,14 @@ Echoes of Dustwood uses a **Persistent Sidecar** architecture to bridge a legacy
 
 ```text
 .
-├── bin/                # Compiled Pascal binaries
+├── bin/                # Compiled Pascal and Go binaries
 ├── data/               # Configuration and state (world.ini, save.ini)
 ├── logs/               # Sidecar and AI client logs
 ├── scripts/            # Python sidecar, AI agents, and runners
 ├── tests/              # Pytest end-to-end tests for the sidecar
 └── src/
+    ├── golang/         # Go source code
     └── pascal/         # Modular Free Pascal source code
-        ├── dustwood.pas      # Main entry point
-        ├── u_commands.pas    # Game verbs and logic
-        ├── u_io.pas          # Emoji-rich output handling
-        └── u_state.pas       # Global state definitions
 ```
 
 ## Pascal Source Reference
@@ -66,44 +68,35 @@ Echoes of Dustwood uses a **Persistent Sidecar** architecture to bridge a legacy
 
 ## Build
 
-### Linux dependencies
+### Dependencies
 
-Install Free Pascal:
-
-- Debian/Ubuntu:
-
-```bash
-sudo apt-get update
-sudo apt-get install -y fpc
-```
-
-- Fedora:
-
-```bash
-sudo dnf install -y fpc
-```
-
-- Arch:
-
-```bash
-sudo pacman -S --needed fpc
-```
+- **Pascal:** `fpc` (Free Pascal Compiler)
+- **Go:** `go` (1.18+)
+- **Python:** `python3`, `fastapi`, `uvicorn`, `httpx`, `pytest`, `pydantic-ai`
 
 ### Compile
 
 From the project root:
 
-```bash
-make build
-```
-
-This produces `bin/dustwood`.
+- To build the Pascal version:
+  ```bash
+  make build
+  ```
+- To build the Go version:
+  ```bash
+  make build-go
+  ```
 
 ## Run
 
-```bash
-./bin/dustwood
-```
+- Pascal version:
+  ```bash
+  ./bin/dustwood
+  ```
+- Go version:
+  ```bash
+  ./bin/dustwood-go
+  ```
 
 ## AI Models (Pydantic AI)
 
