@@ -72,10 +72,41 @@ The final (and current) phase saw the Go engine evolve into a full Model Context
     *   `1d31778`: Added a full MCP server implementation to the Go engine using `mcp-golang-sdk`.
     *   `4d334c8`: Fixed turn tracking bugs in the Go engine discovered during MCP integration.
     *   `scripts/pydantic_mcp_client.py`: Created a next-gen AI client that uses structured tool-calls via the MCP interface.
-    *   `src/golang/mcp_server.go`: Added support for stateless sessions and JSON-RPC over HTTP.
-
-## Learnings & The "Broken" Path
-Building a game for AI agents revealed fundamental differences between human and machine play. Each "broken" behavior led to a more robust architecture.
+        * `src/golang/mcp_server.go`: Added support for stateless sessions and JSON-RPC over HTTP.
+    
+    ## Phase 7: Dual-Path Evolution & Advanced Survival
+    **Timeline:** March 1, 2026 (Current)
+    
+    As the game world expanded and models became more complex (specifically the rise of "reasoning" models like DeepSeek-R1), the project adopted a dual-client strategy. Both the **Pydantic AI** client and the **Strands** client were matured in parallel to provide maximum flexibility across different LLM ecosystems.
+    
+    *   **Key Milestones:** Parallel maturation of `ai_client.py` (Pydantic AI) and `strands_ai_client.py` (Strands), implementation of "Hardened Survival Logic," and the introduction of MCP Tool-Calling.
+    *   **Key Code Changes & Improvements:**
+        *   **Robust Command Sanitization**: Both clients now share an advanced sanitization layer featuring `NOUN_ALIASES` (mapping "sturdy chestnut mare" to "HORSE") and `ITEM_KEYWORDS` to resolve model hallucinations during interaction.
+        *   **Hardened Survival Logic**: Integrated `_threat_override` systems to handle immediate dangers automatically (e.g., `FREEZE` when a rattlesnake is detected or strategic escapes when outlaws appear), ensuring agent longevity.
+        *   **The Strands Path (`strands_ai_client.py`)**: Developed for universal model support via **LiteLLM** and the **Strands SDK**. It features a "Reverse-Search JSON Extractor" specifically for reasoning models that output pages of `<thought>` blocks.
+        *   **The Pydantic AI Path (`ai_client.py`)**: Retained and optimized for high-performance structured output. It uses native Pydantic schema validation and retries to ensure type-safe command generation even with smaller local models.
+        *   **Augmented Reality (AR) Context**: Both clients now inject "Correction Hints" (e.g., "The item you tried to TAKE is not in this room") and strategy hints (e.g., "Your inventory is FULL") directly into the agent's perception, preventing hallucination loops.
+        *   **MCP Tool-Calling Transformation**: Developed `scripts/strands_mcp_client.py`, allowing agents to interact with the Go engine as a set of structured tools via the Model Context Protocol, moving beyond terminal text parsing to direct programmatic state interaction.
+            *   **Dynamic Loop Breakers**: Enhanced the "Frustration" mechanic across both paths to detect "stagnant state" where a model is stuck in a loop of invalid actions.
+        
+        ## Phase 8: The MCP Structural Shift (Tools over Text)
+        **Timeline:** March 1, 2026 (Mid-day)
+        
+        The transition to a full Model Context Protocol (MCP) architecture represents a fundamental shift in how agents interact with *Echoes of Dustwood*. By exposing the Go engine's internal state directly through a `command` tool, the brittle "screen scraping" era of agent development was replaced with structured, programmatic interaction.
+        
+        *   **Key Milestones:** Implementation of `src/golang/mcp_server.go`, development of the `GameSummary` state-injection layer, and the rollout of `scripts/strands_mcp_client.py`.
+        *   **Interaction Simplification:**
+            *   **Elimination of Regex Hell**: Large blocks of complex regex in `ai_client.py` used to detect room names, inventory changes, and thirst levels were entirely eliminated in the MCP client.
+            *   **Direct State Injection**: The Go engine now returns a `GameSummary` JSON object (defined in `summary.go`) alongside every command response. This provides the agent with "Perfect Perception"—exact counts for thirst, score, and a canonical list of inventory items without parsing flavor text.
+            *   **Tool-Centric Reasoning**: Instead of trying to guess if a command worked, the agent now receives an `IsPlaying` flag and a `State` object. This allows the LLM to use "Tool-Calling" logic: "I will call the `command` tool with `TAKE CANTEEN` and then verify the `inventory` array in the returned state."
+        *   **Code Elimination & Mapping:**
+            *   **Removed**: Hundreds of lines of manual state-tracking (room matching, item tracking, error phrase detection) were removed from the client-side logic.
+            *   **Mapped**: The `command` tool in the Go server maps directly to the `ExecuteCommand` function, which handles the I/O redirection internally. The server manages the long-running `GameState` and returns a `CommandOutput` containing both the narrative `Output` and the structured `State`.
+            *   **Stateless vs. Stateful**: The Go MCP server supports both standard stateful sessions and a "Stateless" mode (via `RunMCPHTTP`), which is crucial for modern reasoning models like Claude 3.5 Sonnet that prefer fresh context for every tool call.
+        
+        ## Learnings & The "Broken" Path
+            Building a game for AI agents revealed fundamental differences between human and machine play. Each "broken" behavior led to a more robust architecture.
+    
 
 *   **The Inventory Loop**: High-reasoning models (GPT-4o, Claude 3.5) often got stuck in "inventory loops"—repeatedly swapping items when full.
     *   *Solution*: Implemented an **Augmented Reality** layer that injects strategy hints (e.g., "Drop the Book") when capacity is reached.
