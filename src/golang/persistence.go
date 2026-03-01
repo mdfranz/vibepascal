@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"gopkg.in/ini.v1"
+	bolt "go.etcd.io/bbolt"
 )
 
 func boolStr(b bool) string {
@@ -16,74 +16,124 @@ func boolStr(b bool) string {
 }
 
 func saveGame(s *GameState, path string) {
-	cfg := ini.Empty()
+	db, err := bolt.Open(path, 0600, nil)
+	if err != nil {
+		outPrintf(s, "Error saving game: %v\n", err)
+		return
+	}
+	defer db.Close()
 
-	sec, _ := cfg.NewSection("State")
-	sec.Key("CurrentRoom").SetValue(fmt.Sprintf("%d", s.CurrentRoom.ID))
-	sec.Key("IsPumpFixed").SetValue(boolStr(s.IsPumpFixed))
-	sec.Key("IsLampLit").SetValue(boolStr(s.IsLampLit))
-	sec.Key("HasWater").SetValue(boolStr(s.HasWater))
-	sec.Key("IsHorseSaddled").SetValue(boolStr(s.IsHorseSaddled))
-	sec.Key("IsRiding").SetValue(boolStr(s.IsRiding))
-	sec.Key("IsTelegraphFixed").SetValue(boolStr(s.IsTelegraphFixed))
-	sec.Key("TempLightTurns").SetValue(fmt.Sprintf("%d", s.TempLightTurns))
-	sec.Key("CanteenDrinks").SetValue(fmt.Sprintf("%d", s.CanteenDrinks))
-	sec.Key("Thirst").SetValue(fmt.Sprintf("%d", s.Thirst))
-	sec.Key("HorseThirst").SetValue(fmt.Sprintf("%d", s.HorseThirst))
-	sec.Key("Turns").SetValue(fmt.Sprintf("%d", s.Turns))
-	sec.Key("Score").SetValue(fmt.Sprintf("%d", s.Score))
-
-	// RoomBurning as digit string
-	burningStr := ""
-	for i := 1; i <= MaxRooms; i++ {
-		v := s.RoomBurning[i]
-		if v < 0 {
-			v = 9
-		} else if v > 9 {
-			v = 9
+	err = db.Update(func(tx *bolt.Tx) error {
+		// --- State bucket ---
+		if err := tx.DeleteBucket([]byte("state")); err != nil && err != bolt.ErrBucketNotFound {
+			return err
 		}
-		burningStr += fmt.Sprintf("%d", v)
-	}
-	sec.Key("RoomBurning").SetValue(burningStr)
-
-	for i := 1; i <= MaxItems; i++ {
-		sectionName := fmt.Sprintf("Item%d", i)
-		itemSec, _ := cfg.NewSection(sectionName)
-		itemSec.Key("Location").SetValue(fmt.Sprintf("%d", s.Items[i].Location))
-		itemSec.Key("Description").SetValue(s.Items[i].Description)
-	}
-
-	// ScoreFlags section
-	flagSec, _ := cfg.NewSection("ScoreFlags")
-
-	roomsStr := ""
-	for i := 1; i <= MaxRooms; i++ {
-		if s.RoomVisited[i] {
-			roomsStr += "1"
-		} else {
-			roomsStr += "0"
+		state, err := tx.CreateBucket([]byte("state"))
+		if err != nil {
+			return err
 		}
-	}
-	flagSec.Key("RoomVisited").SetValue(roomsStr)
 
-	itemsStr := ""
-	for i := 1; i <= MaxItems; i++ {
-		if s.ItemScored[i] {
-			itemsStr += "1"
-		} else {
-			itemsStr += "0"
+		burningStr := ""
+		for i := 1; i <= MaxRooms; i++ {
+			v := s.RoomBurning[i]
+			if v < 0 {
+				v = 9
+			} else if v > 9 {
+				v = 9
+			}
+			burningStr += fmt.Sprintf("%d", v)
 		}
-	}
-	flagSec.Key("ItemScored").SetValue(itemsStr)
-	flagSec.Key("ScoredPumpFix").SetValue(boolStr(s.ScoredPumpFix))
-	flagSec.Key("ScoredFirstFill").SetValue(boolStr(s.ScoredFirstFill))
-	flagSec.Key("ScoredLampLight").SetValue(boolStr(s.ScoredLampLight))
-	flagSec.Key("ScoredBoxOpen").SetValue(boolStr(s.ScoredBoxOpen))
-	flagSec.Key("ScoredTelegraphFix").SetValue(boolStr(s.ScoredTelegraphFix))
-	flagSec.Key("ScoredOutlawKill").SetValue(boolStr(s.ScoredOutlawKill))
-	flagSec.Key("ScoredNoteFound").SetValue(boolStr(s.ScoredNoteFound))
 
-	if err := cfg.SaveTo(path); err != nil {
+		pairs := map[string]string{
+			"CurrentRoom":      fmt.Sprintf("%d", s.CurrentRoom.ID),
+			"IsPumpFixed":      boolStr(s.IsPumpFixed),
+			"IsLampLit":        boolStr(s.IsLampLit),
+			"HasWater":         boolStr(s.HasWater),
+			"IsHorseSaddled":   boolStr(s.IsHorseSaddled),
+			"IsRiding":         boolStr(s.IsRiding),
+			"IsTelegraphFixed": boolStr(s.IsTelegraphFixed),
+			"TempLightTurns":   fmt.Sprintf("%d", s.TempLightTurns),
+			"CanteenDrinks":    fmt.Sprintf("%d", s.CanteenDrinks),
+			"Thirst":           fmt.Sprintf("%d", s.Thirst),
+			"HorseThirst":      fmt.Sprintf("%d", s.HorseThirst),
+			"Turns":            fmt.Sprintf("%d", s.Turns),
+			"Score":            fmt.Sprintf("%d", s.Score),
+			"RoomBurning":      burningStr,
+		}
+		for k, v := range pairs {
+			if err := state.Put([]byte(k), []byte(v)); err != nil {
+				return err
+			}
+		}
+
+		// --- Items bucket ---
+		if err := tx.DeleteBucket([]byte("items")); err != nil && err != bolt.ErrBucketNotFound {
+			return err
+		}
+		items, err := tx.CreateBucket([]byte("items"))
+		if err != nil {
+			return err
+		}
+		for i := 1; i <= MaxItems; i++ {
+			sub, err := items.CreateBucket([]byte(fmt.Sprintf("Item%d", i)))
+			if err != nil {
+				return err
+			}
+			if err := sub.Put([]byte("Location"), []byte(fmt.Sprintf("%d", s.Items[i].Location))); err != nil {
+				return err
+			}
+			if err := sub.Put([]byte("Description"), []byte(s.Items[i].Description)); err != nil {
+				return err
+			}
+		}
+
+		// --- ScoreFlags bucket ---
+		if err := tx.DeleteBucket([]byte("scoreflags")); err != nil && err != bolt.ErrBucketNotFound {
+			return err
+		}
+		flags, err := tx.CreateBucket([]byte("scoreflags"))
+		if err != nil {
+			return err
+		}
+
+		roomsStr := ""
+		for i := 1; i <= MaxRooms; i++ {
+			if s.RoomVisited[i] {
+				roomsStr += "1"
+			} else {
+				roomsStr += "0"
+			}
+		}
+		itemsStr := ""
+		for i := 1; i <= MaxItems; i++ {
+			if s.ItemScored[i] {
+				itemsStr += "1"
+			} else {
+				itemsStr += "0"
+			}
+		}
+
+		scoreFlags := map[string]string{
+			"RoomVisited":        roomsStr,
+			"ItemScored":         itemsStr,
+			"ScoredPumpFix":      boolStr(s.ScoredPumpFix),
+			"ScoredFirstFill":    boolStr(s.ScoredFirstFill),
+			"ScoredLampLight":    boolStr(s.ScoredLampLight),
+			"ScoredBoxOpen":      boolStr(s.ScoredBoxOpen),
+			"ScoredTelegraphFix": boolStr(s.ScoredTelegraphFix),
+			"ScoredOutlawKill":   boolStr(s.ScoredOutlawKill),
+			"ScoredNoteFound":    boolStr(s.ScoredNoteFound),
+		}
+		for k, v := range scoreFlags {
+			if err := flags.Put([]byte(k), []byte(v)); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
 		outPrintf(s, "Error saving game: %v\n", err)
 		return
 	}
@@ -96,83 +146,130 @@ func loadGame(s *GameState, path string) {
 		return
 	}
 
-	cfg, err := ini.Load(path)
+	db, err := bolt.Open(path, 0600, &bolt.Options{ReadOnly: true})
 	if err != nil {
 		outPrintf(s, "Error loading save file: %v\n", err)
 		return
 	}
+	defer db.Close()
 
-	stateSec := cfg.Section("State")
-	roomID := stateSec.Key("CurrentRoom").MustInt(1)
-	if roomID >= 1 && roomID <= MaxRooms && s.RoomRegistry[roomID] != nil {
-		s.CurrentRoom = s.RoomRegistry[roomID]
-	}
-
-	s.IsPumpFixed = parseBool(stateSec.Key("IsPumpFixed").String())
-	s.IsLampLit = parseBool(stateSec.Key("IsLampLit").String())
-	s.HasWater = parseBool(stateSec.Key("HasWater").String())
-	s.IsHorseSaddled = parseBool(stateSec.Key("IsHorseSaddled").String())
-	s.IsRiding = parseBool(stateSec.Key("IsRiding").String())
-	s.IsTelegraphFixed = parseBool(stateSec.Key("IsTelegraphFixed").String())
-	s.TempLightTurns = stateSec.Key("TempLightTurns").MustInt(0)
-	s.CanteenDrinks = stateSec.Key("CanteenDrinks").MustInt(0)
-	s.Thirst = stateSec.Key("Thirst").MustInt(0)
-	s.HorseThirst = stateSec.Key("HorseThirst").MustInt(0)
-	s.Turns = stateSec.Key("Turns").MustInt(0)
-	s.Score = stateSec.Key("Score").MustInt(0)
-
-	burningStr := stateSec.Key("RoomBurning").String()
-	for i := 1; i <= MaxRooms; i++ {
-		if i <= len(burningStr) {
-			ch := burningStr[i-1]
-			if ch >= '0' && ch <= '9' {
-				s.RoomBurning[i] = int(ch - '0')
-			} else {
-				s.RoomBurning[i] = 0
+	err = db.View(func(tx *bolt.Tx) error {
+		// --- State bucket ---
+		state := tx.Bucket([]byte("state"))
+		if state != nil {
+			get := func(key string) string {
+				v := state.Get([]byte(key))
+				if v == nil {
+					return ""
+				}
+				return string(v)
 			}
-		} else {
-			s.RoomBurning[i] = 0
-		}
-	}
+			getInt := func(key string, def int) int {
+				var n int
+				if _, err := fmt.Sscanf(get(key), "%d", &n); err != nil {
+					return def
+				}
+				return n
+			}
 
-	for i := 1; i <= MaxItems; i++ {
-		sectionName := fmt.Sprintf("Item%d", i)
-		if cfg.HasSection(sectionName) {
-			itemSec := cfg.Section(sectionName)
-			s.Items[i].Location = itemSec.Key("Location").MustInt(s.Items[i].Location)
-			desc := itemSec.Key("Description").String()
-			if desc != "" {
-				s.Items[i].Description = desc
+			roomID := getInt("CurrentRoom", 1)
+			if roomID >= 1 && roomID <= MaxRooms && s.RoomRegistry[roomID] != nil {
+				s.CurrentRoom = s.RoomRegistry[roomID]
+			}
+
+			s.IsPumpFixed = parseBool(get("IsPumpFixed"))
+			s.IsLampLit = parseBool(get("IsLampLit"))
+			s.HasWater = parseBool(get("HasWater"))
+			s.IsHorseSaddled = parseBool(get("IsHorseSaddled"))
+			s.IsRiding = parseBool(get("IsRiding"))
+			s.IsTelegraphFixed = parseBool(get("IsTelegraphFixed"))
+			s.TempLightTurns = getInt("TempLightTurns", 0)
+			s.CanteenDrinks = getInt("CanteenDrinks", 0)
+			s.Thirst = getInt("Thirst", 0)
+			s.HorseThirst = getInt("HorseThirst", 0)
+			s.Turns = getInt("Turns", 0)
+			s.Score = getInt("Score", 0)
+
+			burningStr := get("RoomBurning")
+			for i := 1; i <= MaxRooms; i++ {
+				if i <= len(burningStr) {
+					ch := burningStr[i-1]
+					if ch >= '0' && ch <= '9' {
+						s.RoomBurning[i] = int(ch - '0')
+					} else {
+						s.RoomBurning[i] = 0
+					}
+				} else {
+					s.RoomBurning[i] = 0
+				}
 			}
 		}
-	}
 
-	flagSec := cfg.Section("ScoreFlags")
-	roomsStr := flagSec.Key("RoomVisited").String()
-	for i := 1; i <= MaxRooms; i++ {
-		if i <= len(roomsStr) {
-			s.RoomVisited[i] = roomsStr[i-1] == '1'
-		} else {
-			s.RoomVisited[i] = false
+		// --- Items bucket ---
+		items := tx.Bucket([]byte("items"))
+		if items != nil {
+			for i := 1; i <= MaxItems; i++ {
+				sub := items.Bucket([]byte(fmt.Sprintf("Item%d", i)))
+				if sub == nil {
+					continue
+				}
+				if loc := sub.Get([]byte("Location")); loc != nil {
+					var n int
+					if _, err := fmt.Sscanf(string(loc), "%d", &n); err == nil {
+						s.Items[i].Location = n
+					}
+				}
+				if desc := sub.Get([]byte("Description")); desc != nil && len(desc) > 0 {
+					s.Items[i].Description = string(desc)
+				}
+			}
 		}
-	}
 
-	itemsStr := flagSec.Key("ItemScored").String()
-	for i := 1; i <= MaxItems; i++ {
-		if i <= len(itemsStr) {
-			s.ItemScored[i] = itemsStr[i-1] == '1'
-		} else {
-			s.ItemScored[i] = false
+		// --- ScoreFlags bucket ---
+		flags := tx.Bucket([]byte("scoreflags"))
+		if flags != nil {
+			get := func(key string) string {
+				v := flags.Get([]byte(key))
+				if v == nil {
+					return ""
+				}
+				return string(v)
+			}
+
+			roomsStr := get("RoomVisited")
+			for i := 1; i <= MaxRooms; i++ {
+				if i <= len(roomsStr) {
+					s.RoomVisited[i] = roomsStr[i-1] == '1'
+				} else {
+					s.RoomVisited[i] = false
+				}
+			}
+
+			itemsStr := get("ItemScored")
+			for i := 1; i <= MaxItems; i++ {
+				if i <= len(itemsStr) {
+					s.ItemScored[i] = itemsStr[i-1] == '1'
+				} else {
+					s.ItemScored[i] = false
+				}
+			}
+
+			s.ScoredPumpFix = parseBool(get("ScoredPumpFix"))
+			s.ScoredFirstFill = parseBool(get("ScoredFirstFill"))
+			s.ScoredLampLight = parseBool(get("ScoredLampLight"))
+			s.ScoredBoxOpen = parseBool(get("ScoredBoxOpen"))
+			s.ScoredTelegraphFix = parseBool(get("ScoredTelegraphFix"))
+			s.ScoredOutlawKill = parseBool(get("ScoredOutlawKill"))
+			s.ScoredNoteFound = parseBool(get("ScoredNoteFound"))
 		}
-	}
 
-	s.ScoredPumpFix = parseBool(flagSec.Key("ScoredPumpFix").String())
-	s.ScoredFirstFill = parseBool(flagSec.Key("ScoredFirstFill").String())
-	s.ScoredLampLight = parseBool(flagSec.Key("ScoredLampLight").String())
-	s.ScoredBoxOpen = parseBool(flagSec.Key("ScoredBoxOpen").String())
-	s.ScoredTelegraphFix = parseBool(flagSec.Key("ScoredTelegraphFix").String())
-	s.ScoredOutlawKill = parseBool(flagSec.Key("ScoredOutlawKill").String())
-	s.ScoredNoteFound = parseBool(flagSec.Key("ScoredNoteFound").String())
+		return nil
+	})
+
+	if err != nil {
+		outPrintf(s, "Error loading save file: %v\n", err)
+		return
+	}
 
 	if s.IsTelegraphFixed && s.RoomRegistry[2] != nil {
 		s.RoomRegistry[2].Description = "The telegraph has been repaired. The line hums faintly with life."
