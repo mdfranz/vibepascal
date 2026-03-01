@@ -514,12 +514,12 @@ func cmdHandleScore(s *GameState, noun string, consumeTurn *bool) {
 }
 
 func cmdHandleSave(s *GameState, noun string, consumeTurn *bool) {
-	saveGame(s, "data/save.ini")
+	saveGame(s, "data/save.db")
 	*consumeTurn = false
 }
 
 func cmdHandleLoad(s *GameState, noun string, consumeTurn *bool) {
-	loadGame(s, "data/save.ini")
+	loadGame(s, "data/save.db")
 	*consumeTurn = false
 }
 
