@@ -16,9 +16,15 @@ func boolStr(b bool) string {
 }
 
 func saveGame(s *GameState, path string) {
+	saveGameInternal(s, path, false)
+}
+
+func saveGameInternal(s *GameState, path string, quiet bool) {
 	db, err := bolt.Open(path, 0600, nil)
 	if err != nil {
-		outPrintf(s, "Error saving game: %v\n", err)
+		if !quiet {
+			outPrintf(s, "Error saving game: %v\n", err)
+		}
 		return
 	}
 	defer db.Close()
@@ -134,10 +140,23 @@ func saveGame(s *GameState, path string) {
 	})
 
 	if err != nil {
-		outPrintf(s, "Error saving game: %v\n", err)
+		if !quiet {
+			outPrintf(s, "Error saving game: %v\n", err)
+		}
 		return
 	}
-	outPrintln(s, "💾 Game saved.")
+	if !quiet {
+		outPrintln(s, "💾 Game saved.")
+	}
+}
+
+func checkAutosave(s *GameState) {
+	if !s.AutosaveEnabled || s.AutosaveInterval <= 0 {
+		return
+	}
+	if s.Turns > 0 && s.Turns%s.AutosaveInterval == 0 {
+		saveGameInternal(s, s.AutosavePath, true)
+	}
 }
 
 func loadGame(s *GameState, path string) {
@@ -275,7 +294,7 @@ func loadGame(s *GameState, path string) {
 		s.RoomRegistry[2].Description = "The telegraph has been repaired. The line hums faintly with life."
 	}
 
-	outPrintln(s, "📂 Game loaded.")
+	outPrintf(s, "📂 Game loaded. (Turns played: %d)\n", s.Turns)
 	look(s)
 }
 

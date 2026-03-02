@@ -514,12 +514,26 @@ func cmdHandleScore(s *GameState, noun string, consumeTurn *bool) {
 }
 
 func cmdHandleSave(s *GameState, noun string, consumeTurn *bool) {
-	saveGame(s, "data/save.db")
+	path := "data/save.db"
+	if noun != "" {
+		path = "data/" + strings.ToLower(noun)
+		if !strings.HasSuffix(path, ".db") {
+			path += ".db"
+		}
+	}
+	saveGame(s, path)
 	*consumeTurn = false
 }
 
 func cmdHandleLoad(s *GameState, noun string, consumeTurn *bool) {
-	loadGame(s, "data/save.db")
+	path := "data/save.db"
+	if noun != "" {
+		path = "data/" + strings.ToLower(noun)
+		if !strings.HasSuffix(path, ".db") {
+			path += ".db"
+		}
+	}
+	loadGame(s, path)
 	*consumeTurn = false
 }
 
@@ -777,5 +791,6 @@ func processCommand(s *GameState, cmd string) {
 
 	if s.IsPlaying && consumeTurn {
 		updateWorld(s)
+		checkAutosave(s)
 	}
 }

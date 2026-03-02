@@ -12,12 +12,12 @@ type GameState struct {
 
 	Out io.Writer
 
-	IsPlaying       bool
-	IsPumpFixed     bool
-	IsLampLit       bool
-	HasWater        bool
-	IsHeadless      bool
-	IsBoxOpen       bool
+	IsPlaying        bool
+	IsPumpFixed      bool
+	IsLampLit        bool
+	HasWater         bool
+	IsHeadless       bool
+	IsBoxOpen        bool
 	IsTelegraphFixed bool
 
 	IsHorseSaddled bool
@@ -44,9 +44,13 @@ type GameState struct {
 	ScoredOutlawKill   bool
 	ScoredNoteFound    bool
 
-	RoomBurning [MaxRooms + 1]int
-	History     [MaxHistory + 1]string
+	RoomBurning  [MaxRooms + 1]int
+	History      [MaxHistory + 1]string
 	HistoryCount int
+
+	AutosaveEnabled  bool
+	AutosaveInterval int
+	AutosavePath     string
 }
 
 func initState(s *GameState) {
@@ -99,4 +103,8 @@ func initState(s *GameState) {
 		s.History[i] = ""
 	}
 	s.HistoryCount = 0
+
+	s.AutosaveEnabled = false
+	s.AutosaveInterval = 5
+	s.AutosavePath = "data/autosave.db"
 }
