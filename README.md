@@ -180,7 +180,39 @@ Verify the server is recognized:
 claude mcp list
 ```
 
-Once added, Claude Code exposes a `command` tool backed by the game. The tool accepts:
+#### Adding to Codex
+
+Start the server in stateless JSON mode (simplest for Codex):
+
+```bash
+./bin/dustwood-go --mcp-http --mcp-stateless --mcp-json-response
+```
+
+Then register the server with Codex. For a **user-level** (global) installation:
+
+```bash
+codex mcp add --transport http dustwood http://127.0.0.1:8765/mcp
+```
+
+For a **project-level** installation (stored in `.codex/config.toml`):
+
+```bash
+codex mcp add --transport http --scope project dustwood http://127.0.0.1:8765/mcp
+```
+
+If you started the server with `--mcp-token <token>`, add the header:
+
+```bash
+codex mcp add --transport http --header "Authorization: Bearer <token>" dustwood http://127.0.0.1:8765/mcp
+```
+
+Verify the server is recognized:
+
+```bash
+codex mcp list
+```
+
+Once added, these clients expose a `command` tool backed by the game. The tool accepts:
 
 | Field | Type | Description |
 |-------|------|-------------|

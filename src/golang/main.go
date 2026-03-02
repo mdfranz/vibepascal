@@ -4,9 +4,16 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
+	"os"
 )
 
 func main() {
+	// Ensure slog outputs to stderr, not stdout (required for MCP stdio transport)
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})))
+
 	headless := flag.Bool("headless", false, "Run in headless mode (no raw terminal input)")
 	mcpHTTP := flag.Bool("mcp-http", false, "Run MCP Streamable HTTP server")
 	mcpAddr := flag.String("mcp-addr", "127.0.0.1:8765", "MCP listen address")
