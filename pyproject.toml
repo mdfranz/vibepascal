@@ -13,6 +13,7 @@ dependencies = [
     "pytest>=8.0.0",
     "strands-agents>=1.28.0",
     "litellm>=1.81.16",
+    "agent-framework>=1.0.0rc3",
 ]
 
 [build-system]

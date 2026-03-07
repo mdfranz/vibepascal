@@ -40,11 +40,15 @@ Echoes of Dustwood uses a **Persistent Sidecar** architecture to bridge a legacy
 - **AI Clients:**
   - **Pydantic AI (`scripts/ai_client.py`):** The original implementation using `pydantic-ai` for autonomous gameplay.
   - **Strands SDK (`scripts/strands_ai_client.py`):** A modern port using the **Strands Agents SDK** and **LiteLLM**, providing broad model support and robust state management.
+  - **Microsoft Agent Framework (`scripts/ms_agent_client.py`):** A client using the **Microsoft Agent Framework**, optimized for OpenAI models.
   - **MCP Pydantic AI (`scripts/pydantic_mcp_client.py`):** A client that plays the game via the Go MCP server using Pydantic AI.
   - **MCP Strands Agent (`scripts/strands_mcp_client.py`):** A client that plays the game via the Go MCP server using Strands SDK.
+  - **MCP Microsoft Agent (`scripts/ms_agent_mcp_client.py`):** A stateful MCP client using the Microsoft Agent Framework.
 - **Orchestrators:**
   - `scripts/ai-game.sh`: Runner for the Pydantic AI client.
   - `scripts/strands-ai-game.sh`: Runner for the Strands SDK client.
+  - `scripts/ms-agent-game.sh`: Runner for the Microsoft Agent Framework client.
+  - `scripts/ms-mcp-agent-game.sh`: Runner for the Microsoft Agent MCP client.
 
 ## Project Structure
 
@@ -276,6 +280,15 @@ Uses the Pydantic AI framework.
   ```bash
   export ANTHROPIC_API_KEY="your-api-key"
   ./scripts/ai-game.sh medium anthropic:claude-3-5-sonnet-latest
+  ```
+
+### 3. Microsoft Agent Framework
+The successor to AutoGen. Optimized for goal-oriented tasks and OpenAI models.
+
+- **OpenAI GPT-5 (Default):**
+  ```bash
+  export OPENAI_API_KEY="your-api-key"
+  ./scripts/ms-agent-game.sh gpt-5-mini "Explore Dustwood."
   ```
 
 ## Commands

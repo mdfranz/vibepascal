@@ -1,37 +1,45 @@
 # AI Gameplay: How the Agent Plays Dustwood
 
 This document explains the technical implementation and reasoning logic behind the autonomous AI agents that play *Echoes of Dustwood*.
+## Orchestration: `ai-game.sh`, `strands-ai-game.sh`, and `ms-agent-game.sh`
 
-## Orchestration: `ai-game.sh` and `strands-ai-game.sh`
-
-The `scripts/ai-game.sh` and `scripts/strands-ai-game.sh` scripts act as entry points and environment managers. Their primary responsibilities are:
+The `scripts/ai-game.sh`, `scripts/strands-ai-game.sh`, and `scripts/ms-agent-game.sh` scripts act as entry points and environment managers. Their primary responsibilities are:
 1.  **Binary Integrity**: Ensures the Pascal engine (`bin/dustwood`) is compiled and up-to-date.
 2.  **Environment Setup**: Cleans up previous save states and ensures logging directories exist.
-3.  **Parameter Passing**: Translates high-level arguments (difficulty, model, delay) into the specific configuration needed by the AI client.
+3.  **Parameter Passing**: Translates high-level arguments (difficulty, model, delay, or goal) into the specific configuration needed by the AI client.
 
 ### Script Arguments
 
-Both scripts accept the same four positional arguments:
+The scripts accept the following positional arguments:
 ```
 ./scripts/ai-game.sh         [difficulty] [model] [delay] [max_turns]
 ./scripts/strands-ai-game.sh [difficulty] [model] [delay] [max_turns]
+./scripts/ms-agent-game.sh   [model] [goal]
 ```
 
 | Argument | Values | Default |
 | :--- | :--- | :--- |
 | `difficulty` | `full`, `medium`, `minimal` | `full` |
-| `model` | Provider-prefixed model string | `google-gla:gemini-3-flash-preview` / `gemini/gemini-3-flash-preview` |
+| `model` | Provider-prefixed model string | `google-gla:gemini-3-flash-preview` / `gemini/gemini-3-flash-preview` / `gpt-5-mini` |
 | `delay` | Seconds between turns | `1` |
 | `max_turns` | Max turns before stopping | `25` |
+| `goal` | Mission for the MS Agent | `Find the general store and get some water.` |
 
-Model naming differs: `ai-game.sh` uses Pydantic AI colons (`google-gla:`, `openai:`, `ollama:`); `strands-ai-game.sh` uses LiteLLM slashes (`gemini/`, `openai/`, `ollama/`).
+Model naming differs: `ai-game.sh` uses Pydantic AI colons; `strands-ai-game.sh` uses LiteLLM slashes; `ms-agent-game.sh` uses direct OpenAI model IDs.
 
-## The "Brains": `scripts/ai_client.py` and `scripts/strands_ai_client.py`
+## The "Brains": `scripts/ai_client.py`, `scripts/strands_ai_client.py`, and `scripts/ms_agent_client.py`
 
-The system supports two implementation backends that share the same high-level logic but use different orchestration frameworks:
+The system supports three implementation backends:
 
 ### 1. Pydantic AI Backend (`ai_client.py`)
-The original implementation. It uses `pydantic-ai` to manage model interactions and structured output validation. It is highly optimized for direct provider integrations (Google, OpenAI, Anthropic).
+...
+### 2. Strands SDK Backend (`strands_ai_client.py`)
+...
+### 3. Microsoft Agent Framework Backend (`ms_agent_client.py`)
+The successor to AutoGen and Semantic Kernel.
+-   **Native Tool Calling**: Uses the framework's native `Agent` and `ChatClient` abstractions.
+-   **Goal-Oriented**: Designed for mission-based gameplay where the agent is given a specific objective to complete.
+-   **OpenAI Optimized**: Leverages high-performance models like `gpt-5-mini`.
 
 ### 2. Strands SDK Backend (`strands_ai_client.py`)
 A modern port using the **Strands Agents SDK** and **LiteLLM**. 
@@ -96,6 +104,11 @@ This is the most robust implementation for the project's current stateless HTTP 
 Utilizes the Strands SDK's dynamic tool discovery.
 - **Dynamic Ingestion**: Uses `strands.tools.mcp.MCPClient` to automatically "suck in" tool definitions from the server at runtime.
 - **Agentic Autonomy**: Relies on the SDK's internal loop to manage the tool-calling lifecycle.
+
+#### 3. Microsoft Agent MCP Client (`ms_agent_mcp_client.py`)
+A stateful client using the Microsoft Agent Framework.
+- **Session Persistence**: Implements the `Mcp-Session-Id` protocol to maintain stateful connections with the Go MCP server.
+- **Native Tasking**: Uses the framework's `Agent.run` to handle the mission objective and tool execution.
 
 ## Supported Providers
 By using `pydantic-ai`, the system is model-agnostic. It supports:
