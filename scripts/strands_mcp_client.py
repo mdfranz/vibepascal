@@ -258,7 +258,10 @@ def run_strands_agent(
 
     logger.info(f"--- Strands MCP Agent Starting (Model: {model_id}) ---")
     
-    prompt = f"Perform a LOOK command to start, then continue playing for up to {max_turns} turns to increase your score."
+    prompt = (
+        "Start by calling the 'command' tool with command='LOOK' and reset=True. "
+        f"Then continue playing for up to {max_turns} turns to increase your score."
+    )
 
     try:
         result = agent(prompt)
