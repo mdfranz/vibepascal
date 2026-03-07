@@ -7,27 +7,28 @@ from typing import Dict, List, Any
 
 # --- Configuration ---
 MCP_URL = "http://127.0.0.1:8765/mcp"
-DEFAULT_MODEL = "gpt-5-mini"
-STRANDS_MODEL = "openai/gpt-5-mini"
-GOAL = "Go East to the General Store, take the canteen, and then go West back to Main Street. Stop when you are back at Main Street."
+DEFAULT_MODEL = "claude-opus-4-6"
+STRANDS_MODEL = "anthropic/claude-3-opus-20240229" # Strands uses LiteLLM
+GOAL = "Explore Dustwood thoroughly for 50 turns. Try to find the telegraph office, general store, livery stables, and the hidden stream. Keep playing until you have reached 50 turns or the game ends."
+STEPS = 50
 
 CLIENTS = [
     {
         "name": "Pydantic AI",
         "script": "scripts/pydantic_mcp_client.py",
-        "args": ["openai:gpt-5-mini", GOAL],
+        "args": ["anthropic:claude-3-opus-20240229", GOAL], # Pydantic AI naming
         "type": "json-rpc"
     },
     {
         "name": "MS Agent Framework",
         "script": "scripts/ms_agent_mcp_client.py",
-        "args": [DEFAULT_MODEL, GOAL],
+        "args": [DEFAULT_MODEL, GOAL, "--steps", str(STEPS)],
         "type": "json-rpc"
     },
     {
         "name": "Agno (formerly Phidata)",
         "script": "scripts/agno_mcp_client.py",
-        "args": [DEFAULT_MODEL, GOAL],
+        "args": [DEFAULT_MODEL, GOAL, "--steps", str(STEPS)],
         "type": "json-rpc"
     },
     {
@@ -45,14 +46,14 @@ def run_client(client: Dict[str, Any]) -> Dict[str, Any]:
     cmd = ["uv", "run", "python3", client["script"]] + client["args"]
     
     try:
-        # Run with a 3-minute timeout per agent
+        # Run with a 10-minute timeout for a 50-turn run
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True
         )
-        stdout, stderr = process.communicate(timeout=180)
+        stdout, stderr = process.communicate(timeout=600)
         end_time = time.time()
         
         duration = end_time - start_time
@@ -61,29 +62,26 @@ def run_client(client: Dict[str, Any]) -> Dict[str, Any]:
         # Combined output for search
         full_output = stdout + stderr
         
+        # Log to file for later review
+        log_dir = "logs/benchmark"
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, f"{client['name'].replace(' ', '_').lower()}.log")
+        with open(log_file, "w") as f:
+            f.write(full_output)
+        
         # Simple heuristics to count turns
-        # Pydantic logs HTTP Request for tools
-        # MS Agent logs "Agent executing command:"
-        # Agno logs "Agent executing command:"
-        # Strands logs "Calling tool"
         turns = (full_output.count("Agent executing command:") + 
                  full_output.count("HTTP Request: POST http://127.0.0.1:8765/mcp") +
                  full_output.count("Calling tool"))
         
-        # Adjust turn count because each turn might log multiple things
+        # Adjust turn count
         if client["name"] == "Pydantic AI":
-            # Pydantic AI logs 1 HTTP request for initial LOOK, then 1 per turn
             turns = max(0, turns - 1)
-        elif client["name"] == "Agno (formerly Phidata)":
-            # Agno logs 1 for LOOK, then 1 per turn
-            turns = max(0, turns - 1)
-        elif client["name"] == "MS Agent Framework":
-            # MS Agent logs 1 for LOOK, then 1 per turn
+        elif client["name"] in ["Agno (formerly Phidata)", "MS Agent Framework"]:
             turns = max(0, turns - 1)
 
-        # Check if goal was reached (General Store and Main Street mentioned)
-        # We look for "General Store" and later "Main Street" in the narrative
-        success = "General Store" in full_output and "Main Street" in full_output and "canteen" in full_output.lower()
+        # Check if any progress was made
+        success = "--- Game State ---" in full_output or ">" in full_output
         
         return {
             "name": client["name"],

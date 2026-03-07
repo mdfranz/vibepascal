@@ -20,6 +20,8 @@ load_dotenv()
 # --- Configuration ---
 BINARY_PATH = os.environ.get("DUSTWOOD_BIN", "bin/dustwood")
 DEFAULT_MODEL = "gpt-5-mini"
+TURN_DELAY = 1
+MAX_TURNS = 25
 
 # Create a unique log file for each session
 EPOCH = int(time.time())
@@ -40,6 +42,8 @@ console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(logging.Formatter('%(message)s'))
 logger.addHandler(console_handler)
 
+# Global variables for delay
+global_delay = TURN_DELAY
 
 # --- Game Interface ---
 class DustwoodGame:
@@ -111,12 +115,15 @@ class DustwoodGame:
 
     def send_command(self, command: str) -> str:
         """Sends a command to the game and returns the resulting output."""
-        if not self.proc or not self.proc.stdin:
-            return "Error: Game not running."
+        if not self.proc or not self.proc.stdin or self.proc.poll() is not None:
+            return "Error: Game process has terminated (GAME OVER)."
         
         logger.debug(f"Sending command: {command}")
-        self.proc.stdin.write((command + "\n").encode())
-        self.proc.stdin.flush()
+        try:
+            self.proc.stdin.write((command + "\n").encode())
+            self.proc.stdin.flush()
+        except BrokenPipeError:
+            return "Error: Game process has terminated (GAME OVER)."
         
         time.sleep(0.05)
         output = self._read_until_prompt()
@@ -146,17 +153,35 @@ def play_command(command: str) -> str:
         command: The action you want to take (e.g., 'NORTH', 'TAKE CANTEEN', 'LOOK')
     """
     logger.info(f"Agent executing command: {command}")
+    if global_delay > 0:
+        time.sleep(global_delay)
     result = game.send_command(command)
     logger.info(f"Game output: {result}")
     return result
 
-async def run_agno_agent(model_name: str, goal: str):
+async def run_agno_agent(level: str, model_name: str, delay: int, max_turns: int):
     logger.info(f"--- Agno Client Starting (Model: {model_name}) ---")
-    logger.info(f"Goal: {goal}")
+    
+    guidance_map = {
+        "full": "data/guidance_full.txt",
+        "medium": "data/guidance_medium.txt",
+        "minimal": "data/guidance_minimal.txt"
+    }
+    guidance_file = guidance_map.get(level, "data/guidance_full.txt")
+    
+    if not os.path.exists(guidance_file):
+        logger.error(f"Guidance file not found: {guidance_file}")
+        return
+
+    with open(guidance_file, 'r') as f:
+        system_instruction = f.read().strip()
+
+    global global_delay
+    global_delay = delay
     
     try:
         # Initial look
-        initial_output = game.start()
+        initial_output = game.start(turns=max_turns)
         logger.info(f"\n[STARTING GAME]\n{initial_output}")
         
         # Instantiate the model
@@ -178,6 +203,7 @@ async def run_agno_agent(model_name: str, goal: str):
             model=model,
             name="DustwoodAgnoAdventurer",
             description=(
+                f"{system_instruction}\n\n"
                 "You are an expert adventurer playing 'Echoes of Dustwood'.\n"
                 "You interact with the game via the 'play_command' tool.\n"
                 "Your goal is to survive, explore, and increase your score.\n"
@@ -188,7 +214,7 @@ async def run_agno_agent(model_name: str, goal: str):
         )
         
         # Start the interaction loop
-        prompt = f"GOAL: {goal}. \nSTARTING STATE: {initial_output}\nWhat is your first command?"
+        prompt = f"STARTING STATE: {initial_output}\nWhat is your first command?"
         
         # Agno's agent.run or agent.print_response
         # For programmatic access we use agent.run()
@@ -199,7 +225,9 @@ async def run_agno_agent(model_name: str, goal: str):
         game.stop()
 
 if __name__ == "__main__":
-    model = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_MODEL
-    goal = sys.argv[2] if len(sys.argv) > 2 else "Find the general store and get some water."
+    level = sys.argv[1] if len(sys.argv) > 1 else "full"
+    model = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_MODEL
+    delay = int(sys.argv[3]) if len(sys.argv) > 3 else TURN_DELAY
+    max_turns = int(sys.argv[4]) if len(sys.argv) > 4 else MAX_TURNS
     
-    asyncio.run(run_agno_agent(model, goal))
+    asyncio.run(run_agno_agent(level, model, delay, max_turns))

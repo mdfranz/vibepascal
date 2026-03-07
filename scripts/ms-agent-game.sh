@@ -14,24 +14,28 @@ if ! make build > /dev/null 2>&1; then
 fi
 
 # Display help if requested
-if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo "Echoes of Dustwood: Microsoft Agent Framework Runner"
     echo ""
-    echo "Usage: ./scripts/ms-agent-game.sh [model] [goal]"
+    echo "Usage: ./scripts/ms-agent-game.sh [difficulty] [model] [delay] [max_turns]"
     echo ""
     echo "Arguments:"
+    echo "  difficulty    full, medium, minimal (default: full)"
     echo "  model         OpenAI model name (default: gpt-4o)"
-    echo "  goal          The objective for the agent (default: 'Find the general store and get some water.')"
+    echo "  delay         Seconds to wait between turns (default: 1)"
+    echo "  max_turns     Maximum turns before stopping (default: 25)"
     echo ""
     echo "Examples:"
-    echo "  ./scripts/ms-agent-game.sh gpt-4o-mini 'Explore the mines'"
+    echo "  ./scripts/ms-agent-game.sh full gpt-4o-mini 1 25"
     exit 0
 fi
 
-MODEL=${1:-gpt-4o}
-GOAL=${2:-"Find the general store and get some water."}
+LEVEL=${1:-full}
+MODEL=${2:-gpt-4o}
+DELAY=${3:-1}
+MAX_TURNS=${4:-25}
 
-echo "--- Starting MS Agent (Model: $MODEL, Goal: $GOAL) ---"
-uv run python3 scripts/ms_agent_client.py "$MODEL" "$GOAL"
+echo "--- Starting MS Agent (Level: $LEVEL, Model: $MODEL, Delay: ${DELAY}s, Max Turns: $MAX_TURNS) ---"
+uv run python3 scripts/ms_agent_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
 
 echo "--- Session Complete ---"

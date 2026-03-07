@@ -28,30 +28,35 @@ The scripts accept the following positional arguments:
 
 Model naming differs: `ai-game.sh` uses Pydantic AI colons; `strands-ai-game.sh` uses LiteLLM slashes; `ms-agent-game.sh` and `agno-game.sh` use direct provider model IDs.
 
-## The "Brains": `scripts/ai_client.py`, `scripts/strands_ai_client.py`, `scripts/ms_agent_client.py`, and `scripts/agno_client.py`
+## The "Brains": Implementation Backends
 
-The system supports four implementation backends:
+The system supports four distinct implementation backends, each offering a different approach to autonomous gameplay:
 
 ### 1. Pydantic AI Backend (`ai_client.py`)
-...
+The most efficient implementation. It uses `pydantic-ai` to manage model interactions and structured output validation. Optimized for high-speed survival runs.
+
 ### 2. Strands SDK Backend (`strands_ai_client.py`)
-...
+A modern port using the **Strands Agents SDK**. It features a custom "Reverse-Search JSON Extractor" to support reasoning models (like `deepseek-r1`) that output raw text before their final command.
+
 ### 3. Microsoft Agent Framework Backend (`ms_agent_client.py`)
-...
+A high-performance orchestration layer. It treats game commands as native model tools, allowing for surgical goal completion with minimal turn wastage.
+
 ### 4. Agno Backend (`agno_client.py`)
-A lightweight, multimodal agent framework (formerly Phidata).
--   **Native Integration**: Uses Agno's `Agent` and `Model` abstractions (OpenAIChat, Claude, Gemini, Ollama).
--   **Structured Interaction**: Leverages Agno's tool-calling for clean game interaction.
--   **Goal-Driven**: Focused on completing specific objectives provided as a mission statement.
+A lightweight framework (formerly Phidata) that provides the best support for the latest multimodal models. It is the only framework in the project currently capable of running Gemini 3.1 models via their native SDK.
 
-### 2. Strands SDK Backend (`strands_ai_client.py`)
-A modern port using the **Strands Agents SDK** and **LiteLLM**. 
--   **Conversation Management**: Uses a built-in `SlidingWindowConversationManager` to automatically handle history pruning.
--   **LiteLLM Integration**: Supports a vast array of models through a unified interface.
--   **Manual JSON Mode**: To support reasoning models (like `cogito:14b` or `deepseek-r1`) which often conflict with "Forced Tool Calling," the Strands client uses a custom validation loop. It allows the model to output raw text (including `<thought>` blocks) and then surgically extracts and validates the JSON command.
+## Interaction Methods: Stdio vs. MCP
 
-### 1. Direct Process Interaction
-Unlike the web UI, the AI client does not use a web server. It spawns the Pascal binary as a direct subprocess using the `--headless` flag. It communicates via `stdin` and `stdout` using a non-blocking selector pattern to detect when the game is waiting for input (the `> ` prompt).
+The agents can interact with the game engine in two ways:
+
+### 1. Direct Stdio (Original)
+The agent spawns the Pascal binary as a subprocess. This method is used for testing the original engine logic but is limited by a **~5.1s latency per turn** due to necessary I/O timeouts.
+
+### 2. Model Context Protocol (MCP)
+The latest evolution of the AI players. The agent communicates with a stateful Go server via JSON-RPC.
+- **Speed**: **~1.25s per turn** (4x faster than Stdio).
+- **Precision**: The agent receives a validated `GameSummary` object containing exact values for thirst, turns, and location, eliminating parsing errors.
+- **Native Tool Calling**: Game commands are treated as standard model tools.
+
 
 ### 2. Structured Output (Reasoning Optional)
 The agent is configured to return a structured JSON response for every turn:

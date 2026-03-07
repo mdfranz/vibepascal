@@ -1,6 +1,7 @@
 import os
 import logging
-import argparse
+import sys
+import time
 from typing import Optional
 from dotenv import load_dotenv
 
@@ -15,32 +16,45 @@ from mcp import stdio_client, StdioServerParameters
 load_dotenv()
 
 # --- Configuration ---
-# Use the binary directly for stdio transport (no --mcp-http)
-# We assume the binary handles stdio MCP if run without flags or with specific flags
-# Based on src/golang/main.go, it needs a way to trigger MCP on stdio.
-# Actually, the Go SDK usually handles this if we use a specific entry point.
-# Let's assume the current binary supports it or we need to add it.
-# If the binary ONLY supports HTTP, we should use the HTTP transport in Strands.
-
 STDIO_PARAMS = StdioServerParameters(
     command="./bin/dustwood-go",
-    args=["--turns", "1000"] # We might need a --mcp-stdio flag if we implemented one
+    args=["--turns", "1000"]
 )
 DEFAULT_MODEL_ID = "gemini/gemini-3-flash-preview"
 MESSAGE_HISTORY_LIMIT = 10
-DEFAULT_GUIDANCE = os.environ.get("GUIDANCE_FILE")
+TURN_DELAY = 1
+MAX_TURNS = 25
+
+# Create a unique log file for each session
+EPOCH = int(time.time())
+LOG_FILE = f"logs/strands_mcp_client-{EPOCH}.log"
 
 from guidance_loader import load_guidance
 
 # --- Setup Logging ---
-logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+os.makedirs("logs", exist_ok=True)
+
+file_handler = logging.FileHandler(LOG_FILE)
+file_handler.setLevel(logging.DEBUG)
+file_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+logger.addHandler(file_handler)
+
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(logging.Formatter('%(message)s'))
+logger.addHandler(console_handler)
+
+# Global variable for delay
+global_delay = TURN_DELAY
 
 def run_strands_agent(
+    level: str,
     model_id: str,
-    goal: str,
+    delay: int,
+    max_turns: int,
     transport: str = "streamable-http",
-    guidance: Optional[str] = None,
 ):
     # 1. Initialize the LLM
     llm_model = LiteLLMModel(
@@ -69,9 +83,16 @@ def run_strands_agent(
     conv_manager = SlidingWindowConversationManager(window_size=MESSAGE_HISTORY_LIMIT)
 
     # 4. Initialize Agent with MCP Tools
-    guidance_cfg = load_guidance(guidance)
+    guidance_map = {
+        "full": "data/guidance_full.txt",
+        "medium": "data/guidance_medium.txt",
+        "minimal": "data/guidance_minimal.txt"
+    }
+    guidance_file = guidance_map.get(level, "data/guidance_full.txt")
+    guidance_cfg = load_guidance(guidance_file)
     if guidance_cfg.path:
         logger.info(f"Guidance: {guidance_cfg.path}")
+    
     guidance_block = f"\n\nGUIDANCE (follow this):\n{guidance_cfg.text}" if guidance_cfg.text else ""
 
     agent = Agent(
@@ -89,10 +110,11 @@ def run_strands_agent(
     )
 
     logger.info(f"--- Strands MCP Agent Starting (Model: {model_id}) ---")
-    logger.info(f"Goal: {goal}")
+    
+    prompt = f"Perform a LOOK command to start, then continue playing for up to {max_turns} turns to increase your score."
 
     try:
-        result = agent(goal)
+        result = agent(prompt)
         logger.info(f"\n[FINAL AGENT RESPONSE]\n{str(result).strip()}")
     except Exception as e:
         logger.error(f"Error during agent execution: {e}")
@@ -103,25 +125,10 @@ def run_strands_agent(
             pass
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Strands MCP client for Echoes of Dustwood.")
-    parser.add_argument("model", nargs="?", default=DEFAULT_MODEL_ID, help="LiteLLM model id.")
-    parser.add_argument(
-        "goal",
-        nargs="?",
-        default="Perform a LOOK command to see where we are, then stop.",
-        help="Goal for the agent.",
-    )
-    parser.add_argument(
-        "transport",
-        nargs="?",
-        default="streamable-http",
-        help="MCP transport (streamable-http|sse|stdio). Note: dustwood-go with --mcp-json-response requires streamable-http.",
-    )
-    parser.add_argument(
-        "--guidance",
-        default=DEFAULT_GUIDANCE,
-        help="Guidance file path or level (full|medium|minimal). Can also be set via GUIDANCE_FILE.",
-    )
-    args = parser.parse_args()
+    level = sys.argv[1] if len(sys.argv) > 1 else "full"
+    model = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_MODEL_ID
+    delay = int(sys.argv[3]) if len(sys.argv) > 3 else TURN_DELAY
+    max_turns = int(sys.argv[4]) if len(sys.argv) > 4 else MAX_TURNS
+    transport = sys.argv[5] if len(sys.argv) > 5 else "streamable-http"
 
-    run_strands_agent(args.model, args.goal, args.transport, args.guidance)
+    run_strands_agent(level, model, delay, max_turns, transport)
