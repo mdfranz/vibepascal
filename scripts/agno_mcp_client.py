@@ -15,6 +15,17 @@ from agno.models.ollama import Ollama
 from agno.tools.mcp import MCPTools
 
 from guidance_loader import load_guidance
+from llm_observability import (
+    Timer,
+    game_console_enabled,
+    print_game,
+    console_logging_enabled,
+    enable_http_debug_logging,
+    format_payload,
+    http_debug_logging_enabled,
+    log_kv,
+    provider_payload_logging_enabled,
+)
 
 # Load environment variables
 load_dotenv()
@@ -39,14 +50,21 @@ file_handler.setLevel(logging.DEBUG)
 file_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
 logger.addHandler(file_handler)
 
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_handler.setFormatter(logging.Formatter('%(message)s'))
-logger.addHandler(console_handler)
+if console_logging_enabled():
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(logging.Formatter('%(message)s'))
+    logger.addHandler(console_handler)
 
 # Silence verbose loggers
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
+if http_debug_logging_enabled():
+    handlers = [file_handler]
+    if console_logging_enabled():
+        handlers.append(console_handler)
+    enable_http_debug_logging(handlers=handlers)
+else:
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("mcp").setLevel(logging.WARNING)
 
 # Global variables for delay
@@ -77,6 +95,11 @@ def _format_command_result(*, structured_content: dict) -> str:
     result = CommandOutput(**structured_content)
     state = result.state
     logger.info(f"Game output received (State: {state.room_name})")
+    if game_console_enabled():
+        print_game(
+            f"\n[turn={state.turns} room={state.room_name} score={state.score} thirst={state.thirst}/20]\n"
+            f"{result.output.strip()}\n"
+        )
     return (
         f"--- Game State ---\n"
         f"Room: {state.room_name} (ID: {state.room_id})\n"
@@ -112,14 +135,42 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
                 """Send a game command via MCP and return narrative output plus a structured state summary."""
                 nonlocal last_state
                 logger.info(f"Agent executing command: {command}")
+                if game_console_enabled():
+                    print_game(f"\n> {command}")
                 
                 if global_delay > 0 and not reset:
                     await asyncio.sleep(global_delay)
 
-                result = await mcp_tools.session.call_tool(  # type: ignore[union-attr]
-                    "command",
-                    {"command": command, "reset": reset},
-                )
+                tool_timer = Timer.start_new()
+                tool_args = {"command": command, "reset": reset}
+                try:
+                    result = await mcp_tools.session.call_tool(  # type: ignore[union-attr]
+                        "command",
+                        tool_args,
+                    )
+                    log_kv(
+                        logger,
+                        event="tool_call",
+                        client="agno",
+                        tool_name="mcp.command",
+                        latency_ms=tool_timer.elapsed_ms(),
+                        args=(format_payload(tool_args) if provider_payload_logging_enabled() else None),
+                        result=(format_payload(getattr(result, "structuredContent", None) or getattr(result, "content", None)) if provider_payload_logging_enabled() else None),
+                        is_error=getattr(result, "isError", None),
+                    )
+                except Exception as e:
+                    log_kv(
+                        logger,
+                        level="error",
+                        event="tool_call",
+                        client="agno",
+                        tool_name="mcp.command",
+                        latency_ms=tool_timer.elapsed_ms(),
+                        args=(format_payload(tool_args) if provider_payload_logging_enabled() else None),
+                        error=str(e),
+                    )
+                    raise
+
                 if result.isError:
                     raise RuntimeError("MCP tool 'command' returned an error.")
 
@@ -177,7 +228,25 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
                     f"Step {step_idx}/{max_turns}: Output exactly one next game command (one line)."
                     f"\nRules: do not repeat LOOK unless state changed; prefer movement/exploration when safe."
                 )
+                provider_timer = Timer.start_new()
                 run_output = await agent.arun(prompt)
+                latency_ms = provider_timer.elapsed_ms()
+                metrics = getattr(run_output, "metrics", None)
+                log_kv(
+                    logger,
+                    event="provider_call",
+                    client="agno",
+                    model_provider=getattr(run_output, "model_provider", None),
+                    model=getattr(run_output, "model", None),
+                    latency_ms=latency_ms,
+                    input_tokens=getattr(metrics, "input_tokens", None),
+                    output_tokens=getattr(metrics, "output_tokens", None),
+                    total_tokens=getattr(metrics, "total_tokens", None),
+                    reasoning_tokens=getattr(metrics, "reasoning_tokens", None),
+                    tool_calls=(len(getattr(run_output, "tools", []) or []) if getattr(run_output, "tools", None) is not None else None),
+                    prompt=(format_payload(prompt) if provider_payload_logging_enabled() else None),
+                    response=(format_payload(getattr(run_output, "content", None)) if provider_payload_logging_enabled() else None),
+                )
                 next_cmd = (run_output.content or "").strip()
                 next_cmd = next_cmd.splitlines()[0].strip().strip("`").strip()
                 if not next_cmd:
