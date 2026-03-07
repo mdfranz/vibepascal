@@ -15,6 +15,7 @@ The scripts accept the following positional arguments:
 ./scripts/ai-game.sh         [difficulty] [model] [delay] [max_turns]
 ./scripts/strands-ai-game.sh [difficulty] [model] [delay] [max_turns]
 ./scripts/ms-agent-game.sh   [model] [goal]
+./scripts/agno-game.sh       [model] [goal]
 ```
 
 | Argument | Values | Default |
@@ -23,23 +24,25 @@ The scripts accept the following positional arguments:
 | `model` | Provider-prefixed model string | `google-gla:gemini-3-flash-preview` / `gemini/gemini-3-flash-preview` / `gpt-5-mini` |
 | `delay` | Seconds between turns | `1` |
 | `max_turns` | Max turns before stopping | `25` |
-| `goal` | Mission for the MS Agent | `Find the general store and get some water.` |
+| `goal` | Mission for the Agent | `Find the general store and get some water.` |
 
-Model naming differs: `ai-game.sh` uses Pydantic AI colons; `strands-ai-game.sh` uses LiteLLM slashes; `ms-agent-game.sh` uses direct OpenAI model IDs.
+Model naming differs: `ai-game.sh` uses Pydantic AI colons; `strands-ai-game.sh` uses LiteLLM slashes; `ms-agent-game.sh` and `agno-game.sh` use direct provider model IDs.
 
-## The "Brains": `scripts/ai_client.py`, `scripts/strands_ai_client.py`, and `scripts/ms_agent_client.py`
+## The "Brains": `scripts/ai_client.py`, `scripts/strands_ai_client.py`, `scripts/ms_agent_client.py`, and `scripts/agno_client.py`
 
-The system supports three implementation backends:
+The system supports four implementation backends:
 
 ### 1. Pydantic AI Backend (`ai_client.py`)
 ...
 ### 2. Strands SDK Backend (`strands_ai_client.py`)
 ...
 ### 3. Microsoft Agent Framework Backend (`ms_agent_client.py`)
-The successor to AutoGen and Semantic Kernel.
--   **Native Tool Calling**: Uses the framework's native `Agent` and `ChatClient` abstractions.
--   **Goal-Oriented**: Designed for mission-based gameplay where the agent is given a specific objective to complete.
--   **OpenAI Optimized**: Leverages high-performance models like `gpt-5-mini`.
+...
+### 4. Agno Backend (`agno_client.py`)
+A lightweight, multimodal agent framework (formerly Phidata).
+-   **Native Integration**: Uses Agno's `Agent` and `Model` abstractions (OpenAIChat, Claude, Gemini, Ollama).
+-   **Structured Interaction**: Leverages Agno's tool-calling for clean game interaction.
+-   **Goal-Driven**: Focused on completing specific objectives provided as a mission statement.
 
 ### 2. Strands SDK Backend (`strands_ai_client.py`)
 A modern port using the **Strands Agents SDK** and **LiteLLM**. 
@@ -106,9 +109,12 @@ Utilizes the Strands SDK's dynamic tool discovery.
 - **Agentic Autonomy**: Relies on the SDK's internal loop to manage the tool-calling lifecycle.
 
 #### 3. Microsoft Agent MCP Client (`ms_agent_mcp_client.py`)
-A stateful client using the Microsoft Agent Framework.
 - **Session Persistence**: Implements the `Mcp-Session-Id` protocol to maintain stateful connections with the Go MCP server.
 - **Native Tasking**: Uses the framework's `Agent.run` to handle the mission objective and tool execution.
+
+#### 4. Agno MCP Client (`agno_mcp_client.py`)
+- **Stateful Async**: Uses Agno's `Agent.arun` for asynchronous tool execution and session-aware MCP interaction.
+- **Flexible Models**: Supports the same broad range of models as the standard Agno client via the Go MCP server.
 
 ## Supported Providers
 By using `pydantic-ai`, the system is model-agnostic. It supports:

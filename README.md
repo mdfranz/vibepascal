@@ -37,18 +37,23 @@ Echoes of Dustwood uses a **Persistent Sidecar** architecture to bridge a legacy
 
 - **Game Engine:** Either the Pascal or Go implementation.
 - **Sidecar API (`scripts/sidecar.py`):** A FastAPI wrapper that exposes the game as a REST service. It manages state by keeping a single headless process alive and streaming commands to it. The binary used can be configured via the `DUSTWOOD_BIN` environment variable.
-- **AI Clients:**
+- **AI Clients (Original):**
   - **Pydantic AI (`scripts/ai_client.py`):** The original implementation using `pydantic-ai` for autonomous gameplay.
   - **Strands SDK (`scripts/strands_ai_client.py`):** A modern port using the **Strands Agents SDK** and **LiteLLM**, providing broad model support and robust state management.
   - **Microsoft Agent Framework (`scripts/ms_agent_client.py`):** A client using the **Microsoft Agent Framework**, optimized for OpenAI models.
+  - **Agno (`scripts/agno_client.py`):** A lightweight client using the **Agno** framework (formerly Phidata).
+- **AI Clients (MCP):**
   - **MCP Pydantic AI (`scripts/pydantic_mcp_client.py`):** A client that plays the game via the Go MCP server using Pydantic AI.
   - **MCP Strands Agent (`scripts/strands_mcp_client.py`):** A client that plays the game via the Go MCP server using Strands SDK.
   - **MCP Microsoft Agent (`scripts/ms_agent_mcp_client.py`):** A stateful MCP client using the Microsoft Agent Framework.
+  - **MCP Agno Agent (`scripts/agno_mcp_client.py`):** A stateful MCP client using the Agno framework.
 - **Orchestrators:**
   - `scripts/ai-game.sh`: Runner for the Pydantic AI client.
   - `scripts/strands-ai-game.sh`: Runner for the Strands SDK client.
   - `scripts/ms-agent-game.sh`: Runner for the Microsoft Agent Framework client.
   - `scripts/ms-mcp-agent-game.sh`: Runner for the Microsoft Agent MCP client.
+  - `scripts/agno-game.sh`: Runner for the Agno client.
+  - `scripts/agno-mcp-game.sh`: Runner for the Agno MCP client.
 
 ## Project Structure
 
@@ -283,12 +288,45 @@ Uses the Pydantic AI framework.
   ```
 
 ### 3. Microsoft Agent Framework
-The successor to AutoGen. Optimized for goal-oriented tasks and OpenAI models.
+The successor to AutoGen. Optimized for goal-oriented tasks and multi-provider support.
 
 - **OpenAI GPT-5 (Default):**
   ```bash
   export OPENAI_API_KEY="your-api-key"
   ./scripts/ms-agent-game.sh gpt-5-mini "Explore Dustwood."
+  ```
+- **Anthropic Claude:**
+  ```bash
+  export ANTHROPIC_API_KEY="your-api-key"
+  ./scripts/ms-agent-game.sh claude-3-5-sonnet-latest "Find the hidden stream."
+  ```
+- **Google Gemini (v2.0+):**
+  ```bash
+  export GEMINI_API_KEY="your-api-key"
+  ./scripts/ms-agent-game.sh gemini-2.0-flash "Find the key under the stream rock."
+  ```
+- **Ollama (Local/Remote):**
+  ```bash
+  export OLLAMA_HOST="http://your-server:11434"
+  ./scripts/ms-agent-game.sh ollama/granite4:3b "Explore the town."
+  ```
+
+### 4. Agno (formerly Phidata)
+A lightweight multimodal agent framework.
+
+- **OpenAI GPT-5 (Default):**
+  ```bash
+  export OPENAI_API_KEY="your-api-key"
+  ./scripts/agno-game.sh gpt-5-mini "Find the general store."
+  ```
+- **Anthropic Claude:**
+  ```bash
+  export ANTHROPIC_API_KEY="your-api-key"
+  ./scripts/agno-game.sh claude-3-5-sonnet-latest "Explore the town."
+  ```
+- **Ollama:**
+  ```bash
+  ./scripts/agno-game.sh ollama/granite4:3b "Explore Dustwood."
   ```
 
 ## Commands

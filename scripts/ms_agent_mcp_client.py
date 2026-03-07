@@ -2,6 +2,7 @@ import os
 import asyncio
 import logging
 import sys
+import argparse
 import httpx
 import json
 from typing import List, Optional
@@ -10,6 +11,10 @@ from dotenv import load_dotenv
 
 from agent_framework import Agent
 from agent_framework.openai import OpenAIChatClient
+from agent_framework.anthropic import AnthropicClient
+from agent_framework.ollama import OllamaChatClient
+
+from guidance_loader import load_guidance
 
 # Load environment variables
 load_dotenv()
@@ -17,6 +22,7 @@ load_dotenv()
 # --- Configuration ---
 MCP_URL = os.environ.get("MCP_URL", "http://127.0.0.1:8765/mcp")
 DEFAULT_MODEL = "gpt-5-mini"
+DEFAULT_GUIDANCE = os.environ.get("GUIDANCE_FILE")
 
 # --- Setup Logging ---
 logging.basicConfig(level=logging.INFO, format='%(message)s')
@@ -128,9 +134,12 @@ async def execute_mcp_command(command: str, reset: bool = False) -> str:
     logger.info(f"Game output received (State: {state.room_name})")
     return summary_str
 
-async def run_ms_mcp_agent(model_name: str, goal: str):
+async def run_ms_mcp_agent(model_name: str, goal: str, guidance: Optional[str] = None):
     logger.info(f"--- Microsoft Agent Framework MCP Client Starting (Model: {model_name}) ---")
     logger.info(f"Goal: {goal}")
+    guidance_cfg = load_guidance(guidance)
+    if guidance_cfg.path:
+        logger.info(f"Guidance: {guidance_cfg.path}")
     
     try:
         # Initial look
@@ -138,9 +147,32 @@ async def run_ms_mcp_agent(model_name: str, goal: str):
         logger.info(f"\n[STARTING GAME]\n{initial_summary}")
         
         # Instantiate the client
-        client = OpenAIChatClient(model_id=model_name)
+        if "claude" in model_name.lower():
+            client = AnthropicClient(model_id=model_name)
+        elif "gemini" in model_name.lower():
+            # Use Google's OpenAI-compatible endpoint
+            api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+            client = OpenAIChatClient(
+                model_id=model_name,
+                api_key=api_key,
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+            )
+        elif "ollama" in model_name.lower():
+            # Robustly remove 'ollama:' or 'ollama/' prefix if present
+            clean_model = model_name
+            for prefix in ["ollama:", "ollama/"]:
+                if clean_model.lower().startswith(prefix):
+                    clean_model = clean_model[len(prefix):]
+            
+            client = OllamaChatClient(
+                model_id=clean_model,
+                host=os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+            )
+        else:
+            client = OpenAIChatClient(model_id=model_name)
         
         # Instantiate the agent
+        guidance_block = f"\n\nGUIDANCE (follow this):\n{guidance_cfg.text}" if guidance_cfg.text else ""
         agent = Agent(
             client=client,
             name="DustwoodMCPAdventurer",
@@ -150,6 +182,7 @@ async def run_ms_mcp_agent(model_name: str, goal: str):
                 "Analyze the structured state provided in the tool output to make optimal choices.\n"
                 "Your goal is to survive, explore, and increase your score.\n"
                 "When you receive game output, decide on the next command and call 'execute_mcp_command'."
+                f"{guidance_block}"
             ),
             tools=[execute_mcp_command]
         )
@@ -164,7 +197,19 @@ async def run_ms_mcp_agent(model_name: str, goal: str):
         logger.error(f"Error running agent: {e}")
 
 if __name__ == "__main__":
-    model = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_MODEL
-    goal = sys.argv[2] if len(sys.argv) > 2 else "Find the general store and get some water."
-    
-    asyncio.run(run_ms_mcp_agent(model, goal))
+    parser = argparse.ArgumentParser(description="Microsoft Agent Framework MCP client for Echoes of Dustwood.")
+    parser.add_argument("model", nargs="?", default=DEFAULT_MODEL, help="Model name (default: gpt-5-mini).")
+    parser.add_argument(
+        "goal",
+        nargs="?",
+        default="Find the general store and get some water.",
+        help="Goal for the agent.",
+    )
+    parser.add_argument(
+        "--guidance",
+        default=DEFAULT_GUIDANCE,
+        help="Guidance file path or level (full|medium|minimal). Can also be set via GUIDANCE_FILE.",
+    )
+    args = parser.parse_args()
+
+    asyncio.run(run_ms_mcp_agent(args.model, args.goal, args.guidance))

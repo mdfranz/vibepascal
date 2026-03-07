@@ -8,10 +8,11 @@ import asyncio
 from typing import Optional
 from dotenv import load_dotenv
 
-from agent_framework import Agent
-from agent_framework.openai import OpenAIChatClient
-from agent_framework.anthropic import AnthropicClient
-from agent_framework.ollama import OllamaChatClient
+from agno.agent import Agent
+from agno.models.openai import OpenAIChat
+from agno.models.anthropic import Claude
+from agno.models.google import Gemini
+from agno.models.ollama import Ollama
 
 # Load environment variables
 load_dotenv()
@@ -22,7 +23,7 @@ DEFAULT_MODEL = "gpt-5-mini"
 
 # Create a unique log file for each session
 EPOCH = int(time.time())
-LOG_FILE = f"logs/ms_agent_client-{EPOCH}.log"
+LOG_FILE = f"logs/agno_client-{EPOCH}.log"
 
 # --- Setup Logging ---
 logger = logging.getLogger(__name__)
@@ -149,8 +150,8 @@ def play_command(command: str) -> str:
     logger.info(f"Game output: {result}")
     return result
 
-async def run_ms_agent(model_name: str, goal: str):
-    logger.info(f"--- Microsoft Agent Framework Client Starting (Model: {model_name}) ---")
+async def run_agno_agent(model_name: str, goal: str):
+    logger.info(f"--- Agno Client Starting (Model: {model_name}) ---")
     logger.info(f"Goal: {goal}")
     
     try:
@@ -158,50 +159,41 @@ async def run_ms_agent(model_name: str, goal: str):
         initial_output = game.start()
         logger.info(f"\n[STARTING GAME]\n{initial_output}")
         
-        # Instantiate the client
+        # Instantiate the model
         if "claude" in model_name.lower():
-            client = AnthropicClient(model_id=model_name)
+            model = Claude(id=model_name)
         elif "gemini" in model_name.lower():
-            # Use Google's OpenAI-compatible endpoint
-            api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-            client = OpenAIChatClient(
-                model_id=model_name,
-                api_key=api_key,
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-            )
+            model = Gemini(id=model_name)
         elif "ollama" in model_name.lower():
-            # Robustly remove 'ollama:' or 'ollama/' prefix if present
             clean_model = model_name
             for prefix in ["ollama:", "ollama/"]:
                 if clean_model.lower().startswith(prefix):
                     clean_model = clean_model[len(prefix):]
-            
-            client = OllamaChatClient(
-                model_id=clean_model,
-                host=os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-            )
+            model = Ollama(id=clean_model, host=os.environ.get("OLLAMA_HOST", "http://localhost:11434"))
         else:
-            client = OpenAIChatClient(model_id=model_name)
+            model = OpenAIChat(id=model_name)
         
         # Instantiate the agent
         agent = Agent(
-            client=client,
-            name="DustwoodAdventurer",
-            instructions=(
+            model=model,
+            name="DustwoodAgnoAdventurer",
+            description=(
                 "You are an expert adventurer playing 'Echoes of Dustwood'.\n"
                 "You interact with the game via the 'play_command' tool.\n"
                 "Your goal is to survive, explore, and increase your score.\n"
                 "Keep your responses concise. When you receive game output, decide on the next command and call 'play_command'."
             ),
-            tools=[play_command]
+            tools=[play_command],
+            markdown=True
         )
         
         # Start the interaction loop
         prompt = f"GOAL: {goal}. \nSTARTING STATE: {initial_output}\nWhat is your first command?"
         
-        # Use agent.run which handles tool calling loop internally
-        response = await agent.run(prompt)
-        logger.info(f"\n[FINAL AGENT RESPONSE]\n{response.text}")
+        # Agno's agent.run or agent.print_response
+        # For programmatic access we use agent.run()
+        response = agent.run(prompt)
+        logger.info(f"\n[FINAL AGENT RESPONSE]\n{response.content}")
 
     finally:
         game.stop()
@@ -210,4 +202,4 @@ if __name__ == "__main__":
     model = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_MODEL
     goal = sys.argv[2] if len(sys.argv) > 2 else "Find the general store and get some water."
     
-    asyncio.run(run_ms_agent(model, goal))
+    asyncio.run(run_agno_agent(model, goal))

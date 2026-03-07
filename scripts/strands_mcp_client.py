@@ -1,7 +1,6 @@
 import os
-import asyncio
 import logging
-import sys
+import argparse
 from typing import Optional
 from dotenv import load_dotenv
 
@@ -29,12 +28,20 @@ STDIO_PARAMS = StdioServerParameters(
 )
 DEFAULT_MODEL_ID = "gemini/gemini-3-flash-preview"
 MESSAGE_HISTORY_LIMIT = 10
+DEFAULT_GUIDANCE = os.environ.get("GUIDANCE_FILE")
+
+from guidance_loader import load_guidance
 
 # --- Setup Logging ---
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger(__name__)
 
-async def run_strands_agent(model_id: str, goal: str):
+def run_strands_agent(
+    model_id: str,
+    goal: str,
+    transport: str = "streamable-http",
+    guidance: Optional[str] = None,
+):
     # 1. Initialize the LLM
     llm_model = LiteLLMModel(
         model_id=model_id,
@@ -42,15 +49,31 @@ async def run_strands_agent(model_id: str, goal: str):
     )
 
     # 2. Initialize the MCP Client
-    # If the Go server is running via HTTP, let's use the SSE client which is more standard for Strands
-    from mcp.client.sse import sse_client
-    MCP_URL = "http://127.0.0.1:8765/mcp"
-    mcp_client = MCPClient(lambda: sse_client(MCP_URL))
+    if transport == "stdio":
+        logger.info("Using Stdio transport for MCP")
+        mcp_client = MCPClient(lambda: stdio_client(STDIO_PARAMS))
+    else:
+        MCP_URL = os.environ.get("MCP_URL", "http://127.0.0.1:8765/mcp")
+        if transport == "sse":
+            logger.info("Using SSE transport for MCP")
+            from mcp.client.sse import sse_client
+
+            mcp_client = MCPClient(lambda: sse_client(MCP_URL))
+        else:
+            logger.info("Using Streamable HTTP transport for MCP")
+            from mcp.client.streamable_http import streamablehttp_client
+
+            mcp_client = MCPClient(lambda: streamablehttp_client(MCP_URL))
 
     # 3. Setup Conversation Manager
     conv_manager = SlidingWindowConversationManager(window_size=MESSAGE_HISTORY_LIMIT)
 
     # 4. Initialize Agent with MCP Tools
+    guidance_cfg = load_guidance(guidance)
+    if guidance_cfg.path:
+        logger.info(f"Guidance: {guidance_cfg.path}")
+    guidance_block = f"\n\nGUIDANCE (follow this):\n{guidance_cfg.text}" if guidance_cfg.text else ""
+
     agent = Agent(
         model=llm_model,
         system_prompt=(
@@ -59,6 +82,7 @@ async def run_strands_agent(model_id: str, goal: str):
             "The tool returns both the narrative text and a structured game state.\n"
             "Analyze the state (inventory, thirst, room) to make survival decisions.\n"
             "Always try to survive and increase your score."
+            f"{guidance_block}"
         ),
         tools=[mcp_client],
         conversation_manager=conv_manager
@@ -68,14 +92,36 @@ async def run_strands_agent(model_id: str, goal: str):
     logger.info(f"Goal: {goal}")
 
     try:
-        # Start the agent
-        result = await agent.run(goal)
-        logger.info(f"\n[FINAL AGENT RESPONSE]\n{result}")
+        result = agent(goal)
+        logger.info(f"\n[FINAL AGENT RESPONSE]\n{str(result).strip()}")
     except Exception as e:
         logger.error(f"Error during agent execution: {e}")
+    finally:
+        try:
+            mcp_client.stop(None, None, None)
+        except Exception:
+            pass
 
 if __name__ == "__main__":
-    model = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_MODEL_ID
-    goal = sys.argv[2] if len(sys.argv) > 2 else "Perform a LOOK command to see where we are, then stop."
-    
-    asyncio.run(run_strands_agent(model, goal))
+    parser = argparse.ArgumentParser(description="Strands MCP client for Echoes of Dustwood.")
+    parser.add_argument("model", nargs="?", default=DEFAULT_MODEL_ID, help="LiteLLM model id.")
+    parser.add_argument(
+        "goal",
+        nargs="?",
+        default="Perform a LOOK command to see where we are, then stop.",
+        help="Goal for the agent.",
+    )
+    parser.add_argument(
+        "transport",
+        nargs="?",
+        default="streamable-http",
+        help="MCP transport (streamable-http|sse|stdio). Note: dustwood-go with --mcp-json-response requires streamable-http.",
+    )
+    parser.add_argument(
+        "--guidance",
+        default=DEFAULT_GUIDANCE,
+        help="Guidance file path or level (full|medium|minimal). Can also be set via GUIDANCE_FILE.",
+    )
+    args = parser.parse_args()
+
+    run_strands_agent(args.model, args.goal, args.transport, args.guidance)
