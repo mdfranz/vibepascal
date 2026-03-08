@@ -1,32 +1,33 @@
-import os
 import asyncio
+import json
 import logging
+import os
 import sys
 import time
-import json
-from typing import Optional, Any, List
-from pydantic import BaseModel
-from dotenv import load_dotenv
+from typing import Any, List, Optional
 
 from agent_framework import Agent
-from agent_framework.openai import OpenAIChatClient
+from agent_framework._mcp import (
+    MCPStreamableHTTPTool,  # Using the official MCP tool integration
+)
 from agent_framework.anthropic import AnthropicClient
 from agent_framework.ollama import OllamaChatClient
-from agent_framework._mcp import MCPStreamableHTTPTool # Using the official MCP tool integration
-
+from agent_framework.openai import OpenAIChatClient
+from dotenv import load_dotenv
 from guidance_loader import load_guidance
-from mcp_command_policy import CommandPolicy, sanitize_command
 from llm_observability import (
     Timer,
-    game_console_enabled,
-    print_game,
     console_logging_enabled,
     enable_http_debug_logging,
     format_payload,
+    game_console_enabled,
     http_debug_logging_enabled,
     log_kv,
+    print_game,
     provider_payload_logging_enabled,
 )
+from mcp_command_policy import CommandPolicy, sanitize_command
+from pydantic import BaseModel
 
 # Load environment variables
 load_dotenv()
@@ -48,13 +49,13 @@ os.makedirs("logs", exist_ok=True)
 
 file_handler = logging.FileHandler(LOG_FILE)
 file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
 logger.addHandler(file_handler)
 
 if console_logging_enabled():
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(logging.Formatter('%(message)s'))
+    console_handler.setFormatter(logging.Formatter("%(message)s"))
     logger.addHandler(console_handler)
 
 # Silence verbose loggers
@@ -68,6 +69,7 @@ else:
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 # --- State Models for Parsing ---
+
 
 class GameSummary(BaseModel):
     room_id: int
@@ -84,9 +86,11 @@ class GameSummary(BaseModel):
     horse_saddled: bool
     inventory: Optional[List[str]] = None
 
+
 class CommandOutput(BaseModel):
     output: str
     state: GameSummary
+
 
 def _trim_output(text: str, max_chars: int = 1200) -> str:
     s = (text or "").strip()
@@ -94,9 +98,13 @@ def _trim_output(text: str, max_chars: int = 1200) -> str:
         return s
     return s[-max_chars:]
 
+
 def _serialize_messages(messages: Any) -> Any:
     try:
-        return [getattr(m, "to_dict")() if hasattr(m, "to_dict") else str(m) for m in (messages or [])]
+        return [
+            getattr(m, "to_dict")() if hasattr(m, "to_dict") else str(m)
+            for m in (messages or [])
+        ]
     except Exception:
         return str(messages)
 
@@ -140,12 +148,20 @@ class LoggingChatClient:
     def additional_properties(self) -> dict[str, Any]:
         return getattr(self._inner, "additional_properties", {})
 
-    def get_response(self, messages: Any, *, stream: bool = False, options: Any = None, **kwargs: Any):
+    def get_response(
+        self, messages: Any, *, stream: bool = False, options: Any = None, **kwargs: Any
+    ):
         request_timer = Timer.start_new()
-        request_payload = _serialize_messages(messages) if provider_payload_logging_enabled() else None
+        request_payload = (
+            _serialize_messages(messages)
+            if provider_payload_logging_enabled()
+            else None
+        )
 
         try:
-            inner_result = self._inner.get_response(messages, stream=stream, options=options, **kwargs)
+            inner_result = self._inner.get_response(
+                messages, stream=stream, options=options, **kwargs
+            )
         except Exception as e:
             log_kv(
                 logger,
@@ -155,12 +171,17 @@ class LoggingChatClient:
                 provider=self._client_name,
                 model=self._default_model_id,
                 latency_ms=request_timer.elapsed_ms(),
-                request=(format_payload(request_payload) if request_payload is not None else None),
+                request=(
+                    format_payload(request_payload)
+                    if request_payload is not None
+                    else None
+                ),
                 error=str(e),
             )
             raise
 
         if stream and hasattr(inner_result, "with_result_hook"):
+
             def _hook(final_response: Any):
                 usage_details = getattr(final_response, "usage_details", None)
                 tool_calls = _extract_tool_calls_from_response(final_response)
@@ -169,13 +190,33 @@ class LoggingChatClient:
                     event="provider_call",
                     client="ms_agent",
                     provider=self._client_name,
-                    model=getattr(final_response, "model_id", None) or self._default_model_id,
+                    model=getattr(final_response, "model_id", None)
+                    or self._default_model_id,
                     latency_ms=request_timer.elapsed_ms(),
-                    usage=(format_payload(usage_details) if (usage_details is not None and provider_payload_logging_enabled()) else None),
+                    usage=(
+                        format_payload(usage_details)
+                        if (
+                            usage_details is not None
+                            and provider_payload_logging_enabled()
+                        )
+                        else None
+                    ),
                     tool_call_count=len(tool_calls) if tool_calls else 0,
-                    tool_calls=(format_payload(tool_calls) if (tool_calls and provider_payload_logging_enabled()) else None),
-                    request=(format_payload(request_payload) if request_payload is not None else None),
-                    response=(format_payload(getattr(final_response, "text", None)) if provider_payload_logging_enabled() else None),
+                    tool_calls=(
+                        format_payload(tool_calls)
+                        if (tool_calls and provider_payload_logging_enabled())
+                        else None
+                    ),
+                    request=(
+                        format_payload(request_payload)
+                        if request_payload is not None
+                        else None
+                    ),
+                    response=(
+                        format_payload(getattr(final_response, "text", None))
+                        if provider_payload_logging_enabled()
+                        else None
+                    ),
                 )
                 return final_response
 
@@ -193,7 +234,11 @@ class LoggingChatClient:
                     provider=self._client_name,
                     model=self._default_model_id,
                     latency_ms=request_timer.elapsed_ms(),
-                    request=(format_payload(request_payload) if request_payload is not None else None),
+                    request=(
+                        format_payload(request_payload)
+                        if request_payload is not None
+                        else None
+                    ),
                     error=str(e),
                 )
                 raise
@@ -205,13 +250,32 @@ class LoggingChatClient:
                 event="provider_call",
                 client="ms_agent",
                 provider=self._client_name,
-                model=getattr(final_response, "model_id", None) or self._default_model_id,
+                model=getattr(final_response, "model_id", None)
+                or self._default_model_id,
                 latency_ms=request_timer.elapsed_ms(),
-                usage=(format_payload(usage_details) if (usage_details is not None and provider_payload_logging_enabled()) else None),
+                usage=(
+                    format_payload(usage_details)
+                    if (
+                        usage_details is not None and provider_payload_logging_enabled()
+                    )
+                    else None
+                ),
                 tool_call_count=len(tool_calls) if tool_calls else 0,
-                tool_calls=(format_payload(tool_calls) if (tool_calls and provider_payload_logging_enabled()) else None),
-                request=(format_payload(request_payload) if request_payload is not None else None),
-                response=(format_payload(getattr(final_response, "text", None)) if provider_payload_logging_enabled() else None),
+                tool_calls=(
+                    format_payload(tool_calls)
+                    if (tool_calls and provider_payload_logging_enabled())
+                    else None
+                ),
+                request=(
+                    format_payload(request_payload)
+                    if request_payload is not None
+                    else None
+                ),
+                response=(
+                    format_payload(getattr(final_response, "text", None))
+                    if provider_payload_logging_enabled()
+                    else None
+                ),
             )
             return final_response
 
@@ -220,6 +284,7 @@ class LoggingChatClient:
 
 class DelayedMCPStreamableHTTPTool(MCPStreamableHTTPTool):
     """Subclass to add delay and logging between tool calls."""
+
     def __init__(self, *args, delay: int = 0, **kwargs):
         super().__init__(*args, **kwargs)
         self.call_delay = delay
@@ -229,7 +294,7 @@ class DelayedMCPStreamableHTTPTool(MCPStreamableHTTPTool):
         logger.info(f"Agent executing tool '{tool_name}' with command: {cmd_val}")
         if game_console_enabled() and tool_name == "command" and cmd_val:
             print_game(f"\n> {cmd_val}")
-        
+
         if self.call_delay > 0:
             await asyncio.sleep(self.call_delay)
 
@@ -242,8 +307,16 @@ class DelayedMCPStreamableHTTPTool(MCPStreamableHTTPTool):
                 client="ms_agent",
                 tool_name=f"mcp.{tool_name}",
                 latency_ms=tool_timer.elapsed_ms(),
-                args=(format_payload(kwargs) if provider_payload_logging_enabled() else None),
-                result=(format_payload(result) if provider_payload_logging_enabled() else None),
+                args=(
+                    format_payload(kwargs)
+                    if provider_payload_logging_enabled()
+                    else None
+                ),
+                result=(
+                    format_payload(result)
+                    if provider_payload_logging_enabled()
+                    else None
+                ),
             )
             return result
         except Exception as e:
@@ -254,10 +327,15 @@ class DelayedMCPStreamableHTTPTool(MCPStreamableHTTPTool):
                 client="ms_agent",
                 tool_name=f"mcp.{tool_name}",
                 latency_ms=tool_timer.elapsed_ms(),
-                args=(format_payload(kwargs) if provider_payload_logging_enabled() else None),
+                args=(
+                    format_payload(kwargs)
+                    if provider_payload_logging_enabled()
+                    else None
+                ),
                 error=str(e),
             )
             raise
+
 
 class PolicyMCPTool(DelayedMCPStreamableHTTPTool):
     """MCP tool wrapper that enforces turn budgeting + loop breaking at the tool boundary."""
@@ -293,20 +371,24 @@ class PolicyMCPTool(DelayedMCPStreamableHTTPTool):
                     )
                     if self._on_step is not None:
                         try:
-                            self._on_step(self._pending_command, self.last_state, self.last_output_text)
+                            self._on_step(
+                                self._pending_command,
+                                self.last_state,
+                                self.last_output_text,
+                            )
                         except Exception:
                             pass
                 st = parsed.state
                 logger.info(f"Game output received (State: {st.room_name})")
                 if game_console_enabled():
                     print_game(
-                        f"\n[turn={st.turns} room={st.room_name} score={st.score} thirst={st.thirst}/20]\n"
+                        f"\n[turn={st.turns} room={st.room_name} score={st.score} thirst={st.thirst}]\n"
                         f"{parsed.output.strip()}\n"
                     )
                 return (
                     f"--- Game State ---\n"
                     f"Room: {st.room_name} (ID: {st.room_id})\n"
-                    f"Turns: {st.turns}, Score: {st.score}, Thirst: {st.thirst}/20\n"
+                    f"Turns: {st.turns}, Score: {st.score}, Thirst: {st.thirst}\n"
                     f"Inventory: {', '.join(st.inventory) if st.inventory else 'Empty'}\n"
                     f"Status: Riding={st.is_riding}, Saddled={st.horse_saddled}, Water={st.has_water}\n"
                     f"-----------------\n\n"
@@ -326,7 +408,11 @@ class PolicyMCPTool(DelayedMCPStreamableHTTPTool):
     async def call_tool(self, tool_name: str, **kwargs: Any) -> str:
         if tool_name == "command":
             reset = bool(kwargs.get("reset", False))
-            if self.last_state is not None and not reset and self.last_state.turns >= self._max_turns:
+            if (
+                self.last_state is not None
+                and not reset
+                and self.last_state.turns >= self._max_turns
+            ):
                 return "Turn limit reached."
             raw = sanitize_command(str(kwargs.get("command", "")))
             if self.last_state is not None:
@@ -341,20 +427,23 @@ class PolicyMCPTool(DelayedMCPStreamableHTTPTool):
             kwargs["command"] = rewritten
         return await super().call_tool(tool_name, **kwargs)
 
+
 async def run_ms_mcp_agent(level: str, model_name: str, delay: int, max_turns: int):
-    logger.info(f"--- Microsoft Agent Framework MCP Client Starting (Model: {model_name}) ---")
+    logger.info(
+        f"--- Microsoft Agent Framework MCP Client Starting (Model: {model_name}) ---"
+    )
     logger.info(f"Enforcing Turn Limit: {max_turns}")
-    
+
     guidance_map = {
         "full": "data/guidance_full.txt",
         "medium": "data/guidance_medium.txt",
-        "minimal": "data/guidance_minimal.txt"
+        "minimal": "data/guidance_minimal.txt",
     }
     guidance_file = guidance_map.get(level, "data/guidance_full.txt")
     guidance_cfg = load_guidance(guidance_file)
     if guidance_cfg.path:
         logger.info(f"Guidance: {guidance_cfg.path}")
-    
+
     policy = CommandPolicy.from_env()
     max_llm_calls = max(1, int(max_turns) * int(policy.max_llm_calls_multiplier))
     llm_calls = 0
@@ -363,51 +452,64 @@ async def run_ms_mcp_agent(level: str, model_name: str, delay: int, max_turns: i
         # 1. Instantiate the client with turn limit configuration
         if "claude" in model_name.lower():
             client = AnthropicClient(model_id=model_name)
-            client = LoggingChatClient(client, client_name="anthropic", default_model_id=model_name)
+            client = LoggingChatClient(
+                client, client_name="anthropic", default_model_id=model_name
+            )
         elif "gemini" in model_name.lower():
-            api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+            api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get(
+                "GOOGLE_API_KEY"
+            )
             client = OpenAIChatClient(
                 model_id=model_name,
                 api_key=api_key,
                 base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
             )
-            client = LoggingChatClient(client, client_name="google", default_model_id=model_name)
+            client = LoggingChatClient(
+                client, client_name="google", default_model_id=model_name
+            )
         elif "ollama" in model_name.lower():
             clean_model = model_name
             for prefix in ["ollama:", "ollama/"]:
                 if clean_model.lower().startswith(prefix):
-                    clean_model = clean_model[len(prefix):]
+                    clean_model = clean_model[len(prefix) :]
             client = OllamaChatClient(
                 model_id=clean_model,
                 host=os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
             )
-            client = LoggingChatClient(client, client_name="ollama", default_model_id=clean_model)
+            client = LoggingChatClient(
+                client, client_name="ollama", default_model_id=clean_model
+            )
         else:
             client = OpenAIChatClient(model_id=model_name)
-            client = LoggingChatClient(client, client_name="openai", default_model_id=model_name)
+            client = LoggingChatClient(
+                client, client_name="openai", default_model_id=model_name
+            )
 
         # 2. Use the MCP Tool as an async context manager
         history: list[str] = []
 
         def _on_step(command: str, st: GameSummary, output_text: str) -> None:
             history.append(
-                f"t={st.turns} cmd={command} room={st.room_name} score={st.score} thirst={st.thirst}/20\n"
+                f"t={st.turns} cmd={command} room={st.room_name} score={st.score} thirst={st.thirst}\n"
                 f"{_trim_output(output_text, max_chars=500)}"
             )
             if len(history) > policy.history_limit:
-                del history[:-policy.history_limit]
+                del history[: -policy.history_limit]
 
         async with PolicyMCPTool(
-            name="dustwood-mcp", 
-            url=MCP_URL, 
+            name="dustwood-mcp",
+            url=MCP_URL,
             delay=delay,
             policy=policy,
             max_turns=max_turns,
             on_step=_on_step,
         ) as mcp_tool:
-            
             # 3. Instantiate the agent with the MCP tool
-            guidance_block = f"\n\nGUIDANCE (follow this):\n{guidance_cfg.text}" if guidance_cfg.text else ""
+            guidance_block = (
+                f"\n\nGUIDANCE (follow this):\n{guidance_cfg.text}"
+                if guidance_cfg.text
+                else ""
+            )
             agent = Agent(
                 client=client,
                 name="DustwoodMCPAdventurer",
@@ -424,13 +526,15 @@ async def run_ms_mcp_agent(level: str, model_name: str, delay: int, max_turns: i
                 tools=[mcp_tool],
                 default_options={"allow_multiple_tool_calls": False},
             )
-            
+
             # 4. Hybrid replanning loop (small tool-call chunks)
             logger.info("\n[STARTING AGENT SESSION]")
             await mcp_tool.call_tool("command", command="LOOK", reset=True)
 
             replans = 0
-            last_turns_seen = mcp_tool.last_state.turns if mcp_tool.last_state is not None else 0
+            last_turns_seen = (
+                mcp_tool.last_state.turns if mcp_tool.last_state is not None else 0
+            )
 
             while (
                 mcp_tool.last_state is not None
@@ -445,16 +549,20 @@ async def run_ms_mcp_agent(level: str, model_name: str, delay: int, max_turns: i
                 # Limit tool usage per replan.
                 inner = getattr(client, "_inner", client)
                 try:
-                    inner.function_invocation_configuration["max_function_calls"] = int(chunk_calls)
+                    inner.function_invocation_configuration["max_function_calls"] = int(
+                        chunk_calls
+                    )
                     inner.function_invocation_configuration["max_iterations"] = 3
                 except Exception:
                     pass
 
-                recent_history = "\n".join(history[-policy.history_limit:]) if history else "(none)"
+                recent_history = (
+                    "\n".join(history[-policy.history_limit :]) if history else "(none)"
+                )
                 state_block = (
                     f"--- Game State ---\n"
                     f"Room: {mcp_tool.last_state.room_name} (ID: {mcp_tool.last_state.room_id})\n"
-                    f"Turns: {mcp_tool.last_state.turns}, Score: {mcp_tool.last_state.score}, Thirst: {mcp_tool.last_state.thirst}/20\n"
+                    f"Turns: {mcp_tool.last_state.turns}, Score: {mcp_tool.last_state.score}, Thirst: {mcp_tool.last_state.thirst}\n"
                     f"Inventory: {', '.join(mcp_tool.last_state.inventory) if mcp_tool.last_state.inventory else 'Empty'}\n"
                     f"Status: Riding={mcp_tool.last_state.is_riding}, Saddled={mcp_tool.last_state.horse_saddled}, Water={mcp_tool.last_state.has_water}\n"
                     f"-----------------\n\n"
@@ -496,10 +604,11 @@ async def run_ms_mcp_agent(level: str, model_name: str, delay: int, max_turns: i
     except Exception as e:
         logger.error(f"Error running agent: {e}")
 
+
 if __name__ == "__main__":
     level = sys.argv[1] if len(sys.argv) > 1 else "full"
     model = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_MODEL
     delay = int(sys.argv[3]) if len(sys.argv) > 3 else TURN_DELAY
     max_turns = int(sys.argv[4]) if len(sys.argv) > 4 else MAX_TURNS
-    
+
     asyncio.run(run_ms_mcp_agent(level, model, delay, max_turns))
