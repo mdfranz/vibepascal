@@ -18,47 +18,6 @@ from agent_framework.openai._shared import OpenAIBase
 from typing_extensions import override
 from collections.abc import Mapping, Sequence
 
-class GeminiFixedOpenAIChatClient(OpenAIChatClient):
-    """
-    Subclass of OpenAIChatClient that preserves Gemini's 'thought_signature'.
-    Gemini 3 models require this signature to be echoed back in tool calling turns.
-    """
-
-    @override
-    def _parse_tool_calls_from_openai(self, choice: Any) -> list[Content]:
-        resp: list[Content] = []
-        content = choice.message if hasattr(choice, "message") else choice.delta
-        if content and hasattr(content, "tool_calls") and content.tool_calls:
-            for tool in content.tool_calls:
-                if tool.function:
-                    # Capture thought_signature if present in the tool call object
-                    # The OpenAI shim for Gemini often puts it here or in tool.function
-                    thought_sig = getattr(tool, "thought_signature", None)
-                    if thought_sig is None:
-                        thought_sig = getattr(tool.function, "thought_signature", None)
-                    
-                    fcc = Content.from_function_call(
-                        call_id=tool.id if tool.id else "",
-                        name=tool.function.name if tool.function.name else "",
-                        arguments=tool.function.arguments if tool.function.arguments else "",
-                        raw_representation=tool.function,
-                    )
-                    # Store the signature in additional_properties so it survives history rounds
-                    if thought_sig:
-                        fcc.additional_properties["thought_signature"] = thought_sig
-                    resp.append(fcc)
-        return resp
-
-    @override
-    def _prepare_content_for_openai(self, content: Content) -> dict[str, Any]:
-        """Override to inject the thought_signature back into the outgoing request."""
-        res = super()._prepare_content_for_openai(content)
-        if content.type == "function_call" and "thought_signature" in content.additional_properties:
-            # Inject into the top level of the tool call or the function object
-            # Gemini OpenAI shim usually expects it at the tool call level next to 'id' and 'type'
-            res["thought_signature"] = content.additional_properties["thought_signature"]
-        return res
-
 from dotenv import load_dotenv
 from guidance_loader import load_guidance
 from llm_observability import (
@@ -498,18 +457,6 @@ async def run_ms_mcp_agent(level: str, model_name: str, delay: int, max_turns: i
             client = AnthropicClient(model_id=model_name)
             client = LoggingChatClient(
                 client, client_name="anthropic", default_model_id=model_name
-            )
-        elif "gemini" in model_name.lower():
-            api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get(
-                "GOOGLE_API_KEY"
-            )
-            client = GeminiFixedOpenAIChatClient(
-                model_id=model_name,
-                api_key=api_key,
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            )
-            client = LoggingChatClient(
-                client, client_name="google", default_model_id=model_name
             )
         elif "ollama" in model_name.lower():
             clean_model = model_name

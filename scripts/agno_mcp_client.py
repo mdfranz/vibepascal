@@ -143,13 +143,13 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
     global global_delay
     global_delay = delay
 
-    try:
-        policy = CommandPolicy.from_env()
-        max_llm_calls = max(1, int(max_turns) * int(policy.max_llm_calls_multiplier))
-        llm_calls = 0
-        history: list[str] = []
+    policy = CommandPolicy.from_env()
+    max_llm_calls = max(1, int(max_turns) * int(policy.max_llm_calls_multiplier))
+    llm_calls = 0
+    history: list[str] = []
 
-        # Agno MCP integration (Streamable HTTP or SSE)
+    try:
+        # Agno MCP integration
         async with MCPTools(url=MCP_URL, transport=MCP_TRANSPORT) as mcp_tools:
             last_state: Optional[GameSummary] = None
             last_output_text: str = ""
@@ -356,11 +356,16 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
                         history = history[-policy.history_limit :]
 
             logger.info(f"\n[FINAL STATE]\n{current_summary}")
-            # Small delay to let anyio/mcp settle before closing the context manager
-            await asyncio.sleep(0.2)
 
-    except Exception as e:
-        logger.error(f"Error running agent: {e}")
+    except BaseException as e:
+        # Catch even SystemExit and KeyboardInterrupt to avoid messy teardown logs if they are just from TaskGroups
+        if "TaskGroup" in str(e) or "cancel scope" in str(e):
+            logger.debug(f"Suppressed AnyIO/TaskGroup teardown error: {e}")
+        else:
+            logger.error(f"Error running agent: {e}")
+    finally:
+        # Final grace period outside context manager
+        await asyncio.sleep(0.2)
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     exit 0
 fi
 
-MODEL=${1:-"google-gla:gemini-3-flash-preview"}
+MODEL=${1:-"gpt-5-mini"}
 LEVEL=${2:-"full"}
 DELAY=${3:-"1"}
 MAX_TURNS=${4:-"25"}

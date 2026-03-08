@@ -41,6 +41,10 @@ type ResetGameInput struct {
 	Seed *int64 `json:"seed,omitempty" jsonschema:"Optional seed for deterministic gameplay"`
 }
 
+type EmptyInput struct {
+	Unused *string `json:"unused,omitempty" jsonschema:"Unused parameter"`
+}
+
 const dustwoodSystemPrompt = `You are playing Dustwood, a text-based adventure game set in a dying Western frontier town.
 
 ## Game Overview
@@ -105,7 +109,7 @@ func validateItemName(name string) error {
 }
 
 // Handler for the "look" tool
-func (s *MCPServer) HandleLook(_ context.Context, _ *mcp.CallToolRequest, _ interface{}) (*mcp.CallToolResult, *CommandOutput, error) {
+func (s *MCPServer) HandleLook(_ context.Context, _ *mcp.CallToolRequest, _ *EmptyInput) (*mcp.CallToolResult, *CommandOutput, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -199,7 +203,7 @@ func (s *MCPServer) HandleDrop(_ context.Context, _ *mcp.CallToolRequest, input 
 }
 
 // Handler for the "inventory" tool
-func (s *MCPServer) HandleInventory(_ context.Context, _ *mcp.CallToolRequest, _ interface{}) (*mcp.CallToolResult, *CommandOutput, error) {
+func (s *MCPServer) HandleInventory(_ context.Context, _ *mcp.CallToolRequest, _ *EmptyInput) (*mcp.CallToolResult, *CommandOutput, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -215,7 +219,7 @@ func (s *MCPServer) HandleInventory(_ context.Context, _ *mcp.CallToolRequest, _
 }
 
 // Handler for the "drink" tool
-func (s *MCPServer) HandleDrink(_ context.Context, _ *mcp.CallToolRequest, _ interface{}) (*mcp.CallToolResult, *CommandOutput, error) {
+func (s *MCPServer) HandleDrink(_ context.Context, _ *mcp.CallToolRequest, _ *EmptyInput) (*mcp.CallToolResult, *CommandOutput, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -231,7 +235,7 @@ func (s *MCPServer) HandleDrink(_ context.Context, _ *mcp.CallToolRequest, _ int
 }
 
 // Handler for the "water_horse" tool
-func (s *MCPServer) HandleWaterHorse(_ context.Context, _ *mcp.CallToolRequest, _ interface{}) (*mcp.CallToolResult, *CommandOutput, error) {
+func (s *MCPServer) HandleWaterHorse(_ context.Context, _ *mcp.CallToolRequest, _ *EmptyInput) (*mcp.CallToolResult, *CommandOutput, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -247,7 +251,7 @@ func (s *MCPServer) HandleWaterHorse(_ context.Context, _ *mcp.CallToolRequest, 
 }
 
 // Handler for the "light" tool
-func (s *MCPServer) HandleLight(_ context.Context, _ *mcp.CallToolRequest, _ interface{}) (*mcp.CallToolResult, *CommandOutput, error) {
+func (s *MCPServer) HandleLight(_ context.Context, _ *mcp.CallToolRequest, _ *EmptyInput) (*mcp.CallToolResult, *CommandOutput, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -263,7 +267,7 @@ func (s *MCPServer) HandleLight(_ context.Context, _ *mcp.CallToolRequest, _ int
 }
 
 // Handler for the "score" tool
-func (s *MCPServer) HandleScore(_ context.Context, _ *mcp.CallToolRequest, _ interface{}) (*mcp.CallToolResult, *CommandOutput, error) {
+func (s *MCPServer) HandleScore(_ context.Context, _ *mcp.CallToolRequest, _ *EmptyInput) (*mcp.CallToolResult, *CommandOutput, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
