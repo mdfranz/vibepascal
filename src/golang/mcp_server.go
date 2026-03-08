@@ -395,6 +395,74 @@ func (s *MCPServer) HandleCommand(_ context.Context, _ *mcp.CallToolRequest, inp
 func RunMCPHTTP(server *MCPServer, addr, path string, origins []string, token string, jsonResponse bool, stateless bool) error {
 	mcpServer := createMCPServer(server)
 
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	handler := mcp.NewStreamableHTTPHandler(func(_ *http.Request) *mcp.Server {
+		return mcpServer
+	}, &mcp.StreamableHTTPOptions{
+		Stateless:                  stateless,
+		JSONResponse:               jsonResponse,
+		Logger:                     slog.Default(),
+		DisableLocalhostProtection: false,
+	})
+
+	originSet := map[string]struct{}{}
+	for _, origin := range origins {
+		originSet[origin] = struct{}{}
+	}
+
+	guarded := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isAllowedOrigin(r, originSet) {
+			http.Error(w, "Forbidden origin", http.StatusForbidden)
+			return
+		}
+		if token != "" && r.Header.Get("Authorization") != "Bearer "+token {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	})
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok","service":"dustwood-go"}`))
+	})
+	mux.Handle(path, guarded)
+
+	serverHTTP := &http.Server{
+		Addr:    addr,
+		Handler: mux,
+	}
+	slog.Info("listening",
+		"addr", addr,
+		"path", path,
+		"stateless", stateless,
+		"json_response", jsonResponse,
+	)
+	return serverHTTP.ListenAndServe()
+}
+
+func RunMCPStdio(server *MCPServer) error {
+	mcpServer := createMCPServer(server)
+	return mcpServer.Run(context.Background(), &mcp.StdioTransport{})
+}
+
+func createMCPServer(server *MCPServer) *mcp.Server {
+	mcpServer := mcp.NewServer(&mcp.Implementation{
+		Name:    "dustwood-go",
+		Version: "v1.0.0",
+	}, nil)
+
+	// Register generic command tool
+	mcp.AddTool(mcpServer, &mcp.Tool{
+		Name:        "command",
+		Description: "Send a command to the Dustwood game and return output plus state summary.",
+	}, server.HandleCommand)
+
 	// Register decomposed action tools
 	mcp.AddTool(mcpServer, &mcp.Tool{
 		Name:        "look",
@@ -516,73 +584,6 @@ func RunMCPHTTP(server *MCPServer, addr, path string, origins []string, token st
 			}},
 		}, nil
 	})
-
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
-
-	handler := mcp.NewStreamableHTTPHandler(func(_ *http.Request) *mcp.Server {
-		return mcpServer
-	}, &mcp.StreamableHTTPOptions{
-		Stateless:                  stateless,
-		JSONResponse:               jsonResponse,
-		Logger:                     slog.Default(),
-		DisableLocalhostProtection: false,
-	})
-
-	originSet := map[string]struct{}{}
-	for _, origin := range origins {
-		originSet[origin] = struct{}{}
-	}
-
-	guarded := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !isAllowedOrigin(r, originSet) {
-			http.Error(w, "Forbidden origin", http.StatusForbidden)
-			return
-		}
-		if token != "" && r.Header.Get("Authorization") != "Bearer "+token {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		handler.ServeHTTP(w, r)
-	})
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok","service":"dustwood-go"}`))
-	})
-	mux.Handle(path, guarded)
-
-	serverHTTP := &http.Server{
-		Addr:    addr,
-		Handler: mux,
-	}
-	slog.Info("listening",
-		"addr", addr,
-		"path", path,
-		"stateless", stateless,
-		"json_response", jsonResponse,
-	)
-	return serverHTTP.ListenAndServe()
-}
-
-func RunMCPStdio(server *MCPServer) error {
-	mcpServer := createMCPServer(server)
-	return mcpServer.Run(context.Background(), &mcp.StdioTransport{})
-}
-
-func createMCPServer(server *MCPServer) *mcp.Server {
-	mcpServer := mcp.NewServer(&mcp.Implementation{
-		Name:    "dustwood-go",
-		Version: "v1.0.0",
-	}, nil)
-
-	mcp.AddTool(mcpServer, &mcp.Tool{
-		Name:        "command",
-		Description: "Send a command to the Dustwood game and return output plus state summary.",
-	}, server.HandleCommand)
 
 	return mcpServer
 }
