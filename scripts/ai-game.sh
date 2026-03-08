@@ -16,8 +16,8 @@ if ! make build > /dev/null 2>&1; then
     exit 1
 fi
 
-# Display help if no arguments or --help/-h requested
-if [[ $# -eq 0 || "$1" == "--help" || "$1" == "-h" ]]; then
+# Display help if requested
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo "Echoes of Dustwood: AI Player Runner"
     echo ""
     echo "Usage: ./scripts/ai-game.sh [difficulty] [model] [delay] [max_turns]"
@@ -29,9 +29,7 @@ if [[ $# -eq 0 || "$1" == "--help" || "$1" == "-h" ]]; then
     echo "  max_turns     Maximum turns before stopping (default: 25)"
     echo ""
     echo "Examples:"
-    echo "  ./scripts/ai-game.sh full                        # Run with full help and Gemini"
-    echo "  ./scripts/ai-game.sh medium openai:gpt-4o 2      # OpenAI with 2s delay"
-    echo "  ./scripts/ai-game.sh minimal ollama:llama3 1     # Local Llama"
+    echo "  ./scripts/ai-game.sh full google-gla:gemini-3-flash-preview 1 25"
     exit 0
 fi
 
@@ -40,7 +38,7 @@ MODEL=${2:-google-gla:gemini-3-flash-preview}
 DELAY=${3:-1}
 MAX_TURNS=${4:-25}
 
-echo "--- Starting AI Player (Level: $LEVEL, Model: $MODEL, Delay: ${DELAY}s) ---"
+echo "--- Starting AI Player (Level: $LEVEL, Model: $MODEL, Delay: ${DELAY}s, Max Turns: $MAX_TURNS) ---"
 # Run the AI client directly (it now manages the game process itself)
 uv run python3 scripts/ai_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
 

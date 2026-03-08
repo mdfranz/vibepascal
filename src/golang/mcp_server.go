@@ -393,15 +393,7 @@ func (s *MCPServer) HandleCommand(_ context.Context, _ *mcp.CallToolRequest, inp
 }
 
 func RunMCPHTTP(server *MCPServer, addr, path string, origins []string, token string, jsonResponse bool, stateless bool) error {
-	mcpServer := mcp.NewServer(&mcp.Implementation{
-		Name:    "dustwood-go",
-		Version: "v1.0.0",
-	}, nil)
-
-	mcp.AddTool(mcpServer, &mcp.Tool{
-		Name:        "command",
-		Description: "Send a command to the Dustwood game and return output plus state summary.",
-	}, server.HandleCommand)
+	mcpServer := createMCPServer(server)
 
 	// Register decomposed action tools
 	mcp.AddTool(mcpServer, &mcp.Tool{
@@ -574,6 +566,25 @@ func RunMCPHTTP(server *MCPServer, addr, path string, origins []string, token st
 		"json_response", jsonResponse,
 	)
 	return serverHTTP.ListenAndServe()
+}
+
+func RunMCPStdio(server *MCPServer) error {
+	mcpServer := createMCPServer(server)
+	return mcp.ServeStdio(mcpServer)
+}
+
+func createMCPServer(server *MCPServer) *mcp.Server {
+	mcpServer := mcp.NewServer(&mcp.Implementation{
+		Name:    "dustwood-go",
+		Version: "v1.0.0",
+	}, nil)
+
+	mcp.AddTool(mcpServer, &mcp.Tool{
+		Name:        "command",
+		Description: "Send a command to the Dustwood game and return output plus state summary.",
+	}, server.HandleCommand)
+
+	return mcpServer
 }
 
 func isAllowedOrigin(r *http.Request, allowed map[string]struct{}) bool {
