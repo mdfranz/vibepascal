@@ -13,6 +13,9 @@ from agent_framework.openai import OpenAIChatClient
 from agent_framework.anthropic import AnthropicClient
 from agent_framework.ollama import OllamaChatClient
 
+from llm_observability import enable_http_debug_logging, http_debug_logging_enabled
+from llm_observability import Timer, format_payload, log_kv, provider_payload_logging_enabled
+
 # Load environment variables
 load_dotenv()
 
@@ -41,8 +44,147 @@ console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(logging.Formatter('%(message)s'))
 logger.addHandler(console_handler)
 
+# Optional: very verbose low-level HTTP logging for provider calls (httpx/httpcore/h11/h2)
+if http_debug_logging_enabled():
+    enable_http_debug_logging(handlers=[file_handler])
+else:
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 # Global variables for delay
 global_delay = TURN_DELAY
+
+# Observability logger: file-only (no console spam)
+obs_logger = logging.getLogger(__name__ + ".obs")
+obs_logger.setLevel(logging.DEBUG)
+if file_handler not in obs_logger.handlers:
+    obs_logger.addHandler(file_handler)
+obs_logger.propagate = False
+
+# --- Provider Observability (non-MCP) ---
+
+def _serialize_messages(messages: object) -> object:
+    try:
+        return [getattr(m, "to_dict")() if hasattr(m, "to_dict") else str(m) for m in (messages or [])]  # type: ignore[arg-type]
+    except Exception:
+        return str(messages)
+
+
+def _extract_tool_calls_from_response(response: object) -> list[dict[str, object]]:
+    tool_calls: list[dict[str, object]] = []
+    try:
+        for msg in getattr(response, "messages", []) or []:
+            for content in getattr(msg, "contents", []) or []:
+                ctype = getattr(content, "type", None)
+                if ctype in {
+                    "function_call",
+                    "mcp_server_tool_call",
+                    "shell_tool_call",
+                    "code_interpreter_tool_call",
+                    "image_generation_tool_call",
+                }:
+                    tool_calls.append(
+                        {
+                            "type": ctype,
+                            "call_id": getattr(content, "call_id", None),
+                            "tool_name": getattr(content, "tool_name", None),
+                            "server_name": getattr(content, "server_name", None),
+                            "arguments": getattr(content, "arguments", None),
+                        }
+                    )
+    except Exception:
+        return []
+    return tool_calls
+
+
+class LoggingChatClient:
+    """Wrap a chat client to log provider calls, usage, tool calls, and latency."""
+
+    def __init__(self, inner: object, *, client_name: str, default_model_id: str):
+        self._inner = inner
+        self._client_name = client_name
+        self._default_model_id = default_model_id
+
+    @property
+    def additional_properties(self) -> dict[str, object]:
+        return getattr(self._inner, "additional_properties", {})
+
+    def get_response(self, messages: object, *, stream: bool = False, options: object = None, **kwargs: object):
+        request_timer = Timer.start_new()
+        request_payload = _serialize_messages(messages) if provider_payload_logging_enabled() else None
+
+        try:
+            inner_result = self._inner.get_response(messages, stream=stream, options=options, **kwargs)  # type: ignore[attr-defined]
+        except Exception as e:
+            log_kv(
+                obs_logger,
+                level="error",
+                event="provider_call",
+                client="ms_agent",
+                provider=self._client_name,
+                model=self._default_model_id,
+                latency_ms=request_timer.elapsed_ms(),
+                request=(format_payload(request_payload) if request_payload is not None else None),
+                error=str(e),
+            )
+            raise
+
+        if stream and hasattr(inner_result, "with_result_hook"):
+            def _hook(final_response: object):
+                usage_details = getattr(final_response, "usage_details", None)
+                tool_calls = _extract_tool_calls_from_response(final_response)
+                log_kv(
+                    obs_logger,
+                    event="provider_call",
+                    client="ms_agent",
+                    provider=self._client_name,
+                    model=getattr(final_response, "model_id", None) or self._default_model_id,
+                    latency_ms=request_timer.elapsed_ms(),
+                    usage=(format_payload(usage_details) if (usage_details is not None and provider_payload_logging_enabled()) else None),
+                    tool_call_count=len(tool_calls) if tool_calls else 0,
+                    tool_calls=(format_payload(tool_calls) if (tool_calls and provider_payload_logging_enabled()) else None),
+                    request=(format_payload(request_payload) if request_payload is not None else None),
+                    response=(format_payload(getattr(final_response, "text", None)) if provider_payload_logging_enabled() else None),
+                )
+                return final_response
+
+            return inner_result.with_result_hook(_hook)
+
+        async def _await_and_log():
+            try:
+                final_response = await inner_result
+            except Exception as e:
+                log_kv(
+                    obs_logger,
+                    level="error",
+                    event="provider_call",
+                    client="ms_agent",
+                    provider=self._client_name,
+                    model=self._default_model_id,
+                    latency_ms=request_timer.elapsed_ms(),
+                    request=(format_payload(request_payload) if request_payload is not None else None),
+                    error=str(e),
+                )
+                raise
+
+            usage_details = getattr(final_response, "usage_details", None)
+            tool_calls = _extract_tool_calls_from_response(final_response)
+            log_kv(
+                obs_logger,
+                event="provider_call",
+                client="ms_agent",
+                provider=self._client_name,
+                model=getattr(final_response, "model_id", None) or self._default_model_id,
+                latency_ms=request_timer.elapsed_ms(),
+                usage=(format_payload(usage_details) if (usage_details is not None and provider_payload_logging_enabled()) else None),
+                tool_call_count=len(tool_calls) if tool_calls else 0,
+                tool_calls=(format_payload(tool_calls) if (tool_calls and provider_payload_logging_enabled()) else None),
+                request=(format_payload(request_payload) if request_payload is not None else None),
+                response=(format_payload(getattr(final_response, "text", None)) if provider_payload_logging_enabled() else None),
+            )
+            return final_response
+
+        return _await_and_log()
 
 # --- Game Interface ---
 class DustwoodGame:
@@ -186,6 +328,7 @@ async def run_ms_agent(level: str, model_name: str, delay: int, max_turns: int):
         # Instantiate the client
         if "claude" in model_name.lower():
             client = AnthropicClient(model_id=model_name)
+            client = LoggingChatClient(client, client_name="anthropic", default_model_id=model_name)
         elif "gemini" in model_name.lower():
             # Use Google's OpenAI-compatible endpoint
             api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
@@ -194,6 +337,7 @@ async def run_ms_agent(level: str, model_name: str, delay: int, max_turns: int):
                 api_key=api_key,
                 base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
             )
+            client = LoggingChatClient(client, client_name="google", default_model_id=model_name)
         elif "ollama" in model_name.lower():
             # Robustly remove 'ollama:' or 'ollama/' prefix if present
             clean_model = model_name
@@ -205,8 +349,10 @@ async def run_ms_agent(level: str, model_name: str, delay: int, max_turns: int):
                 model_id=clean_model,
                 host=os.environ.get("OLLAMA_HOST", "http://localhost:11434")
             )
+            client = LoggingChatClient(client, client_name="ollama", default_model_id=clean_model)
         else:
             client = OpenAIChatClient(model_id=model_name)
+            client = LoggingChatClient(client, client_name="openai", default_model_id=model_name)
         
         # Instantiate the agent
         agent = Agent(
@@ -217,6 +363,7 @@ async def run_ms_agent(level: str, model_name: str, delay: int, max_turns: int):
                 "You are an expert adventurer playing 'Echoes of Dustwood'.\n"
                 "You interact with the game via the 'play_command' tool.\n"
                 "Your goal is to survive, explore, and increase your score.\n"
+                "LATE GAME: When you have only a few turns left, use the 'SCORE' command to check your final progress.\n"
                 "Keep your responses concise. When you receive game output, decide on the next command and call 'play_command'."
             ),
             tools=[play_command]

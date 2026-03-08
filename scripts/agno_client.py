@@ -14,6 +14,9 @@ from agno.models.anthropic import Claude
 from agno.models.google import Gemini
 from agno.models.ollama import Ollama
 
+from llm_observability import enable_http_debug_logging, http_debug_logging_enabled
+from llm_observability import Timer, format_payload, log_kv, provider_payload_logging_enabled
+
 # Load environment variables
 load_dotenv()
 
@@ -42,8 +45,22 @@ console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(logging.Formatter('%(message)s'))
 logger.addHandler(console_handler)
 
+# Optional: very verbose low-level HTTP logging for provider calls (httpx/httpcore/h11/h2)
+if http_debug_logging_enabled():
+    enable_http_debug_logging(handlers=[file_handler])
+else:
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 # Global variables for delay
 global_delay = TURN_DELAY
+
+# Observability logger: file-only (no console spam)
+obs_logger = logging.getLogger(__name__ + ".obs")
+obs_logger.setLevel(logging.DEBUG)
+if file_handler not in obs_logger.handlers:
+    obs_logger.addHandler(file_handler)
+obs_logger.propagate = False
 
 # --- Game Interface ---
 class DustwoodGame:
@@ -207,6 +224,7 @@ async def run_agno_agent(level: str, model_name: str, delay: int, max_turns: int
                 "You are an expert adventurer playing 'Echoes of Dustwood'.\n"
                 "You interact with the game via the 'play_command' tool.\n"
                 "Your goal is to survive, explore, and increase your score.\n"
+                "LATE GAME: When you have only a few turns left, use the 'SCORE' command to check your final progress.\n"
                 "Keep your responses concise. When you receive game output, decide on the next command and call 'play_command'."
             ),
             tools=[play_command],
@@ -218,7 +236,25 @@ async def run_agno_agent(level: str, model_name: str, delay: int, max_turns: int
         
         # Agno's agent.run or agent.print_response
         # For programmatic access we use agent.run()
+        provider_timer = Timer.start_new()
         response = agent.run(prompt)
+        latency_ms = provider_timer.elapsed_ms()
+        metrics = getattr(response, "metrics", None)
+        log_kv(
+            obs_logger,
+            event="provider_call",
+            client="agno",
+            model_provider=getattr(response, "model_provider", None),
+            model=getattr(response, "model", None) or model_name,
+            latency_ms=latency_ms,
+            input_tokens=getattr(metrics, "input_tokens", None),
+            output_tokens=getattr(metrics, "output_tokens", None),
+            total_tokens=getattr(metrics, "total_tokens", None),
+            reasoning_tokens=getattr(metrics, "reasoning_tokens", None),
+            tool_calls=(len(getattr(response, "tools", []) or []) if getattr(response, "tools", None) is not None else None),
+            prompt=(format_payload(prompt) if provider_payload_logging_enabled() else None),
+            response=(format_payload(getattr(response, "content", None)) if provider_payload_logging_enabled() else None),
+        )
         logger.info(f"\n[FINAL AGENT RESPONSE]\n{response.content}")
 
     finally:
