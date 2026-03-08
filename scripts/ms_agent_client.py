@@ -12,6 +12,44 @@ from agent_framework import Agent
 from agent_framework.openai import OpenAIChatClient
 from agent_framework.anthropic import AnthropicClient
 from agent_framework.ollama import OllamaChatClient
+from agent_framework._types import Content
+from typing import Any
+from typing_extensions import override
+
+class GeminiFixedOpenAIChatClient(OpenAIChatClient):
+    """
+    Subclass of OpenAIChatClient that preserves Gemini's 'thought_signature'.
+    Gemini 3 models require this signature to be echoed back in tool calling turns.
+    """
+
+    @override
+    def _parse_tool_calls_from_openai(self, choice: Any) -> list[Content]:
+        resp: list[Content] = []
+        content = choice.message if hasattr(choice, "message") else choice.delta
+        if content and hasattr(content, "tool_calls") and content.tool_calls:
+            for tool in content.tool_calls:
+                if tool.function:
+                    thought_sig = getattr(tool, "thought_signature", None)
+                    if thought_sig is None:
+                        thought_sig = getattr(tool.function, "thought_signature", None)
+                    
+                    fcc = Content.from_function_call(
+                        call_id=tool.id if tool.id else "",
+                        name=tool.function.name if tool.function.name else "",
+                        arguments=tool.function.arguments if tool.function.arguments else "",
+                        raw_representation=tool.function,
+                    )
+                    if thought_sig:
+                        fcc.additional_properties["thought_signature"] = thought_sig
+                    resp.append(fcc)
+        return resp
+
+    @override
+    def _prepare_content_for_openai(self, content: Content) -> dict[str, Any]:
+        res = super()._prepare_content_for_openai(content)
+        if content.type == "function_call" and "thought_signature" in content.additional_properties:
+            res["thought_signature"] = content.additional_properties["thought_signature"]
+        return res
 
 from llm_observability import enable_http_debug_logging, http_debug_logging_enabled
 from llm_observability import Timer, format_payload, log_kv, provider_payload_logging_enabled
@@ -332,7 +370,7 @@ async def run_ms_agent(level: str, model_name: str, delay: int, max_turns: int):
         elif "gemini" in model_name.lower():
             # Use Google's OpenAI-compatible endpoint
             api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-            client = OpenAIChatClient(
+            client = GeminiFixedOpenAIChatClient(
                 model_id=model_name,
                 api_key=api_key,
                 base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
