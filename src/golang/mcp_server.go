@@ -570,7 +570,7 @@ func RunMCPHTTP(server *MCPServer, addr, path string, origins []string, token st
 
 func RunMCPStdio(server *MCPServer) error {
 	mcpServer := createMCPServer(server)
-	return mcp.ServeStdio(mcpServer)
+	return mcpServer.Run(context.Background(), &mcp.StdioTransport{})
 }
 
 func createMCPServer(server *MCPServer) *mcp.Server {
