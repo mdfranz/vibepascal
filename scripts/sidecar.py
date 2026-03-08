@@ -24,18 +24,16 @@ app.add_middleware(
 )
 
 GAME_BIN = os.environ.get("DUSTWOOD_BIN", "bin/dustwood")
-DUSTWOOD_SEED = os.environ.get("DUSTWOOD_SEED")
 SAVE_PATH = "data/save.ini"
 PROMPT = "> "
 
 _proc_lock = threading.Lock()
 
 class GameProcess:
-    def __init__(self, game_bin: str, prompt: str, seed: str | None = None):
+    def __init__(self, game_bin: str, prompt: str):
         self.game_bin = game_bin
         self.prompt = prompt
         self.prompt_bytes = prompt.encode()
-        self.seed = seed
         self.proc: subprocess.Popen | None = None
         self.initial_output: str = ""
 
@@ -74,11 +72,8 @@ class GameProcess:
     def start(self) -> None:
         if self.proc and self.proc.poll() is None:
             return
-        cmd = [self.game_bin, "--headless"]
-        if self.seed:
-            cmd.extend(["--seed", self.seed])
         self.proc = subprocess.Popen(
-            cmd,
+            [self.game_bin, "--headless"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -114,7 +109,7 @@ class GameProcess:
             self.stop()
         return self._strip_prompt(output)
 
-_game = GameProcess(GAME_BIN, PROMPT, DUSTWOOD_SEED)
+_game = GameProcess(GAME_BIN, PROMPT)
 
 class Command(BaseModel):
     command: str

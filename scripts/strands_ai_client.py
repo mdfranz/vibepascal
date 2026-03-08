@@ -13,14 +13,6 @@ from strands import Agent
 from strands.models.litellm import LiteLLMModel
 from strands.agent.conversation_manager import SlidingWindowConversationManager
 
-from llm_observability import enable_http_debug_logging, http_debug_logging_enabled
-from llm_observability import (
-    Timer,
-    format_payload,
-    log_kv,
-    provider_payload_logging_enabled,
-)
-
 # Load environment variables from .env if present
 load_dotenv()
 
@@ -65,20 +57,6 @@ console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.DEBUG)
 console_handler.setFormatter(logging.Formatter('%(message)s'))
 logger.addHandler(console_handler)
-
-# Optional: very verbose low-level HTTP logging for provider calls (httpx/httpcore/h11/h2)
-if http_debug_logging_enabled():
-    enable_http_debug_logging(handlers=[file_handler])
-else:
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-
-# Observability logger: file-only (no console spam)
-obs_logger = logging.getLogger(__name__ + ".obs")
-obs_logger.setLevel(logging.DEBUG)
-if file_handler not in obs_logger.handlers:
-    obs_logger.addHandler(file_handler)
-obs_logger.propagate = False
 
 # --- Game Interface ---
 
@@ -547,34 +525,9 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
                         # This allows reasoning models to "think" if they must, 
                         # and then we extract the JSON ourselves.
                         # Explicitly disable streaming to avoid console noise
-                        provider_timer = Timer.start_new()
-                        result_obj = agent(context, stream=False)
-                        latency_ms = provider_timer.elapsed_ms()
-
-                        raw_text = str(result_obj)
+                        result = agent(context, stream=False)
+                        raw_text = str(result)
                         logger.debug(f"RAW MODEL RESPONSE:\n{raw_text}")
-
-                        usage = None
-                        metrics = None
-                        try:
-                            metrics = getattr(result_obj, "metrics", None)
-                            usage = getattr(metrics, "accumulated_usage", None) if metrics is not None else None
-                        except Exception:
-                            usage = None
-                            metrics = None
-
-                        log_kv(
-                            obs_logger,
-                            event="provider_call",
-                            client="strands",
-                            provider="litellm",
-                            model=model_id,
-                            latency_ms=latency_ms,
-                            usage=(format_payload(usage) if (usage is not None and provider_payload_logging_enabled()) else None),
-                            metrics=(format_payload(getattr(metrics, "accumulated_metrics", None)) if (metrics is not None and provider_payload_logging_enabled()) else None),
-                            prompt=(format_payload(context) if provider_payload_logging_enabled() else None),
-                            response=(format_payload(raw_text) if provider_payload_logging_enabled() else None),
-                        )
                         
                         # Extract JSON
                         import re
@@ -678,11 +631,6 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
                         )
                         command = f"BURN {burn_target}"
                         frustration = max(0, frustration - FRUSTRATION_DECAY)
-
-            # Late-game: check score before turns run out
-            if turns >= max_turns - 2 and (turns - last_score_update_turn) >= 3:
-                logger.warning(f"Turns running low ({turns}/{max_turns}). Forcing SCORE check.")
-                command = "SCORE"
 
             # Late-game stall: avoid wasting turns on LOOK/SEARCH
             if turns >= max_turns - 5 and (turns - last_score_update_turn) >= 5:

@@ -12,14 +12,6 @@ from dotenv import load_dotenv
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models import KnownModelName
 
-from llm_observability import enable_http_debug_logging, http_debug_logging_enabled
-from llm_observability import (
-    Timer,
-    format_payload,
-    log_kv,
-    provider_payload_logging_enabled,
-)
-
 # Load environment variables from .env if present
 load_dotenv()
 
@@ -78,20 +70,6 @@ console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(logging.Formatter('%(message)s'))
 logger.addHandler(console_handler)
-
-# Optional: very verbose low-level HTTP logging for provider calls (httpx/httpcore/h11/h2)
-if http_debug_logging_enabled():
-    enable_http_debug_logging(handlers=[file_handler])
-else:
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-
-# Observability logger: file-only (no console spam)
-obs_logger = logging.getLogger(__name__ + ".obs")
-obs_logger.setLevel(logging.DEBUG)
-if file_handler not in obs_logger.handlers:
-    obs_logger.addHandler(file_handler)
-obs_logger.propagate = False
 
 # --- Game Interface ---
 
@@ -585,35 +563,10 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
 
             # Use retry logic for robustness against model hallucinations
             try:
-                provider_timer = Timer.start_new()
                 result = agent.run_sync(
                     context,
                     deps=deps,
                     message_history=message_history
-                )
-                latency_ms = provider_timer.elapsed_ms()
-                usage = None
-                try:
-                    usage = result.usage()
-                except Exception:
-                    usage = None
-                log_kv(
-                    obs_logger,
-                    event="provider_call",
-                    client="pydantic_ai",
-                    model=model_name,
-                    latency_ms=latency_ms,
-                    requests=getattr(usage, "requests", None) if usage is not None else None,
-                    input_tokens=getattr(usage, "input_tokens", None) if usage is not None else None,
-                    output_tokens=getattr(usage, "output_tokens", None) if usage is not None else None,
-                    total_tokens=getattr(usage, "total_tokens", None) if usage is not None else None,
-                    tool_calls=getattr(usage, "tool_calls", None) if usage is not None else None,
-                    prompt=(format_payload(context) if provider_payload_logging_enabled() else None),
-                    response=(
-                        format_payload(getattr(result, "output", None))
-                        if provider_payload_logging_enabled()
-                        else None
-                    ),
                 )
                 if use_raw_json:
                     raw_text = str(result.output)
@@ -632,33 +585,7 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
                 try:
                     # Fallback to simple string if structured fails
                     fallback_agent = Agent(model_name, instructions=system_instruction)
-                    provider_timer = Timer.start_new()
                     raw_result = fallback_agent.run_sync(f"{context}\n\nProvide the JSON object ONLY. No thinking, no intro text.")
-                    latency_ms = provider_timer.elapsed_ms()
-                    usage = None
-                    try:
-                        usage = raw_result.usage()
-                    except Exception:
-                        usage = None
-                    log_kv(
-                        obs_logger,
-                        event="provider_call",
-                        client="pydantic_ai",
-                        model=model_name,
-                        latency_ms=latency_ms,
-                        requests=getattr(usage, "requests", None) if usage is not None else None,
-                        input_tokens=getattr(usage, "input_tokens", None) if usage is not None else None,
-                        output_tokens=getattr(usage, "output_tokens", None) if usage is not None else None,
-                        total_tokens=getattr(usage, "total_tokens", None) if usage is not None else None,
-                        tool_calls=getattr(usage, "tool_calls", None) if usage is not None else None,
-                        prompt=(format_payload(context) if provider_payload_logging_enabled() else None),
-                        response=(
-                            format_payload(getattr(raw_result, "output", None))
-                            if provider_payload_logging_enabled()
-                            else None
-                        ),
-                        fallback=True,
-                    )
                     raw_text = str(raw_result.output)
                     command, extracted_reasoning = extract_command_from_raw(raw_text)
                     if reasoning_enabled and extracted_reasoning:
@@ -721,11 +648,6 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
                         )
                         command = f"BURN {burn_target}"
                         frustration = max(0, frustration - FRUSTRATION_DECAY)
-
-            # Late-game: check score before turns run out
-            if turns >= max_turns - 2 and (turns - last_score_update_turn) >= 3:
-                logger.warning(f"Turns running low ({turns}/{max_turns}). Forcing SCORE check.")
-                command = "SCORE"
 
             # Late-game stall: avoid wasting turns on LOOK/SEARCH
             if turns >= max_turns - 5 and (turns - last_score_update_turn) >= 5:

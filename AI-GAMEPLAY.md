@@ -1,62 +1,46 @@
 # AI Gameplay: How the Agent Plays Dustwood
 
 This document explains the technical implementation and reasoning logic behind the autonomous AI agents that play *Echoes of Dustwood*.
-## Orchestration: `ai-game.sh`, `strands-ai-game.sh`, and `ms-agent-game.sh`
 
-The `scripts/ai-game.sh`, `scripts/strands-ai-game.sh`, and `scripts/ms-agent-game.sh` scripts act as entry points and environment managers. Their primary responsibilities are:
+## Orchestration: `ai-game.sh` and `strands-ai-game.sh`
+
+The `scripts/ai-game.sh` and `scripts/strands-ai-game.sh` scripts act as entry points and environment managers. Their primary responsibilities are:
 1.  **Binary Integrity**: Ensures the Pascal engine (`bin/dustwood`) is compiled and up-to-date.
 2.  **Environment Setup**: Cleans up previous save states and ensures logging directories exist.
-3.  **Parameter Passing**: Translates high-level arguments (difficulty, model, delay, or goal) into the specific configuration needed by the AI client.
+3.  **Parameter Passing**: Translates high-level arguments (difficulty, model, delay) into the specific configuration needed by the AI client.
 
 ### Script Arguments
 
-The scripts accept the following positional arguments:
+Both scripts accept the same four positional arguments:
 ```
 ./scripts/ai-game.sh         [difficulty] [model] [delay] [max_turns]
 ./scripts/strands-ai-game.sh [difficulty] [model] [delay] [max_turns]
-./scripts/ms-agent-game.sh   [model] [goal]
-./scripts/agno-game.sh       [model] [goal]
 ```
 
 | Argument | Values | Default |
 | :--- | :--- | :--- |
 | `difficulty` | `full`, `medium`, `minimal` | `full` |
-| `model` | Provider-prefixed model string | `google-gla:gemini-3-flash-preview` / `gemini/gemini-3-flash-preview` / `gpt-5-mini` |
+| `model` | Provider-prefixed model string | `google-gla:gemini-3-flash-preview` / `gemini/gemini-3-flash-preview` |
 | `delay` | Seconds between turns | `1` |
 | `max_turns` | Max turns before stopping | `25` |
-| `goal` | Mission for the Agent | `Find the general store and get some water.` |
 
-Model naming differs: `ai-game.sh` uses Pydantic AI colons; `strands-ai-game.sh` uses LiteLLM slashes; `ms-agent-game.sh` and `agno-game.sh` use direct provider model IDs.
+Model naming differs: `ai-game.sh` uses Pydantic AI colons (`google-gla:`, `openai:`, `ollama:`); `strands-ai-game.sh` uses LiteLLM slashes (`gemini/`, `openai/`, `ollama/`).
 
-## The "Brains": Implementation Backends
+## The "Brains": `scripts/ai_client.py` and `scripts/strands_ai_client.py`
 
-The system supports four distinct implementation backends, each offering a different approach to autonomous gameplay:
+The system supports two implementation backends that share the same high-level logic but use different orchestration frameworks:
 
 ### 1. Pydantic AI Backend (`ai_client.py`)
-The most efficient implementation. It uses `pydantic-ai` to manage model interactions and structured output validation. Optimized for high-speed survival runs.
+The original implementation. It uses `pydantic-ai` to manage model interactions and structured output validation. It is highly optimized for direct provider integrations (Google, OpenAI, Anthropic).
 
 ### 2. Strands SDK Backend (`strands_ai_client.py`)
-A modern port using the **Strands Agents SDK**. It features a custom "Reverse-Search JSON Extractor" to support reasoning models (like `deepseek-r1`) that output raw text before their final command.
+A modern port using the **Strands Agents SDK** and **LiteLLM**. 
+-   **Conversation Management**: Uses a built-in `SlidingWindowConversationManager` to automatically handle history pruning.
+-   **LiteLLM Integration**: Supports a vast array of models through a unified interface.
+-   **Manual JSON Mode**: To support reasoning models (like `cogito:14b` or `deepseek-r1`) which often conflict with "Forced Tool Calling," the Strands client uses a custom validation loop. It allows the model to output raw text (including `<thought>` blocks) and then surgically extracts and validates the JSON command.
 
-### 3. Microsoft Agent Framework Backend (`ms_agent_client.py`)
-A high-performance orchestration layer. It treats game commands as native model tools, allowing for surgical goal completion with minimal turn wastage.
-
-### 4. Agno Backend (`agno_client.py`)
-A lightweight framework (formerly Phidata) that provides the best support for the latest multimodal models. It is the only framework in the project currently capable of running Gemini 3.1 models via their native SDK.
-
-## Interaction Methods: Stdio vs. MCP
-
-The agents can interact with the game engine in two ways:
-
-### 1. Direct Stdio (Original)
-The agent spawns the Pascal binary as a subprocess. This method is used for testing the original engine logic but is limited by a **~5.1s latency per turn** due to necessary I/O timeouts.
-
-### 2. Model Context Protocol (MCP)
-The latest evolution of the AI players. The agent communicates with a stateful Go server via JSON-RPC.
-- **Speed**: **~1.25s per turn** (4x faster than Stdio).
-- **Precision**: The agent receives a validated `GameSummary` object containing exact values for thirst, turns, and location, eliminating parsing errors.
-- **Native Tool Calling**: Game commands are treated as standard model tools.
-
+### 1. Direct Process Interaction
+Unlike the web UI, the AI client does not use a web server. It spawns the Pascal binary as a direct subprocess using the `--headless` flag. It communicates via `stdin` and `stdout` using a non-blocking selector pattern to detect when the game is waiting for input (the `> ` prompt).
 
 ### 2. Structured Output (Reasoning Optional)
 The agent is configured to return a structured JSON response for every turn:
@@ -112,14 +96,6 @@ This is the most robust implementation for the project's current stateless HTTP 
 Utilizes the Strands SDK's dynamic tool discovery.
 - **Dynamic Ingestion**: Uses `strands.tools.mcp.MCPClient` to automatically "suck in" tool definitions from the server at runtime.
 - **Agentic Autonomy**: Relies on the SDK's internal loop to manage the tool-calling lifecycle.
-
-#### 3. Microsoft Agent MCP Client (`ms_agent_mcp_client.py`)
-- **Session Persistence**: Implements the `Mcp-Session-Id` protocol to maintain stateful connections with the Go MCP server.
-- **Native Tasking**: Uses the framework's `Agent.run` to handle the mission objective and tool execution.
-
-#### 4. Agno MCP Client (`agno_mcp_client.py`)
-- **Stateful Async**: Uses Agno's `Agent.arun` for asynchronous tool execution and session-aware MCP interaction.
-- **Flexible Models**: Supports the same broad range of models as the standard Agno client via the Go MCP server.
 
 ## Supported Providers
 By using `pydantic-ai`, the system is model-agnostic. It supports:
