@@ -3,6 +3,7 @@ import logging
 import sys
 import time
 from typing import Optional
+from types import SimpleNamespace
 from dotenv import load_dotenv
 
 # Strands Imports
@@ -38,6 +39,7 @@ EPOCH = int(time.time())
 LOG_FILE = f"logs/strands_mcp_client-{EPOCH}.log"
 
 from guidance_loader import load_guidance
+from mcp_command_policy import CommandPolicy, sanitize_command
 from llm_observability import (
     Timer,
     game_console_enabled,
@@ -120,6 +122,25 @@ def run_strands_agent(
         logger.info(f"Guidance: {guidance_cfg.path}")
     
     guidance_block = f"\n\nGUIDANCE (follow this):\n{guidance_cfg.text}" if guidance_cfg.text else ""
+    policy = CommandPolicy.from_env()
+
+    last_state_obj: SimpleNamespace | None = None
+    last_output_text: str = ""
+
+    def _state_obj_from_dict(d: dict) -> SimpleNamespace:
+        inv = d.get("inventory") or []
+        return SimpleNamespace(
+            room_id=int(d.get("room_id") or d.get("roomId") or 0),
+            room_name=str(d.get("room_name") or d.get("roomName") or ""),
+            turns=int(d.get("turns") or 0),
+            score=int(d.get("score") or 0),
+            thirst=int(d.get("thirst") or 0),
+            is_playing=bool(d.get("is_playing") if "is_playing" in d else d.get("isPlaying", True)),
+            is_riding=bool(d.get("is_riding") if "is_riding" in d else d.get("isRiding", False)),
+            has_water=bool(d.get("has_water") if "has_water" in d else d.get("hasWater", False)),
+            horse_saddled=bool(d.get("horse_saddled") if "horse_saddled" in d else d.get("horseSaddled", False)),
+            inventory=list(inv) if isinstance(inv, list) else [],
+        )
 
     agent = Agent(
         model=llm_model,
@@ -128,6 +149,8 @@ def run_strands_agent(
             "Use the 'command' tool to interact with the game. \n"
             "The tool returns both the narrative text and a structured game state.\n"
             "Analyze the state (inventory, thirst, room) to make survival decisions.\n"
+            "LOOK does not consume a game turn; do not repeat LOOK if turns did not change.\n"
+            "Exits may not be listed; try NORTH/EAST/SOUTH/WEST to explore when unsure.\n"
             "Always try to survive and increase your score."
             f"{guidance_block}"
         ),
@@ -194,6 +217,25 @@ def run_strands_agent(
         tool_starts: dict[str, float] = obs.setdefault("tool_starts", {})
         tool_use_id = (event.tool_use or {}).get("toolUseId") or f"{(event.tool_use or {}).get('name', 'tool')}"
         tool_starts[tool_use_id] = time.perf_counter()
+        try:
+            tool_name = (event.tool_use or {}).get("name")
+            tool_input = (event.tool_use or {}).get("input") or {}
+            if tool_name == "command" and isinstance(tool_input, dict):
+                if last_state_obj is not None and not last_state_obj.is_playing:
+                    event.cancel_tool = "Game is over."
+                    return
+                if last_state_obj is not None and int(getattr(last_state_obj, "turns", 0)) >= int(max_turns):
+                    event.cancel_tool = "Turn limit reached."
+                    return
+                raw_cmd = sanitize_command(str(tool_input.get("command") or ""))
+                if last_state_obj is not None:
+                    rewritten = policy.rewrite(proposed_command=raw_cmd, state=last_state_obj, max_turns=max_turns)
+                else:
+                    rewritten = raw_cmd or "LOOK"
+                tool_input["command"] = rewritten
+                event.tool_use["input"] = tool_input
+        except Exception:
+            pass
         if game_console_enabled():
             tool_name = (event.tool_use or {}).get("name")
             tool_input = (event.tool_use or {}).get("input") or {}
@@ -211,12 +253,14 @@ def run_strands_agent(
         )
 
     def _after_tool_call(event: AfterToolCallEvent) -> None:
+        nonlocal last_state_obj
+        nonlocal last_output_text
         obs = event.invocation_state.get("_obs", {})
         tool_starts: dict[str, float] = obs.get("tool_starts") or {}
         tool_use_id = (event.tool_use or {}).get("toolUseId") or f"{(event.tool_use or {}).get('name', 'tool')}"
         started = tool_starts.pop(tool_use_id, None)
         latency_ms = int((time.perf_counter() - started) * 1000) if isinstance(started, (int, float)) else None
-        if game_console_enabled() and event.exception is None:
+        if event.exception is None:
             try:
                 tool_name = (event.tool_use or {}).get("name")
                 if tool_name == "command" and isinstance(event.result, dict):
@@ -225,15 +269,27 @@ def run_strands_agent(
                         output = structured.get("output") or ""
                         state = structured.get("state") or {}
                         if isinstance(state, dict):
-                            turns = state.get("turns")
-                            room = state.get("room_name") or state.get("roomName")
-                            score = state.get("score")
-                            thirst = state.get("thirst")
-                            header = f"[turn={turns} room={room} score={score} thirst={thirst}/20]"
-                        else:
-                            header = "[game]"
-                        if output:
-                            print_game(f"\n{header}\n{str(output).strip()}\n")
+                            last_state_obj = _state_obj_from_dict(state)
+                            last_output_text = str(output or "")
+                            tool_input = (event.tool_use or {}).get("input") or {}
+                            executed_cmd = (
+                                sanitize_command(str(tool_input.get("command") or ""))
+                                if isinstance(tool_input, dict)
+                                else ""
+                            )
+                            if executed_cmd and last_state_obj is not None:
+                                policy.observe(command=executed_cmd, state=last_state_obj, output_text=last_output_text)
+                        if game_console_enabled():
+                            if isinstance(state, dict):
+                                turns = state.get("turns")
+                                room = state.get("room_name") or state.get("roomName")
+                                score = state.get("score")
+                                thirst = state.get("thirst")
+                                header = f"[turn={turns} room={room} score={score} thirst={thirst}/20]"
+                            else:
+                                header = "[game]"
+                            if output:
+                                print_game(f"\n{header}\n{str(output).strip()}\n")
             except Exception:
                 pass
         log_kv(

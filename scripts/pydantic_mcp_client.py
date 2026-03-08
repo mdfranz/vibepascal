@@ -13,6 +13,7 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.models import KnownModelName
 
 from guidance_loader import load_guidance
+from mcp_command_policy import CommandPolicy, sanitize_command
 from llm_observability import (
     Timer,
     game_console_enabled,
@@ -34,6 +35,7 @@ DEFAULT_MODEL: KnownModelName = "google-gla:gemini-3-flash-preview"
 MESSAGE_HISTORY_LIMIT = 5
 TURN_DELAY = 1
 MAX_TURNS = 25
+MAX_OUTPUT_CHARS = 1200
 
 # Create a unique log file for each session
 EPOCH = int(time.time())
@@ -90,35 +92,11 @@ class CommandOutput(BaseModel):
     state: GameSummary
 
 # --- Helper Logic ---
-
-def sanitize_command(command: str) -> str:
-    """Cleans up the command string from the AI."""
-    cmd = command.strip()
-    
-    # Handle thinking blocks
-    if "<thought>" in cmd:
-        cmd = cmd.split("</thought>")[-1].strip()
-    
-    # Check if the output is the whole JSON or a fragment
-    if "{" in cmd:
-        # Try to find "command": "VALUE"
-        match = re.search(r'"command"\s*:\s*"([^"]+)"', cmd, re.IGNORECASE)
-        if match:
-            cmd = match.group(1)
-        else:
-            # Maybe it's unquoted? command: VALUE
-            match = re.search(r'command\s*:\s*([^,\}\n]+)', cmd, re.IGNORECASE)
-            if match:
-                cmd = match.group(1).strip().strip('"').strip("'")
-
-    cmd = cmd.upper()
-    # Remove all common punctuation that isn't part of a command
-    for ch in [".", ",", "!", "?", ";", ":", "`", "(", ")", "[", "]", "{", "}", "\"", "'"]:
-        cmd = cmd.replace(ch, "")
-    
-    # Take only the first line
-    cmd = cmd.split("\n")[0].strip()
-    return cmd
+def _trim_output(text: str, max_chars: int = MAX_OUTPUT_CHARS) -> str:
+    s = (text or "").strip()
+    if len(s) <= max_chars:
+        return s
+    return s[-max_chars:]
 
 # --- Dependencies ---
 
@@ -240,6 +218,11 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
     global_delay = delay
 
     try:
+        policy = CommandPolicy.from_env()
+        max_llm_calls = max(1, int(max_turns) * int(policy.max_llm_calls_multiplier))
+        llm_calls = 0
+        history: list[str] = []
+
         guidance_map = {
             "full": "data/guidance_full.txt",
             "medium": "data/guidance_medium.txt",
@@ -259,6 +242,8 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
                 "You are an expert adventurer playing 'Echoes of Dustwood' via an MCP interface.\n"
                 "You must choose the next game command to execute.\n"
                 "Only output a single game command per step (one line, no extra text).\n"
+                "LOOK does not consume a game turn; do not repeat LOOK if turns did not change.\n"
+                "Exits may not be listed. If unsure, try a cardinal move (NORTH/EAST/SOUTH/WEST).\n"
                 "Prefer standard parser commands like LOOK, INVENTORY, N/S/E/W, TAKE <item>, USE <item>.\n"
                 "Your goal is to survive, explore, and increase your score."
                 f"{guidance_block}"
@@ -268,26 +253,37 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
         # Initial look
         initial = await deps.execute_command("LOOK", reset=True)
         logger.info(f"\n[STARTING GAME]\n{initial.output}")
+        policy.observe(command="LOOK", state=initial.state, output_text=initial.output)
         
-        current_summary_str = (
-            f"--- Game State ---\n"
-            f"Room: {initial.state.room_name} (ID: {initial.state.room_id})\n"
-            f"Turns: {initial.state.turns}, Score: {initial.state.score}, Thirst: {initial.state.thirst}/20\n"
-            f"Inventory: {', '.join(initial.state.inventory) if initial.state.inventory else 'Empty'}\n"
-            f"Status: Riding={initial.state.is_riding}, Saddled={initial.state.horse_saddled}, Water={initial.state.has_water}\n"
-            f"-----------------\n\n"
-            f"{initial.output}"
-        )
+        def _summary(*, res: CommandOutput) -> str:
+            st = res.state
+            return (
+                f"--- Game State ---\n"
+                f"Room: {st.room_name} (ID: {st.room_id})\n"
+                f"Turns: {st.turns}, Score: {st.score}, Thirst: {st.thirst}/20\n"
+                f"Inventory: {', '.join(st.inventory) if st.inventory else 'Empty'}\n"
+                f"Status: Riding={st.is_riding}, Saddled={st.horse_saddled}, Water={st.has_water}\n"
+                f"-----------------\n\n"
+                f"{_trim_output(res.output)}"
+            )
+
+        current_res = initial
+        current_summary_str = _summary(res=current_res)
 
         # Bounded interaction loop
-        for step_idx in range(1, max_turns + 1):
+        while current_res.state.is_playing and current_res.state.turns < max_turns and llm_calls < max_llm_calls:
+            remaining_turns = max(0, max_turns - current_res.state.turns)
+            recent_history = "\n".join(history[-MESSAGE_HISTORY_LIMIT:]) if history else "(none)"
             prompt = (
+                f"RECENT HISTORY (most recent last):\n{recent_history}\n\n"
                 f"CURRENT STATE:\n{current_summary_str}\n\n"
-                f"Step {step_idx}/{max_turns}: Output exactly one next game command (one line)."
+                f"Remaining game turns: {remaining_turns}\n"
+                f"Output exactly one next game command (one line)."
             )
             
             provider_timer = Timer.start_new()
             result = await agent.run(prompt, deps=deps)
+            llm_calls += 1
             latency_ms = provider_timer.elapsed_ms()
             usage = result.usage()
             tool_calls = []
@@ -313,23 +309,25 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
                 prompt=(format_payload(prompt) if provider_payload_logging_enabled() else None),
                 response=(format_payload(getattr(result, "output", None)) if provider_payload_logging_enabled() else None),
             )
-            next_cmd = sanitize_command(str(result.output))
+            raw_cmd = sanitize_command(str(result.output))
+            next_cmd = policy.rewrite(proposed_command=raw_cmd, state=current_res.state, max_turns=max_turns)
             if not next_cmd:
                 raise RuntimeError("Agent produced an empty command.")
             
             res = await deps.execute_command(next_cmd)
-            state = res.state
-            current_summary_str = (
-                f"--- Game State ---\n"
-                f"Room: {state.room_name} (ID: {state.room_id})\n"
-                f"Turns: {state.turns}, Score: {state.score}, Thirst: {state.thirst}/20\n"
-                f"Inventory: {', '.join(state.inventory) if state.inventory else 'Empty'}\n"
-                f"Status: Riding={state.is_riding}, Saddled={state.horse_saddled}, Water={state.has_water}\n"
-                f"-----------------\n\n"
-                f"{res.output}"
+            policy.observe(command=next_cmd, state=res.state, output_text=res.output)
+
+            history.append(
+                f"t={res.state.turns} cmd={next_cmd} room={res.state.room_name} score={res.state.score} thirst={res.state.thirst}/20\n"
+                f"{_trim_output(res.output, max_chars=500)}"
             )
+            if len(history) > MESSAGE_HISTORY_LIMIT:
+                history = history[-MESSAGE_HISTORY_LIMIT:]
+
+            current_res = res
+            current_summary_str = _summary(res=current_res)
             
-            if not state.is_playing or "Final score" in res.output:
+            if not res.state.is_playing or "Final score" in res.output:
                 logger.info("\n[GAME ENDED]")
                 break
 

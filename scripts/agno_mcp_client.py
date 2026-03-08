@@ -15,6 +15,7 @@ from agno.models.ollama import Ollama
 from agno.tools.mcp import MCPTools
 
 from guidance_loader import load_guidance
+from mcp_command_policy import CommandPolicy, sanitize_command
 from llm_observability import (
     Timer,
     game_console_enabled,
@@ -91,6 +92,12 @@ class CommandOutput(BaseModel):
     output: str
     state: GameSummary
 
+def _trim_output(text: str, max_chars: int = 1200) -> str:
+    s = (text or "").strip()
+    if len(s) <= max_chars:
+        return s
+    return s[-max_chars:]
+
 def _format_command_result(*, structured_content: dict) -> str:
     result = CommandOutput(**structured_content)
     state = result.state
@@ -127,13 +134,20 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
     global_delay = delay
 
     try:
+        policy = CommandPolicy.from_env()
+        max_llm_calls = max(1, int(max_turns) * int(policy.max_llm_calls_multiplier))
+        llm_calls = 0
+        history: list[str] = []
+
         # Agno MCP integration (Streamable HTTP)
         async with MCPTools(url=MCP_URL, transport="streamable-http") as mcp_tools:
             last_state: Optional[GameSummary] = None
+            last_output_text: str = ""
 
             async def command(command: str, reset: bool = False) -> str:
                 """Send a game command via MCP and return narrative output plus a structured state summary."""
                 nonlocal last_state
+                nonlocal last_output_text
                 logger.info(f"Agent executing command: {command}")
                 if game_console_enabled():
                     print_game(f"\n> {command}")
@@ -177,14 +191,18 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
                 if result.structuredContent:
                     parsed = CommandOutput(**result.structuredContent)
                     last_state = parsed.state
+                    last_output_text = parsed.output
                     return _format_command_result(structured_content=result.structuredContent)
 
                 text_parts = [getattr(c, "text", "") for c in (result.content or [])]
-                return next((t for t in text_parts if t), "No output")
+                last_output_text = next((t for t in text_parts if t), "No output")
+                return last_output_text
 
             # Initial look + reset
             initial_summary = await command("LOOK", reset=True)
             logger.info(f"\n[STARTING GAME]\n{initial_summary}")
+            if last_state is not None:
+                policy.observe(command="LOOK", state=last_state, output_text=last_output_text)
 
             # Instantiate the model
             if "claude" in model_name.lower():
@@ -218,19 +236,30 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
         
             # Bounded interaction loop
             current_summary = initial_summary
-            for step_idx in range(1, max_turns + 1):
+            while (
+                last_state is not None
+                and last_state.is_playing
+                and last_state.turns < max_turns
+                and llm_calls < max_llm_calls
+            ):
+                remaining_turns = max(0, max_turns - (last_state.turns if last_state is not None else 0))
                 if last_state is not None and not last_state.is_playing:
                     logger.info("\n[GAME OVER]")
                     break
 
+                recent_history = "\n".join(history[-policy.history_limit :]) if history else "(none)"
                 prompt = (
+                    f"RECENT HISTORY (most recent last):\n{recent_history}\n\n"
                     f"CURRENT STATE:\n{current_summary}\n\n"
-                    f"Step {step_idx}/{max_turns}: Output exactly one next game command (one line)."
-                    f"\nRules: do not repeat LOOK unless state changed; prefer movement/exploration when safe."
+                    f"Remaining game turns: {remaining_turns}\n"
+                    f"Output exactly one next game command (one line).\n"
+                    f"Rules: LOOK does not consume a game turn; do not repeat LOOK if turns did not change. "
+                    f"Exits may not be listed; try NORTH/EAST/SOUTH/WEST to explore when unsure."
                 )
                 provider_timer = Timer.start_new()
                 run_output = await agent.arun(prompt)
                 latency_ms = provider_timer.elapsed_ms()
+                llm_calls += 1
                 metrics = getattr(run_output, "metrics", None)
                 log_kv(
                     logger,
@@ -247,12 +276,30 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
                     prompt=(format_payload(prompt) if provider_payload_logging_enabled() else None),
                     response=(format_payload(getattr(run_output, "content", None)) if provider_payload_logging_enabled() else None),
                 )
-                next_cmd = (run_output.content or "").strip()
-                next_cmd = next_cmd.splitlines()[0].strip().strip("`").strip()
+                raw_cmd = (run_output.content or "").strip()
+                if raw_cmd.startswith("```"):
+                    lines = raw_cmd.splitlines()
+                    inner = [l for l in lines[1:] if l.strip() != "```"]
+                    raw_cmd = "\n".join(inner).strip()
+                raw_cmd = raw_cmd.splitlines()[0].strip().strip("`").strip()
+                raw_cmd = sanitize_command(raw_cmd)
+                next_cmd = policy.rewrite(
+                    proposed_command=raw_cmd,
+                    state=last_state,
+                    max_turns=max_turns,
+                )
                 if not next_cmd:
                     raise RuntimeError("Agent produced an empty command.")
 
                 current_summary = await command(next_cmd)
+                if last_state is not None:
+                    policy.observe(command=next_cmd, state=last_state, output_text=last_output_text)
+                    history.append(
+                        f"t={last_state.turns} cmd={next_cmd} room={last_state.room_name} score={last_state.score} thirst={last_state.thirst}/20\n"
+                        f"{_trim_output(last_output_text, max_chars=500)}"
+                    )
+                    if len(history) > policy.history_limit:
+                        history = history[-policy.history_limit :]
 
             logger.info(f"\n[FINAL STATE]\n{current_summary}")
 

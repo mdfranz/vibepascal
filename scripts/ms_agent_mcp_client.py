@@ -15,6 +15,7 @@ from agent_framework.ollama import OllamaChatClient
 from agent_framework._mcp import MCPStreamableHTTPTool # Using the official MCP tool integration
 
 from guidance_loader import load_guidance
+from mcp_command_policy import CommandPolicy, sanitize_command
 from llm_observability import (
     Timer,
     game_console_enabled,
@@ -87,37 +88,11 @@ class CommandOutput(BaseModel):
     output: str
     state: GameSummary
 
-def mcp_result_parser(result: Any) -> str:
-    """Parses and logs the MCP tool result."""
-    if hasattr(result, "structuredContent") and result.structuredContent:
-        try:
-            parsed = CommandOutput(**result.structuredContent)
-            state = parsed.state
-            
-            summary_str = (
-                f"--- Game State ---\n"
-                f"Room: {state.room_name} (ID: {state.room_id})\n"
-                f"Turns: {state.turns}, Score: {state.score}, Thirst: {state.thirst}/20\n"
-                f"Inventory: {', '.join(state.inventory) if state.inventory else 'Empty'}\n"
-                f"Status: Riding={state.is_riding}, Saddled={state.horse_saddled}, Water={state.has_water}\n"
-                f"-----------------\n\n"
-                f"{parsed.output}"
-            )
-            logger.info(f"Game output received (State: {state.room_name})")
-            if game_console_enabled():
-                print_game(
-                    f"\n[turn={state.turns} room={state.room_name} score={state.score} thirst={state.thirst}/20]\n"
-                    f"{parsed.output.strip()}\n"
-                )
-            return summary_str
-        except Exception as e:
-            logger.warning(f"Failed to parse structuredContent: {e}")
-    
-    if hasattr(result, "content"):
-        text = "\n".join([c.text for c in result.content if hasattr(c, "text")])
-        return text
-    
-    return str(result)
+def _trim_output(text: str, max_chars: int = 1200) -> str:
+    s = (text or "").strip()
+    if len(s) <= max_chars:
+        return s
+    return s[-max_chars:]
 
 def _serialize_messages(messages: Any) -> Any:
     try:
@@ -284,6 +259,88 @@ class DelayedMCPStreamableHTTPTool(MCPStreamableHTTPTool):
             )
             raise
 
+class PolicyMCPTool(DelayedMCPStreamableHTTPTool):
+    """MCP tool wrapper that enforces turn budgeting + loop breaking at the tool boundary."""
+
+    def __init__(
+        self,
+        *args: Any,
+        policy: CommandPolicy,
+        max_turns: int,
+        on_step: Any | None = None,
+        **kwargs: Any,
+    ):
+        self._policy = policy
+        self._max_turns = int(max_turns)
+        self._on_step = on_step
+        self.last_state: GameSummary | None = None
+        self.last_output_text: str = ""
+        self._pending_command: str = ""
+        kwargs["parse_tool_results"] = self._parse_tool_results
+        super().__init__(*args, **kwargs)
+
+    def _parse_tool_results(self, result: Any) -> str:
+        if hasattr(result, "structuredContent") and result.structuredContent:
+            try:
+                parsed = CommandOutput(**result.structuredContent)
+                self.last_state = parsed.state
+                self.last_output_text = parsed.output
+                if self._pending_command:
+                    self._policy.observe(
+                        command=self._pending_command,
+                        state=self.last_state,
+                        output_text=self.last_output_text,
+                    )
+                    if self._on_step is not None:
+                        try:
+                            self._on_step(self._pending_command, self.last_state, self.last_output_text)
+                        except Exception:
+                            pass
+                st = parsed.state
+                logger.info(f"Game output received (State: {st.room_name})")
+                if game_console_enabled():
+                    print_game(
+                        f"\n[turn={st.turns} room={st.room_name} score={st.score} thirst={st.thirst}/20]\n"
+                        f"{parsed.output.strip()}\n"
+                    )
+                return (
+                    f"--- Game State ---\n"
+                    f"Room: {st.room_name} (ID: {st.room_id})\n"
+                    f"Turns: {st.turns}, Score: {st.score}, Thirst: {st.thirst}/20\n"
+                    f"Inventory: {', '.join(st.inventory) if st.inventory else 'Empty'}\n"
+                    f"Status: Riding={st.is_riding}, Saddled={st.horse_saddled}, Water={st.has_water}\n"
+                    f"-----------------\n\n"
+                    f"{_trim_output(parsed.output)}"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to parse structuredContent: {e}")
+
+        if hasattr(result, "content"):
+            text = "\n".join([c.text for c in result.content if hasattr(c, "text")])
+            self.last_output_text = text
+            return text
+
+        self.last_output_text = str(result)
+        return self.last_output_text
+
+    async def call_tool(self, tool_name: str, **kwargs: Any) -> str:
+        if tool_name == "command":
+            reset = bool(kwargs.get("reset", False))
+            if self.last_state is not None and not reset and self.last_state.turns >= self._max_turns:
+                return "Turn limit reached."
+            raw = sanitize_command(str(kwargs.get("command", "")))
+            if self.last_state is not None:
+                rewritten = self._policy.rewrite(
+                    proposed_command=raw,
+                    state=self.last_state,
+                    max_turns=self._max_turns,
+                )
+            else:
+                rewritten = raw or "LOOK"
+            self._pending_command = rewritten
+            kwargs["command"] = rewritten
+        return await super().call_tool(tool_name, **kwargs)
+
 async def run_ms_mcp_agent(level: str, model_name: str, delay: int, max_turns: int):
     logger.info(f"--- Microsoft Agent Framework MCP Client Starting (Model: {model_name}) ---")
     logger.info(f"Enforcing Turn Limit: {max_turns}")
@@ -298,15 +355,14 @@ async def run_ms_mcp_agent(level: str, model_name: str, delay: int, max_turns: i
     if guidance_cfg.path:
         logger.info(f"Guidance: {guidance_cfg.path}")
     
-    # Configure function invocation to limit loops
-    # Note: framework expects a dict matching FunctionInvocationConfiguration
-    # max_iterations limits how many times the agent can call tools before returning
-    func_config = {"max_iterations": max_turns + 1} # +1 for the initial LOOK
+    policy = CommandPolicy.from_env()
+    max_llm_calls = max(1, int(max_turns) * int(policy.max_llm_calls_multiplier))
+    llm_calls = 0
 
     try:
         # 1. Instantiate the client with turn limit configuration
         if "claude" in model_name.lower():
-            client = AnthropicClient(model_id=model_name, function_invocation_configuration=func_config)
+            client = AnthropicClient(model_id=model_name)
             client = LoggingChatClient(client, client_name="anthropic", default_model_id=model_name)
         elif "gemini" in model_name.lower():
             api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
@@ -314,7 +370,6 @@ async def run_ms_mcp_agent(level: str, model_name: str, delay: int, max_turns: i
                 model_id=model_name,
                 api_key=api_key,
                 base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-                function_invocation_configuration=func_config
             )
             client = LoggingChatClient(client, client_name="google", default_model_id=model_name)
         elif "ollama" in model_name.lower():
@@ -325,19 +380,30 @@ async def run_ms_mcp_agent(level: str, model_name: str, delay: int, max_turns: i
             client = OllamaChatClient(
                 model_id=clean_model,
                 host=os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
-                function_invocation_configuration=func_config
             )
             client = LoggingChatClient(client, client_name="ollama", default_model_id=clean_model)
         else:
-            client = OpenAIChatClient(model_id=model_name, function_invocation_configuration=func_config)
+            client = OpenAIChatClient(model_id=model_name)
             client = LoggingChatClient(client, client_name="openai", default_model_id=model_name)
 
         # 2. Use the MCP Tool as an async context manager
-        async with DelayedMCPStreamableHTTPTool(
+        history: list[str] = []
+
+        def _on_step(command: str, st: GameSummary, output_text: str) -> None:
+            history.append(
+                f"t={st.turns} cmd={command} room={st.room_name} score={st.score} thirst={st.thirst}/20\n"
+                f"{_trim_output(output_text, max_chars=500)}"
+            )
+            if len(history) > policy.history_limit:
+                del history[:-policy.history_limit]
+
+        async with PolicyMCPTool(
             name="dustwood-mcp", 
             url=MCP_URL, 
             delay=delay,
-            parse_tool_results=mcp_result_parser
+            policy=policy,
+            max_turns=max_turns,
+            on_step=_on_step,
         ) as mcp_tool:
             
             # 3. Instantiate the agent with the MCP tool
@@ -350,22 +416,82 @@ async def run_ms_mcp_agent(level: str, model_name: str, delay: int, max_turns: i
                     "Use the 'command' tool to interact with the game world.\n"
                     "The tool returns narrative text and structured game state.\n"
                     "Analyze the state (inventory, thirst, room) to make survival decisions.\n"
+                    "LOOK does not consume a game turn; do not repeat LOOK if turns did not change.\n"
+                    "Exits may not be listed; try NORTH/EAST/SOUTH/WEST to explore when unsure.\n"
                     "Your goal is to survive, explore, and increase your score."
                     f"{guidance_block}"
                 ),
-                tools=[mcp_tool]
+                tools=[mcp_tool],
+                default_options={"allow_multiple_tool_calls": False},
             )
             
-            # 4. Start the interaction
-            prompt = (
-                f"Start by calling the 'command' tool with command='LOOK' and reset=True. "
-                f"Then continue playing for exactly {max_turns} more turns. "
-                f"IMPORTANT: You have a hard budget of {max_turns} actions. Make them count."
-            )
-            
+            # 4. Hybrid replanning loop (small tool-call chunks)
             logger.info("\n[STARTING AGENT SESSION]")
-            response = await agent.run(prompt)
-            logger.info(f"\n[FINAL AGENT RESPONSE]\n{response.text}")
+            await mcp_tool.call_tool("command", command="LOOK", reset=True)
+
+            replans = 0
+            last_turns_seen = mcp_tool.last_state.turns if mcp_tool.last_state is not None else 0
+
+            while (
+                mcp_tool.last_state is not None
+                and mcp_tool.last_state.is_playing
+                and mcp_tool.last_state.turns < max_turns
+                and llm_calls < max_llm_calls
+            ):
+                replans += 1
+                remaining = max(0, max_turns - mcp_tool.last_state.turns)
+                chunk_calls = min(6, remaining + 2)
+
+                # Limit tool usage per replan.
+                inner = getattr(client, "_inner", client)
+                try:
+                    inner.function_invocation_configuration["max_function_calls"] = int(chunk_calls)
+                    inner.function_invocation_configuration["max_iterations"] = 3
+                except Exception:
+                    pass
+
+                recent_history = "\n".join(history[-policy.history_limit:]) if history else "(none)"
+                state_block = (
+                    f"--- Game State ---\n"
+                    f"Room: {mcp_tool.last_state.room_name} (ID: {mcp_tool.last_state.room_id})\n"
+                    f"Turns: {mcp_tool.last_state.turns}, Score: {mcp_tool.last_state.score}, Thirst: {mcp_tool.last_state.thirst}/20\n"
+                    f"Inventory: {', '.join(mcp_tool.last_state.inventory) if mcp_tool.last_state.inventory else 'Empty'}\n"
+                    f"Status: Riding={mcp_tool.last_state.is_riding}, Saddled={mcp_tool.last_state.horse_saddled}, Water={mcp_tool.last_state.has_water}\n"
+                    f"-----------------\n\n"
+                    f"{_trim_output(mcp_tool.last_output_text)}"
+                )
+                prompt = (
+                    f"RECENT HISTORY (most recent last):\n{recent_history}\n\n"
+                    f"CURRENT STATE:\n{state_block}\n\n"
+                    f"Remaining game turns: {remaining}\n"
+                    f"Play efficiently. Use the 'command' tool to make moves. "
+                    f"Do NOT waste turns on LOOK/INVENTORY unless necessary. "
+                    f"Stop calling tools when you have used about {chunk_calls} tool calls or when the game ends."
+                )
+                llm_calls += 1
+                response = await agent.run(prompt)
+                logger.info(f"\n[REPLAN {replans} RESPONSE]\n{response.text}")
+
+                if mcp_tool.last_state is None or not mcp_tool.last_state.is_playing:
+                    break
+
+                # If the model didn't advance turns, force a deterministic exploratory move.
+                if mcp_tool.last_state.turns == last_turns_seen:
+                    forced = policy.rewrite(
+                        proposed_command="LOOK",
+                        state=mcp_tool.last_state,
+                        max_turns=max_turns,
+                    )
+                    await mcp_tool.call_tool("command", command=forced, reset=False)
+
+                last_turns_seen = mcp_tool.last_state.turns
+
+            final_text = (
+                f"Final: turns={mcp_tool.last_state.turns if mcp_tool.last_state else 'n/a'} "
+                f"score={mcp_tool.last_state.score if mcp_tool.last_state else 'n/a'} "
+                f"room={mcp_tool.last_state.room_name if mcp_tool.last_state else 'n/a'}"
+            )
+            logger.info(f"\n[FINAL]\n{final_text}")
 
     except Exception as e:
         logger.error(f"Error running agent: {e}")
