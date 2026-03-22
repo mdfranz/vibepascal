@@ -149,6 +149,29 @@ log_kv(logger, event="provider_call", input_tokens=usage.input_tokens, tool_call
 ---
 
 ## Architectural Insight
-While **Agno** and **Pydantic AI** are effective for straightforward implementations, **Strands** and **MS Agent** offer more scalable patterns for production-grade observability. 
 
-The **Strands Hook system** is the most sophisticated, allowing for shared state across a complex multi-step reasoning chain. The **MS Agent Wrapper** approach is the most flexible for retrofitting observability onto existing libraries where you cannot easily inject hooks into the core loop.
+The four clients demonstrate a clear spectrum of architectural maturity, ranging from **procedural scripts** to **extensible systems**.
+
+### 1. Modularity & Reusability
+- **MS Agent** and **Strands** are the clear winners for modularity. By moving observability into **decorators** or **hooks**, the same telemetry logic can be reused across dozens of different agents or tools without changing a single line of the agent's core code.
+- **Agno** and **Pydantic AI** (in their current implementations) couple their logging tightly to the main execution loop. If you wanted to add a second agent or a new toolset, you would have to duplicate the logging code.
+
+### 2. Scalability vs. Readability
+- **Agno** is the most "readable" for a single developer writing a one-off script. You can see every metric being extracted right where it's used. However, it scales poorly; as the logic grows, the "signal-to-noise" ratio of business logic to telemetry logic becomes problematic.
+- **Strands** offers the best balance for production systems. The use of an `invocation_state` context allows for complex, multi-step tracing (e.g., linking multiple tool calls to a single user request) that is nearly impossible to maintain in a flat procedural loop.
+
+### 3. Traceability & Debugging
+- The **MS Agent** structural approach (wrappers) is particularly powerful for debugging "black-box" frameworks. Because it intercepts calls at the class boundary, it can capture internal framework behavior (like retry attempts or hidden initialization calls) that might be invisible to a loop-based implementation like Agno.
+
+### 4. Recommendation Guide
+
+| Use Case | Recommended Pattern | Implementation |
+| :--- | :--- | :--- |
+| **Rapid Prototyping** | Procedural / Inline | **Agno**: Quickest to write; metrics are immediately visible. |
+| **Production Agents** | Event-Driven / Hooks | **Strands**: Cleanest separation; best for long-running, multi-turn sessions. |
+| **Library Retrofitting** | Structural / Wrapper | **MS Agent**: Best for adding telemetry to existing code you can't easily modify. |
+| **Schema-First Design** | Encapsulated Procedural | **Pydantic AI**: Best when using strong typing for both tools and metrics. |
+
+### Final Conclusion
+While **Agno** and **Pydantic AI** are effective for straightforward implementations, **Strands** and **MS Agent** offer the most scalable patterns for production-grade observability. The **Strands Hook system** is the most sophisticated, allowing for shared state across a complex multi-step reasoning chain, while the **MS Agent Wrapper** approach is the most flexible for non-invasive instrumentation.
+
