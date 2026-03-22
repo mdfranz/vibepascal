@@ -1,12 +1,23 @@
 # Execution Flow and Logic in MCP Clients
 
 This document complements `OBSERVABILITY.md` by focusing on **execution flow and decision logic** across MCP clients in `scripts/`.
+It describes where control decisions are made (loop, tool boundary, or hooks), where state is updated, and where termination is enforced.
 
-Covered clients:
-- `agno_mcp_client.py`
-- `pydantic_mcp_client.py`
-- `ms_agent_mcp_client.py`
-- `strands_mcp_client.py`
+## High-Level Architectural Summary
+
+The MCP clients in this project cluster into three practical patterns for managing LLM-to-game interaction:
+
+1. **Loop-Centric (Procedural)**: `agno_mcp_client.py`, `pydantic_mcp_client.py`
+- **Center of gravity**: Explicit `while` loop in the run function.
+- **Logic shape**: Prompt construction, model invocation, command extraction, policy rewrite, and state updates are handled step-by-step in one loop.
+
+2. **Hybrid Loop + Tool-Boundary Governance**: `ms_agent_mcp_client.py`
+- **Center of gravity**: Outer replanning loop plus a strong tool boundary (`PolicyMCPTool.call_tool` / `_parse_tool_results`).
+- **Logic shape**: High-level planning happens in replans, while command sanitization, policy rewrite, and turn-limit checks are enforced at tool execution time.
+
+3. **Event-Centric (Reactive)**: `strands_mcp_client.py`
+- **Center of gravity**: Framework lifecycle hooks.
+- **Logic shape**: No explicit Python game `while` loop; policy and state transitions are injected at hook boundaries (`BeforeToolCall`, `AfterToolCall`, model/invocation hooks).
 
 ## Purpose and Scope
 
@@ -43,7 +54,8 @@ flowchart TD
     A[Start run_agno_mcp_agent] --> B[Load guidance and CommandPolicy]
     B --> C[Open MCPTools context]
     C --> D[Bootstrap: command LOOK reset=true]
-    D --> E{Loop guard: playing, turns<max, llm_calls<cap}
+    D --> DA[Instantiate model and Agent]
+    DA --> E{Loop guard: playing, turns<max, llm_calls<cap}
     E -- No --> Z[Finalize and exit]
     E -- Yes --> F[Build prompt from history plus state]
     F --> G[agent.arun prompt]
@@ -57,6 +69,7 @@ flowchart TD
 
 1. Startup/bootstrap
 - Load guidance, init `CommandPolicy`, set `max_llm_calls`, open `MCPTools` context.
+- **Model and `Agent` are instantiated after the bootstrap `LOOK`**, not before: bootstrap runs first so the initial room state is available before entering the loop.
 
 2. First command/session initialization
 - Local async `command(...)` sends MCP `command` call.
@@ -185,6 +198,8 @@ flowchart TD
 5. Policy rewrite gate
 - In `PolicyMCPTool.call_tool`, sanitize + rewrite each `command` call before forwarding.
 - Turn limit is also enforced here before dispatch.
+- **Edge case**: when `last_state is None` (bootstrap call), `policy.rewrite` is skipped; the raw sanitized command (or `"LOOK"`) is used directly.
+- **Double-rewrite on non-progress fallback**: the outer loop calls `policy.rewrite("LOOK", ...)` to produce the forced command, then passes it to `mcp_tool.call_tool`, which calls `policy.rewrite` a second time inside `PolicyMCPTool.call_tool`. Both rewrites are effectively idempotent in practice but the chain is worth knowing.
 
 6. Tool execution and state update
 - `DelayedMCPStreamableHTTPTool.call_tool` executes underlying MCP call.
@@ -199,27 +214,32 @@ Why it matters:
 
 ### 4) Strands MCP Flow
 
+> **Note**: `run_strands_agent` is a **synchronous** function (`def`, not `async def`). The Strands framework drives the event loop internally via its synchronous `agent(prompt)` call, unlike the other three clients which are all `async def` and driven by `asyncio.run`.
+
 ```mermaid
 flowchart TD
     A[Start run_strands_agent] --> B[Init MCP client and conversation manager]
     B --> C[Load guidance and CommandPolicy]
     C --> D[Create Agent and register hooks]
     D --> E[Invoke agent with start prompt LOOK reset=true]
-    E --> F[BeforeInvocation and BeforeModelCall hooks]
-    F --> G[BeforeToolCall hook]
+    E --> F[BeforeInvocationEvent hook]
+    F --> FA[BeforeModelCallEvent hook]
+    FA --> G[BeforeToolCall hook]
     G --> H{Game over or turns>=max?}
     H -- Yes --> I[Cancel tool call]
     H -- No --> J[Sanitize command and policy.rewrite]
     J --> K[Execute MCP tool call]
     K --> L[AfterToolCall parse structured state]
     L --> M[policy.observe and update last_state_obj]
-    M --> N{Framework continues invocation?}
-    N -- Yes --> F
-    N -- No --> Z[Return final agent result]
+    M --> MA[AfterModelCallEvent hook logs stop_reason]
+    MA --> N{Framework continues invocation?}
+    N -- Yes --> FA
+    N -- No --> MB[AfterInvocationEvent hook logs accumulated usage]
+    MB --> Z[Return final agent result]
 ```
 
 1. Startup/bootstrap
-- Initialize MCP transport client, conversation manager, `CommandPolicy`, and agent with hooks.
+- Initialize MCP transport client (stdio, SSE, or streamable-http), conversation manager (`SlidingWindowConversationManager`), `CommandPolicy`, and agent with hooks.
 
 2. First command/session initialization
 - Single top-level prompt instructs first tool call as `command='LOOK', reset=True`.
@@ -227,6 +247,7 @@ flowchart TD
 
 3. Prompt construction and model invocation
 - Prompt is static at entry; iterative control occurs through framework lifecycle and tool results.
+- `BeforeModelCallEvent` timestamps each model call; `AfterModelCallEvent` logs per-call latency and `stop_reason`.
 
 4. Command extraction/sanitization
 - Happens in `BeforeToolCall` hook by inspecting tool input and sanitizing `command`.

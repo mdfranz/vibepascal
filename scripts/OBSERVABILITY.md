@@ -8,7 +8,7 @@ All clients share a common utility module, `llm_observability.py`, which provide
 - **`log_kv`**: A structured logging utility for key-value pairs (event, latency, tokens, etc.).
 - **`Timer`**: A manual latency measurement utility.
 - **`print_game`**: Console-based visualization for the game state.
-- **Feature Flags**: Environment-driven flags like `provider_payload_logging_enabled()` and `game_console_enabled()`.
+- **Feature Flags**: Environment-driven flags. `provider_payload_logging_enabled()` (`LOG_PAYLOADS`) and `game_console_enabled()` (`GAME_CONSOLE`) both default to **`True`**. `console_logging_enabled()` (`LOG_CONSOLE`) and `http_debug_logging_enabled()` (`LOG_HTTP`) default to `False`.
 
 ---
 
@@ -19,7 +19,7 @@ All clients share a common utility module, `llm_observability.py`, which provide
 - **Mechanism**: Telemetry is explicitly "baked" into the main execution loop and helper functions.
 - **Detailed Implementation**:
     - **Tool Calls**: Within the local `command` async function, a `Timer` is started manually, and `log_kv` is called immediately after `mcp_tools.session.call_tool` returns.
-    - **Provider Calls**: Metrics are logged directly in the `while` loop after `agent.arun(prompt)`. It extracts `input_tokens`, `output_tokens`, and `reasoning_tokens` from the `run_output.metrics` attribute.
+    - **Provider Calls**: Metrics are logged directly in the `while` loop after `agent.arun(prompt)`. It extracts `input_tokens`, `output_tokens`, `total_tokens`, and `reasoning_tokens` from the `run_output.metrics` attribute.
 - **Pros**: Zero abstraction overhead; easy to see exactly what is logged by reading the main loop.
 - **Cons**: High code duplication if multiple agents or tools are used; business logic is cluttered with telemetry calls.
 
@@ -47,7 +47,7 @@ All clients share a common utility module, `llm_observability.py`, which provide
 - **Mechanism**: Encapsulating tool telemetry in dependency classes while keeping provider telemetry in the loop.
 - **Detailed Implementation**:
     - **Tool Encapsulation**: Since Pydantic AI uses a "Dependencies" pattern, all MCP tool telemetry (including the raw JSON-RPC `initialize` and `tools/call` handshakes) is encapsulated within the `MCPDeps` class.
-    - **Built-in Metrics**: It utilizes Pydantic AI's native `result.usage()` method to extract standardized metrics like `requests`, `input_tokens`, and `tool_calls` after the agent run.
+    - **Built-in Metrics**: It utilizes Pydantic AI's native `result.usage()` for `requests`, `input_tokens`, `output_tokens`, `total_tokens`, and `tool_calls`. Additionally, `result.response.tool_calls()` is called separately to log per-call tool details (name + args) when payload logging is enabled.
 - **Pros**: Tool-level logging is neatly tucked away in a helper class; provider logging is concise due to built-in framework support.
 - **Cons**: The boundary between manual tool logging and framework provider logging can lead to slightly inconsistent event schemas if not carefully managed.
 
@@ -56,14 +56,14 @@ All clients share a common utility module, `llm_observability.py`, which provide
 | Metric | Agno | Strands | MS Agent | Pydantic AI |
 | :--- | :---: | :---: | :---: | :---: |
 | **Total LOC** | 377 | 427 | **605** | 397 |
-| **Classes** | 2 | 0 | **6** | 3 |
+| **Classes** | 2 | 0 | **5** | 3 |
 | **Functions** | 4 | 8 | **15** | 5 |
-| **Total Symbols** | 6 | 8 | **21** | 8 |
+| **Total Symbols** | 6 | 8 | **20** | 8 |
 
 ### Complexity Analysis
 - **Agno (377 LOC / 6 Symbols)**: The lowest "symbol density." This reflects its procedural nature where logic and observability are flattened into the main execution loop. It is the easiest to follow linearly but the hardest to scale.
 - **Strands (427 LOC / 8 Symbols)**: Highly functional. The 0-class architecture reflects its heavy reliance on independent hook functions. The higher function count relative to Agno shows its decomposition of the lifecycle into discrete, testable units.
-- **Microsoft Agent (605 LOC / 21 Symbols)**: The most complex and abstract implementation. The high class count (6) is due to the heavy use of the **Decorator** and **Subclassing** patterns. This results in the longest file but offers the most decoupled and reusable observability logic.
+- **Microsoft Agent (605 LOC / 20 Symbols)**: The most complex and abstract implementation. The class count (5: `GameSummary`, `CommandOutput`, `LoggingChatClient`, `DelayedMCPStreamableHTTPTool`, `PolicyMCPTool`) reflects the heavy use of the **Decorator** and **Subclassing** patterns. This results in the longest file but offers the most decoupled and reusable observability logic.
 - **Pydantic AI (397 LOC / 8 Symbols)**: Balanced complexity. It uses classes (`MCPDeps`) to encapsulate tool-specific logic while keeping the core agent flow relatively flat.
 
 ---
