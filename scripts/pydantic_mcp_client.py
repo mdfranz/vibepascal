@@ -112,26 +112,37 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
     )
 
     prompt = (
-        f"Play 'Echoes of Dustwood'. You have {max_turns} turns. "
-        "Use the MCP tools to issue game commands. Start with LOOK."
+        f"Start by calling the 'command' tool with command='LOOK' and reset=True. "
+        f"Then continue playing 'Echoes of Dustwood' for up to {max_turns} turns to increase your score."
     )
 
     provider_timer = Timer.start_new()
+    processed_parts = set() # Track unique parts to avoid duplicates
     
     try:
         async with agent.iter(prompt, usage_limits=UsageLimits(request_limit=max_turns * 4)) as agent_run:
             async for node in agent_run:
-                # Process all new messages on every yield to ensure real-time observability
-                for msg in agent_run.new_messages():
+                # Iterate through all messages in the history to catch everything
+                # but only process parts we haven't seen before.
+                for msg in agent_run.all_messages():
                     if not hasattr(msg, "parts"):
                         continue
                         
                     for part in msg.parts:
+                        # Use the object ID or a content hash as a unique identifier for the part
+                        part_id = id(part)
+                        if part_id in processed_parts:
+                            continue
+                        
                         # 1. AI Thinking / Text
-                        if isinstance(part, ThinkingPart) and part.content.strip():
-                            logger.info(f"THINKING: {part.content.strip()}")
-                        elif isinstance(part, TextPart) and part.content.strip():
-                            logger.info(f"AI: {part.content.strip()}")
+                        if isinstance(part, ThinkingPart):
+                            if part.content.strip():
+                                logger.info(f"THINKING: {part.content.strip()}")
+                            processed_parts.add(part_id)
+                        elif isinstance(part, TextPart):
+                            if part.content.strip():
+                                logger.info(f"AI: {part.content.strip()}")
+                            processed_parts.add(part_id)
                             
                         # 2. Tool Calls
                         elif isinstance(part, ToolCallPart):
@@ -140,11 +151,13 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
                             # Optional delay for observability
                             if delay > 0 and part.tool_name != "look":
                                 await asyncio.sleep(delay)
+                            processed_parts.add(part_id)
                                 
                         # 3. Tool Results
                         elif isinstance(part, ToolReturnPart):
                             tool_name = part.tool_name
                             content = part.content
+                            processed_parts.add(part_id)
                             
                             # Log tool result to kv
                             log_kv(
@@ -160,23 +173,29 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
                             )
                             
                             # Custom formatting for game output
-                            # In native MCP, 'content' is often the direct dict from the tool
                             if isinstance(content, dict):
                                 output = content.get("output", "")
                                 state = content.get("state")
                                 
-                                # Fallback to structuredContent if present (framework dependent)
+                                # Fallback to structuredContent if present
                                 if not output and "structuredContent" in content:
                                     sc = content["structuredContent"]
                                     output = sc.get("output", "")
                                     state = sc.get("state")
                                 
-                                if output and isinstance(state, dict) and game_console_enabled():
+                                if output and isinstance(state, dict):
                                     turns = state.get("turns", 0)
                                     room = state.get("room_name") or state.get("roomName") or "Unknown"
                                     score = state.get("score", 0)
                                     thirst = state.get("thirst", 0)
-                                    print_game(f"\n[turn={turns} room={room} score={score} thirst={thirst}]\n{output.strip()}\n")
+                                    
+                                    if game_console_enabled():
+                                        print_game(f"\n[turn={turns} room={room} score={score} thirst={thirst}]\n{output.strip()}\n")
+                                    
+                                    # ENFORCE TURN LIMIT: Break if we reached or exceeded the limit
+                                    if turns >= max_turns:
+                                        logger.info(f"Turn limit ({max_turns}) reached. Stopping agent.")
+                                        raise UsageLimitExceeded(f"Turn limit {max_turns} reached.")
 
     except (UnexpectedModelBehavior, UsageLimitExceeded) as e:
         logger.info(f"[GAME ENDED] {e}")
