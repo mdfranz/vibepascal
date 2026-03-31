@@ -10,6 +10,7 @@ from typing import Optional, Literal
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.capabilities import Thinking
 from pydantic_ai.models import KnownModelName
 
 from llm_observability import enable_http_debug_logging, http_debug_logging_enabled
@@ -397,6 +398,7 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
     deps = GameDeps(game)
     
     reasoning_enabled = os.environ.get(REASONING_ENV_VAR, "0") not in {"0", "false", "False"}
+    capabilities = [Thinking()] if reasoning_enabled else []
     output_model = CommandResponse if reasoning_enabled else CommandOnlyResponse
     example_json = '{"command": "LOOK", "reasoning": "Gather current room details."}' if reasoning_enabled else '{"command": "LOOK"}'
 
@@ -415,6 +417,7 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
         agent = Agent(
             model_name,
             deps_type=GameDeps,
+            capabilities=capabilities,
             system_prompt=system_prompt
         )
     else:
@@ -423,6 +426,7 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
             deps_type=GameDeps,
             output_type=output_model,
             output_retries=3,
+            capabilities=capabilities,
             system_prompt=system_prompt
         )
 

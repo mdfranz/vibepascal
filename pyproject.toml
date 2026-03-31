@@ -5,16 +5,16 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "pydantic-ai>=1.63.0",
+    "pydantic-ai>=1.73.0",
     "httpx>=0.28.1",
     "python-dotenv>=1.2.1",
     "fastapi>=0.133.1",
     "uvicorn>=0.41.0",
     "pytest>=8.0.0",
-    "strands-agents>=1.28.0",
+    "strands-agents>=1.33.0",
     "litellm>=1.81.16",
     "agent-framework>=1.0.0rc3",
-    "agno>=2.5.8",
+    "agno>=2.5.11",
 ]
 
 [build-system]

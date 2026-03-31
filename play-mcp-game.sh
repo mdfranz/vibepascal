@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+export AI_REASONING=1
+export LOG_CONSOLE=1
+
 # Echoes of Dustwood: Multi-Client MCP Runner
 # This script runs the 4 MCP AI clients sequentially for a given model.
 
@@ -18,10 +21,10 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     exit 0
 fi
 
-MODEL=${1:-"gpt-5-mini"}
+MODEL=${1:-"o3-mini"}
 LEVEL=${2:-"full"}
 DELAY=${3:-"1"}
-MAX_TURNS=${4:-"25"}
+MAX_TURNS=${4:-"10"}
 
 echo "================================================================"
 echo "STARTING MULTI-CLIENT MCP SESSION"

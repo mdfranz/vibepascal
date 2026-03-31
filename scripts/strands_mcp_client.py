@@ -98,7 +98,7 @@ def run_strands_agent(
         model_id = f"gemini/{model_id}"
 
     # 1. Initialize the LLM
-    llm_model = LiteLLMModel(model_id=model_id, params={"max_tokens": 4000})
+    llm_model = LiteLLMModel(model_id=model_id, params={"max_tokens": 20000})
 
     # 2. Initialize the MCP Client
     if transport == "stdio":

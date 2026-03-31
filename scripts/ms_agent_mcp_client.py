@@ -161,6 +161,20 @@ class LoggingChatClient:
             else None
         )
 
+        # Cleanup options for models that don't support certain parameters (like o3-mini)
+        if "o3-mini" in self._default_model_id.lower():
+            if options is not None:
+                # If it's a mutable mapping, we can try to remove it
+                if hasattr(options, "pop"):
+                    options.pop("allow_multiple_tool_calls", None)
+                    options.pop("parallel_tool_calls", None)
+                else:
+                    # If immutable, we recreate it without the offending keys
+                    options = {k: v for k, v in options.items() if k not in ["allow_multiple_tool_calls", "parallel_tool_calls"]}
+            
+            kwargs.pop("allow_multiple_tool_calls", None)
+            kwargs.pop("parallel_tool_calls", None)
+
         try:
             inner_result = self._inner.get_response(
                 messages, stream=stream, options=options, **kwargs
@@ -501,6 +515,13 @@ async def run_ms_mcp_agent(level: str, model_name: str, delay: int, max_turns: i
                 if guidance_cfg.text
                 else ""
             )
+            
+            # OpenAI models like o3-mini don't support parallel_tool_calls.
+            # MS Agent Framework handles this via 'allow_multiple_tool_calls' in default_options.
+            allow_multiple = True
+            if "o3-mini" in model_name.lower():
+                allow_multiple = False
+                
             agent = Agent(
                 client=client,
                 name="DustwoodMCPAdventurer",
@@ -515,7 +536,7 @@ async def run_ms_mcp_agent(level: str, model_name: str, delay: int, max_turns: i
                     f"{guidance_block}"
                 ),
                 tools=[mcp_tool],
-                default_options={"allow_multiple_tool_calls": False},
+                default_options={"allow_multiple_tool_calls": allow_multiple},
             )
 
             # 4. Hybrid replanning loop (small tool-call chunks)
