@@ -17,7 +17,7 @@ from llm_observability import (
     print_game,
     provider_payload_logging_enabled,
 )
-from pydantic_ai import Agent
+from pydantic_ai import Agent, ModelSettings
 from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
 from pydantic_ai.capabilities import Thinking
@@ -99,6 +99,7 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
         model=model_name,
         toolsets=[server],
         capabilities=capabilities,
+        model_settings=ModelSettings(max_tokens=4096, anthropic_thinking={"type": "enabled", "budget_tokens": 2048}),
         system_prompt=(
             "You are an expert adventurer playing 'Echoes of Dustwood' via an MCP interface.\n"
             "Use the available MCP tools to play the game.\n"
@@ -116,25 +117,55 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
         f"Then continue playing 'Echoes of Dustwood' for up to {max_turns} turns to increase your score."
     )
 
-    provider_timer = Timer.start_new()
-    processed_parts = set() # Track unique parts to avoid duplicates
+    processed_parts = set()
+    
+    # Incremental usage tracking
+    last_input_tokens = 0
+    last_output_tokens = 0
+    
+    # Start the first turn timer
+    turn_timer = Timer.start_new()
     
     try:
         async with agent.iter(prompt, usage_limits=UsageLimits(request_limit=max_turns * 4)) as agent_run:
             async for node in agent_run:
-                # Iterate through all messages in the history to catch everything
-                # but only process parts we haven't seen before.
+                # 1. Capture incremental usage and log provider call for this turn
+                current_usage = agent_run.usage()
+                in_tokens = current_usage.input_tokens or 0
+                out_tokens = current_usage.output_tokens or 0
+                
+                # If usage changed, it means a model call just finished
+                if in_tokens > last_input_tokens or out_tokens > last_output_tokens:
+                    delta_in = in_tokens - last_input_tokens
+                    delta_out = out_tokens - last_output_tokens
+                    latency = turn_timer.elapsed_ms()
+                    
+                    log_kv(
+                        logger,
+                        event="provider_call",
+                        client="pydantic_ai",
+                        model=model_name,
+                        latency_ms=latency,
+                        input_tokens=delta_in,
+                        output_tokens=delta_out,
+                        total_tokens=delta_in + delta_out,
+                    )
+                    
+                    # Reset turn timer and usage trackers for the next step
+                    last_input_tokens = in_tokens
+                    last_output_tokens = out_tokens
+                    turn_timer = Timer.start_new()
+
+                # 2. Process messages in this yield
                 for msg in agent_run.all_messages():
                     if not hasattr(msg, "parts"):
                         continue
                         
                     for part in msg.parts:
-                        # Use the object ID or a content hash as a unique identifier for the part
                         part_id = id(part)
                         if part_id in processed_parts:
                             continue
                         
-                        # 1. AI Thinking / Text
                         if isinstance(part, ThinkingPart):
                             if part.content.strip():
                                 logger.info(f"THINKING: {part.content.strip()}")
@@ -143,23 +174,17 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
                             if part.content.strip():
                                 logger.info(f"AI: {part.content.strip()}")
                             processed_parts.add(part_id)
-                            
-                        # 2. Tool Calls
                         elif isinstance(part, ToolCallPart):
                             args = part.args if isinstance(part.args, str) else str(part.args)
                             logger.info(f"TOOL: {part.tool_name}({args})")
-                            # Optional delay for observability
                             if delay > 0 and part.tool_name != "look":
                                 await asyncio.sleep(delay)
                             processed_parts.add(part_id)
-                                
-                        # 3. Tool Results
                         elif isinstance(part, ToolReturnPart):
                             tool_name = part.tool_name
                             content = part.content
                             processed_parts.add(part_id)
                             
-                            # Log tool result to kv
                             log_kv(
                                 logger,
                                 event="tool_call",
@@ -172,12 +197,9 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
                                 ),
                             )
                             
-                            # Custom formatting for game output
                             if isinstance(content, dict):
                                 output = content.get("output", "")
                                 state = content.get("state")
-                                
-                                # Fallback to structuredContent if present
                                 if not output and "structuredContent" in content:
                                     sc = content["structuredContent"]
                                     output = sc.get("output", "")
@@ -192,7 +214,6 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
                                     if game_console_enabled():
                                         print_game(f"\n[turn={turns} room={room} score={score} thirst={thirst}]\n{output.strip()}\n")
                                     
-                                    # ENFORCE TURN LIMIT: Break if we reached or exceeded the limit
                                     if turns >= max_turns:
                                         logger.info(f"Turn limit ({max_turns}) reached. Stopping agent.")
                                         raise UsageLimitExceeded(f"Turn limit {max_turns} reached.")
@@ -200,21 +221,11 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
     except (UnexpectedModelBehavior, UsageLimitExceeded) as e:
         logger.info(f"[GAME ENDED] {e}")
         return
-    result = agent_run.result
-    latency_ms = provider_timer.elapsed_ms()
 
-    usage = result.usage()
-    log_kv(
-        logger,
-        event="provider_call",
-        client="pydantic_ai",
-        model=model_name,
-        latency_ms=latency_ms,
-        input_tokens=getattr(usage, "input_tokens", None),
-        output_tokens=getattr(usage, "output_tokens", None),
-        total_tokens=getattr(usage, "total_tokens", None),
-    )
-    logger.info(f"\n[FINAL AGENT RESPONSE]\n{result.output}")
+    # Final summary log
+    final_usage = agent_run.result.usage()
+    logger.info(f"\n[FINAL AGENT RESPONSE]\n{agent_run.result.output}")
+    logger.info(f"Total Usage: {final_usage}")
 
 
 if __name__ == "__main__":
