@@ -7,24 +7,33 @@ export LOG_CONSOLE=1
 # Echoes of Dustwood: Multi-Client MCP Runner
 # This script runs the 4 MCP AI clients sequentially for a given model.
 
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-    echo "Usage: ./play-mcp-game.sh [model] [difficulty] [delay] [max_turns]"
+usage() {
+    echo "Usage: ./play-mcp-game.sh <model> [difficulty] [delay] [max_turns]"
     echo ""
     echo "Note: This script requires the Go MCP server to be running."
     echo "      ./bin/dustwood-go --mcp-http --mcp-addr 127.0.0.1:8765 --mcp-json-response"
     echo ""
     echo "Arguments:"
-    echo "  model         Model name (default: google-gla:gemini-3-flash-preview)"
+    echo "  model         Model name (required)"
     echo "  difficulty    full, medium, minimal (default: full)"
     echo "  delay         Seconds between turns (default: 1)"
     echo "  max_turns     Max turns per session (default: 25)"
-    exit 0
+    echo ""
+    echo "Examples:"
+    echo "  ./play-mcp-game.sh google-gla:gemini-3-flash-preview"
+    echo "  ./play-mcp-game.sh google-gla:gemini-3-flash-preview full 1 25"
+    echo "  ./play-mcp-game.sh gpt-5 full 0 50"
+    exit 1
+}
+
+if [[ $# -eq 0 || "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    usage
 fi
 
-MODEL=${1:-"o3-mini"}
+MODEL=$1
 LEVEL=${2:-"full"}
 DELAY=${3:-"1"}
-MAX_TURNS=${4:-"10"}
+MAX_TURNS=${4:-"25"}
 
 echo "================================================================"
 echo "STARTING MULTI-CLIENT MCP SESSION"
@@ -52,19 +61,19 @@ fi
 
 echo ""
 echo "--- Running Client 1: Pydantic AI (MCP) ---"
-./scripts/pydantic-mcp-game.sh "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
+./pydantic-mcp-game.sh "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
 
 echo ""
 echo "--- Running Client 2: Agno (MCP) ---"
-./scripts/agno-mcp-game.sh "$LEVEL" "$AGNO_MODEL" "$DELAY" "$MAX_TURNS"
+./agno-mcp-game.sh "$LEVEL" "$AGNO_MODEL" "$DELAY" "$MAX_TURNS"
 
 echo ""
 echo "--- Running Client 3: Microsoft Agent Framework (MCP) ---"
-./scripts/ms-mcp-agent-game.sh "$LEVEL" "$MS_MODEL" "$DELAY" "$MAX_TURNS"
+./ms-agent-mcp-game.sh "$LEVEL" "$MS_MODEL" "$DELAY" "$MAX_TURNS"
 
 echo ""
 echo "--- Running Client 4: Strands AI (MCP) ---"
-./scripts/strands-mcp-game.sh "$LEVEL" "$STRANDS_MODEL" "$DELAY" "$MAX_TURNS"
+./strands-mcp-game.sh "$LEVEL" "$STRANDS_MODEL" "$DELAY" "$MAX_TURNS"
 
 echo ""
 echo "================================================================"

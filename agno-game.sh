@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cd "$ROOT_DIR"
 
 # Ensure directories exist
@@ -15,12 +15,9 @@ fi
 
 # Display help if requested
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-    echo "Echoes of Dustwood: Agno MCP Runner"
+    echo "Echoes of Dustwood: Agno Agent Runner"
     echo ""
-    echo "Note: This script requires the Go MCP server to be running."
-    echo "      You can start it with: ./bin/dustwood --mcp"
-    echo ""
-    echo "Usage: ./scripts/agno-mcp-game.sh [difficulty] [model] [delay] [max_turns]"
+    echo "Usage: ./agno-game.sh [difficulty] [model] [delay] [max_turns]"
     echo ""
     echo "Arguments:"
     echo "  difficulty    full, medium, minimal (default: full)"
@@ -29,7 +26,7 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo "  max_turns     Maximum turns before stopping (default: 25)"
     echo ""
     echo "Examples:"
-    echo "  ./scripts/agno-mcp-game.sh full gpt-4o-mini 1 25"
+    echo "  ./agno-game.sh full gpt-4o-mini 1 25"
     exit 0
 fi
 
@@ -38,8 +35,7 @@ MODEL=${2:-gpt-5-mini}
 DELAY=${3:-1}
 MAX_TURNS=${4:-25}
 
-echo "--- Starting Agno MCP Agent (Level: $LEVEL, Model: $MODEL, Delay: ${DELAY}s, Max Turns: $MAX_TURNS) ---"
-echo "--- Ensure MCP Server is running at http://127.0.0.1:8765/mcp ---"
-uv run python3 scripts/agno_mcp_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
+echo "--- Starting Agno Agent (Level: $LEVEL, Model: $MODEL, Delay: ${DELAY}s, Max Turns: $MAX_TURNS) ---"
+uv run python3 scripts/agno_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
 
 echo "--- Session Complete ---"

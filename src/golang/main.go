@@ -39,6 +39,13 @@ func main() {
 		fmt.Printf("  --autosave           Enable autosave feature\n")
 		fmt.Printf("  --autosave-interval  Turns between autosaves (default: 5)\n")
 		fmt.Printf("  --autosave-path      Autosave file path (default: data/autosave.db)\n")
+		fmt.Printf("  --mcp-http           Run MCP Streamable HTTP server\n")
+		fmt.Printf("  --mcp-addr <addr>    MCP listen address (default: 127.0.0.1:8765)\n")
+		fmt.Printf("  --mcp-path <path>    MCP endpoint path (default: /mcp)\n")
+		fmt.Printf("  --mcp-token <tok>    Bearer token for MCP requests (optional)\n")
+		fmt.Printf("  --mcp-json-response  Force JSON responses instead of SSE\n")
+		fmt.Printf("  --mcp-stateless      Run MCP server in stateless mode\n")
+		fmt.Printf("  --mcp-origin <orig>  Allowed Origin for MCP requests (repeatable)\n")
 	}
 
 	flag.Parse()

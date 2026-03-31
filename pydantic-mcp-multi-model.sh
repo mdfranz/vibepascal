@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cd "$ROOT_DIR"
 
 # Models to test
@@ -18,7 +18,7 @@ TURNS=${2:-25}
 DELAY=${3:-1}
 
 echo "===================================================="
-echo "🤖 PYDANTIC AI MULTI-MODEL RUNNER"
+echo "🤖 PYDANTIC AI MCP MULTI-MODEL RUNNER"
 echo "===================================================="
 echo "Difficulty: $LEVEL"
 echo "Turns:      $TURNS"

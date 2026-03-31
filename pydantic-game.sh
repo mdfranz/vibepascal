@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cd "$ROOT_DIR"
 
 # Ensure directories exist
@@ -20,7 +20,7 @@ fi
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo "Echoes of Dustwood: AI Player Runner"
     echo ""
-    echo "Usage: ./scripts/ai-game.sh [difficulty] [model] [delay] [max_turns]"
+    echo "Usage: ./pydantic-game.sh [difficulty] [model] [delay] [max_turns]"
     echo ""
     echo "Arguments:"
     echo "  difficulty    full, medium, minimal (default: full)"
@@ -29,7 +29,7 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo "  max_turns     Maximum turns before stopping (default: 25)"
     echo ""
     echo "Examples:"
-    echo "  ./scripts/ai-game.sh full google-gla:gemini-3-flash-preview 1 25"
+    echo "  ./pydantic-game.sh full google-gla:gemini-3-flash-preview 1 25"
     exit 0
 fi
 
@@ -40,6 +40,6 @@ MAX_TURNS=${4:-25}
 
 echo "--- Starting AI Player (Level: $LEVEL, Model: $MODEL, Delay: ${DELAY}s, Max Turns: $MAX_TURNS) ---"
 # Run the AI client directly (it now manages the game process itself)
-uv run python3 scripts/ai_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
+uv run python3 scripts/pydantic_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
 
 echo "--- Session Complete ---"

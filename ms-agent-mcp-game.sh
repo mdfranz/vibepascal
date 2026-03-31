@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cd "$ROOT_DIR"
 
 # Ensure directories exist
@@ -20,7 +20,7 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo "Note: This script requires the Go MCP server to be running."
     echo "      You can start it with: ./bin/dustwood --mcp"
     echo ""
-    echo "Usage: ./scripts/ms-mcp-agent-game.sh [difficulty] [model] [delay] [max_turns]"
+    echo "Usage: ./ms-agent-mcp-game.sh [difficulty] [model] [delay] [max_turns]"
     echo ""
     echo "Arguments:"
     echo "  difficulty    full, medium, minimal (default: full)"
@@ -29,7 +29,7 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo "  max_turns     Maximum turns before stopping (default: 25)"
     echo ""
     echo "Examples:"
-    echo "  ./scripts/ms-mcp-agent-game.sh full gpt-4o-mini 1 25"
+    echo "  ./ms-agent-mcp-game.sh full gpt-4o-mini 1 25"
     exit 0
 fi
 

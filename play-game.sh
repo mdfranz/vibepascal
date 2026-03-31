@@ -46,19 +46,19 @@ fi
 
 echo ""
 echo "--- Running Client 1: Pydantic AI (Standard) ---"
-./scripts/ai-game.sh "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
+./pydantic-game.sh "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
 
 echo ""
 echo "--- Running Client 2: Agno (Standard) ---"
-./scripts/agno-game.sh "$LEVEL" "$AGNO_MODEL" "$DELAY" "$MAX_TURNS"
+./agno-game.sh "$LEVEL" "$AGNO_MODEL" "$DELAY" "$MAX_TURNS"
 
 echo ""
 echo "--- Running Client 3: Microsoft Agent Framework (Standard) ---"
-./scripts/ms-agent-game.sh "$LEVEL" "$MS_MODEL" "$DELAY" "$MAX_TURNS"
+./ms-agent-game.sh "$LEVEL" "$MS_MODEL" "$DELAY" "$MAX_TURNS"
 
 echo ""
 echo "--- Running Client 4: Strands AI (Standard) ---"
-./scripts/strands-ai-game.sh "$LEVEL" "$STRANDS_MODEL" "$DELAY" "$MAX_TURNS"
+./strands-game.sh "$LEVEL" "$STRANDS_MODEL" "$DELAY" "$MAX_TURNS"
 
 echo ""
 echo "================================================================"

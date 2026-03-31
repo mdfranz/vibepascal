@@ -29,7 +29,7 @@ BINARY_PATH = os.environ.get("DUSTWOOD_BIN", "bin/dustwood")
 DEFAULT_MODEL: KnownModelName = "google-gla:gemini-3-flash-preview"
 # Create a unique log file for each session
 EPOCH = int(time.time())
-LOG_FILE = f"logs/ai_client-{EPOCH}.log"
+LOG_FILE = f"logs/pydantic_client-{EPOCH}.log"
 TURN_DELAY = 1
 MAX_OUTPUT_CHARS = 2000
 MESSAGE_HISTORY_LIMIT = 4

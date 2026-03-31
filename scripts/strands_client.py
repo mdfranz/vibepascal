@@ -30,7 +30,7 @@ BINARY_PATH = "bin/dustwood"
 DEFAULT_MODEL_ID = "gemini/gemini-3-flash-preview" 
 # Create a unique log file for each session
 EPOCH = int(time.time())
-LOG_FILE = f"logs/strands_ai_client-{EPOCH}.log"
+LOG_FILE = f"logs/strands_client-{EPOCH}.log"
 TURN_DELAY = 1
 MAX_OUTPUT_CHARS = 2000
 MESSAGE_HISTORY_LIMIT = 4
