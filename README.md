@@ -265,19 +265,19 @@ You can also run AI agents that interact with the game specifically through the 
 
 **1. Start the MCP Server:**
 ```bash
-./bin/dustwood-go --mcp-http --mcp-addr 127.0.0.1:8765 --mcp-json-response --mcp-stateless --turns 1000
+./bin/dustwood-go --mcp-http --mcp-addr 127.0.0.1:8765 
 ```
 
 **2. Run an MCP Client:**
 
 - **Pydantic AI MCP Client (Recommended):**
   ```bash
-  uv run python scripts/pydantic_mcp_client.py google-gla:gemini-3-flash-preview "Explore Dustwood."
+  uv run python scripts/pydantic_mcp_client.py google-gla:gemini-3-flash-preview
   ```
 
 - **Strands Agent MCP Client:**
   ```bash
-  uv run python scripts/strands_mcp_client.py google/gemini-3-flash-preview "Explore Dustwood."
+  uv run python scripts/strands_mcp_client.py google/gemini-3-flash-preview 
   ```
 
 ### Options

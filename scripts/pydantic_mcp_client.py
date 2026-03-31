@@ -10,16 +10,26 @@ from llm_observability import (
     Timer,
     console_logging_enabled,
     enable_http_debug_logging,
+    format_payload,
+    game_console_enabled,
     http_debug_logging_enabled,
     log_kv,
+    print_game,
+    provider_payload_logging_enabled,
 )
 from pydantic_ai import Agent
-from pydantic_ai._agent_graph import CallToolsNode
 from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
 from pydantic_ai.capabilities import Thinking
 from pydantic_ai.mcp import MCPServerStreamableHTTP
-from pydantic_ai.messages import TextPart, ThinkingPart, ToolCallPart
+from pydantic_ai.messages import (
+    ModelResponse,
+    ModelRequest,
+    TextPart, 
+    ThinkingPart, 
+    ToolCallPart, 
+    ToolReturnPart
+)
 from pydantic_ai.models import KnownModelName
 
 # Load environment variables
@@ -107,18 +117,67 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
     )
 
     provider_timer = Timer.start_new()
+    
     try:
         async with agent.iter(prompt, usage_limits=UsageLimits(request_limit=max_turns * 4)) as agent_run:
             async for node in agent_run:
-                if isinstance(node, CallToolsNode):
-                    for part in node.model_response.parts:
+                # Process all new messages on every yield to ensure real-time observability
+                for msg in agent_run.new_messages():
+                    if not hasattr(msg, "parts"):
+                        continue
+                        
+                    for part in msg.parts:
+                        # 1. AI Thinking / Text
                         if isinstance(part, ThinkingPart) and part.content.strip():
                             logger.info(f"THINKING: {part.content.strip()}")
                         elif isinstance(part, TextPart) and part.content.strip():
                             logger.info(f"AI: {part.content.strip()}")
+                            
+                        # 2. Tool Calls
                         elif isinstance(part, ToolCallPart):
                             args = part.args if isinstance(part.args, str) else str(part.args)
                             logger.info(f"TOOL: {part.tool_name}({args})")
+                            # Optional delay for observability
+                            if delay > 0 and part.tool_name != "look":
+                                await asyncio.sleep(delay)
+                                
+                        # 3. Tool Results
+                        elif isinstance(part, ToolReturnPart):
+                            tool_name = part.tool_name
+                            content = part.content
+                            
+                            # Log tool result to kv
+                            log_kv(
+                                logger,
+                                event="tool_call",
+                                client="pydantic_ai",
+                                tool_name=tool_name,
+                                result=(
+                                    format_payload(content)
+                                    if provider_payload_logging_enabled()
+                                    else None
+                                ),
+                            )
+                            
+                            # Custom formatting for game output
+                            # In native MCP, 'content' is often the direct dict from the tool
+                            if isinstance(content, dict):
+                                output = content.get("output", "")
+                                state = content.get("state")
+                                
+                                # Fallback to structuredContent if present (framework dependent)
+                                if not output and "structuredContent" in content:
+                                    sc = content["structuredContent"]
+                                    output = sc.get("output", "")
+                                    state = sc.get("state")
+                                
+                                if output and isinstance(state, dict) and game_console_enabled():
+                                    turns = state.get("turns", 0)
+                                    room = state.get("room_name") or state.get("roomName") or "Unknown"
+                                    score = state.get("score", 0)
+                                    thirst = state.get("thirst", 0)
+                                    print_game(f"\n[turn={turns} room={room} score={score} thirst={thirst}]\n{output.strip()}\n")
+
     except (UnexpectedModelBehavior, UsageLimitExceeded) as e:
         logger.info(f"[GAME ENDED] {e}")
         return
