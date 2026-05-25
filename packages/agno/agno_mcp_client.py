@@ -240,7 +240,11 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
                     clean_model = clean_model.removeprefix("anthropic:")
                 model = Claude(id=clean_model)
             elif "gemini" in model_name.lower():
-                model = Gemini(id=model_name)
+                clean_model = model_name
+                for prefix in ["gemini:", "gemini/"]:
+                    if clean_model.lower().startswith(prefix):
+                        clean_model = clean_model[len(prefix):]
+                model = Gemini(id=clean_model)
             elif "ollama" in model_name.lower():
                 clean_model = model_name
                 for prefix in ["ollama:", "ollama/"]:
