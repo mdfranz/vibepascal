@@ -44,4 +44,5 @@ logs/
 
 # Tools
 .claude/
+.antigravitycli/
 node_modules/
