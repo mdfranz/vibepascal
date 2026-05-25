@@ -45,6 +45,7 @@ Echoes of Dustwood uses a **Persistent Sidecar** architecture to bridge a legacy
   - **Strands SDK (`packages/strands/`):** Both direct and MCP variants using Strands Agents + LiteLLM
   - **Microsoft Agent Framework (`packages/ms_agent/`):** Both direct and MCP variants with broad model support
   - **Agno (`packages/agno/`):** Both direct and MCP variants using Agno (formerly Phidata)
+  - **ADK (`packages/adk/`):** MCP variant using Google ADK (Python)
 - **Orchestrators (root directory):**
   - `*-game.sh`: Runners for direct (stdio) client variants
   - `*-mcp-game.sh`: Runners for MCP client variants
@@ -65,7 +66,8 @@ Echoes of Dustwood uses a **Persistent Sidecar** architecture to bridge a legacy
 │   ├── agno/           # Agno framework clients
 │   ├── strands/        # Strands Agents SDK clients
 │   ├── pydantic/       # Pydantic AI clients
-│   └── ms_agent/       # Microsoft Agent Framework clients
+│   ├── ms_agent/       # Microsoft Agent Framework clients
+│   └── adk/            # Google ADK MCP client
 ├── src/
 │   ├── golang/         # Go source code (MCP server implementation)
 │   └── pascal/         # Modular Free Pascal source code
@@ -282,6 +284,8 @@ cd packages/agno && uv sync --upgrade
 cd packages/strands && uv sync --upgrade
 # OR
 cd packages/ms_agent && uv sync --upgrade
+# OR
+cd packages/adk && uv sync --upgrade
 ```
 
 **3. Run an MCP Client from the repo root:**
@@ -306,6 +310,11 @@ cd packages/ms_agent && uv sync --upgrade
   ./ms-agent-mcp-game.sh full gpt-4o-mini 1 5
   ```
 
+- **ADK MCP Client:**
+  ```bash
+  ./adk-mcp-game.sh full gemini-3.5-flash 1 5
+  ```
+
 ### Options
 
 - `-h`, `--h`, `--help`: Show the help message.
@@ -324,6 +333,7 @@ Each AI framework has incompatible dependencies and lives in its own isolated pa
 - **packages/strands/** — Strands Agents SDK + LiteLLM
 - **packages/agno/** — Agno 2.6.9+
 - **packages/ms_agent/** — Microsoft Agent Framework
+- **packages/adk/** — Google ADK 2.0.0 (MCP)
 - **charts/** — Visualization dependencies
 
 ### Quick Start
@@ -369,6 +379,7 @@ export OLLAMA_HOST="localhost:11434"  # For local Ollama
 - Pydantic AI: `google:gemini-3.5-flash` or `anthropic:claude-3-5-sonnet-20241022`
 - Strands: `gemini/gemini-3.5-flash` or `anthropic/claude-3-5-sonnet-20241022` (LiteLLM format)
 - Agno/MS Agent: Framework-specific naming (check wrapper script comments)
+- ADK: native Gemini ID (for example `gemini-3.5-flash`) or LiteLLM provider format (for example `openai/gpt-5-mini`)
 
 **Prerelease deps:** Pydantic AI 2.0.0b3 has pre-release dependencies. Always use `uv sync --prerelease=allow` for that package.
 
@@ -474,9 +485,28 @@ cd packages/agno && uv sync --upgrade
   ./agno-mcp-game.sh full gpt-4o-mini 1 5
   ```
 
+### 5. ADK (Google Agent Development Kit)
+Google's Agent Development Kit with MCP toolset integration.
+
+```bash
+cd packages/adk && uv sync --upgrade
+```
+
+- **Via MCP:**
+  ```bash
+  export GOOGLE_API_KEY="your-api-key"
+  ./adk-mcp-game.sh full gemini-3.5-flash 1 5
+  ```
+
+- **Via LiteLLM provider routing (OpenAI example):**
+  ```bash
+  export OPENAI_API_KEY="your-api-key"
+  ./adk-mcp-game.sh full gpt-5-mini 1 5
+  ```
+
 ### Multi-Client Benchmark
 
-Run all 4 frameworks sequentially against a single model:
+Run all 5 frameworks sequentially against a single model:
 
 ```bash
 ./play-mcp-game.sh google:gemini-3.5-flash full 1 5

@@ -1,0 +1,17 @@
+[project]
+name = "vibepascal-adk"
+version = "0.1.0"
+description = "Google ADK client for the Echoes of Dustwood game (MCP variant)."
+requires-python = ">=3.12"
+dependencies = [
+    "google-adk[extensions,mcp]==2.0.0",
+    "pydantic>=2.0",
+    "python-dotenv>=1.2.1",
+    "vibepascal-shared",
+]
+
+[tool.uv.sources]
+vibepascal-shared = { path = "../shared", editable = true }
+
+[tool.uv]
+package = false

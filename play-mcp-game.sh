@@ -5,7 +5,7 @@ export AI_REASONING=1
 export LOG_CONSOLE=1
 
 # Echoes of Dustwood: Multi-Client MCP Runner
-# This script runs the 4 MCP AI clients sequentially for a given model.
+# This script runs MCP AI clients sequentially for a given model.
 
 usage() {
     echo "Usage: ./play-mcp-game.sh <model> [difficulty] [delay] [max_turns]"
@@ -65,6 +65,15 @@ elif [[ "$MODEL" == anthropic:* ]]; then
     MS_MODEL="${MODEL#anthropic:}"
 fi
 
+ADK_MODEL="$MODEL"
+if [[ "$MODEL" == google-gla:* ]]; then
+    ADK_MODEL="${MODEL#google-gla:}"
+elif [[ "$MODEL" == google:* ]]; then
+    ADK_MODEL="${MODEL#google:}"
+elif [[ "$MODEL" == gemini/* ]]; then
+    ADK_MODEL="${MODEL#gemini/}"
+fi
+
 echo ""
 echo "--- Running Client 1: Pydantic AI (MCP) ---"
 ./pydantic-mcp-game.sh "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
@@ -80,6 +89,10 @@ echo "--- Running Client 3: Microsoft Agent Framework (MCP) ---"
 echo ""
 echo "--- Running Client 4: Strands AI (MCP) ---"
 ./strands-mcp-game.sh "$LEVEL" "$STRANDS_MODEL" "$DELAY" "$MAX_TURNS"
+
+echo ""
+echo "--- Running Client 5: ADK (MCP) ---"
+./adk-mcp-game.sh "$LEVEL" "$ADK_MODEL" "$DELAY" "$MAX_TURNS"
 
 echo ""
 echo "================================================================"

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Echoes of Dustwood is a Free Pascal/Go text adventure game with AI agent integration via the Model Context Protocol (MCP). The repo compares 4 AI frameworks (Pydantic AI, Agno, Strands, Microsoft Agent Framework) on autonomous gameplay.
+Echoes of Dustwood is a Free Pascal/Go text adventure game with AI agent integration via the Model Context Protocol (MCP). The repo compares 5 AI frameworks (Pydantic AI, Agno, Strands, Microsoft Agent Framework, ADK) on autonomous gameplay.
 
 ## Key Files
 
@@ -40,6 +40,11 @@ Each lives in `packages/<framework>/` with its own venv:
 - **Setup:** `cd packages/ms_agent && uv sync --upgrade`
 - **Framework:** Built-in MCP tool integration
 
+#### ADK (`packages/adk/`)
+- `adk_mcp_client.py` — MCP-based gameplay
+- **Setup:** `cd packages/adk && uv sync --upgrade`
+- **Framework:** Google ADK with MCP toolset integration
+
 ### Shared Utilities (`packages/shared/`)
 - `vibepascal_shared/guidance_loader.py` — Loads difficulty-based gameplay hints
 - `vibepascal_shared/llm_observability.py` — Logging, HTTP debugging, timing
@@ -47,12 +52,12 @@ Each lives in `packages/<framework>/` with its own venv:
 
 ### Orchestrators
 - Root-level `*-game.sh` scripts (e.g., `pydantic-mcp-game.sh`) — Wrapper scripts that invoke `uv run --project packages/<fw>` with the right arguments.
-- `play-mcp-game.sh` — Runs all 4 frameworks sequentially for benchmarking.
+- `play-mcp-game.sh` — Runs all 5 frameworks sequentially for benchmarking.
 
 ## Architecture Decisions
 
 ### Why Per-Framework Venvs?
-The 4 frameworks have incompatible dependency versions (e.g., pydantic-ai 2.0.0b3 requires pydantic 2.14a1, while agno works with stable pydantic 2.13). Monolithic venv doesn't work; isolation does.
+The frameworks have incompatible dependency versions (e.g., pydantic-ai 2.0.0b3 requires pydantic 2.14a1, while agno works with stable pydantic 2.13). Monolithic venv doesn't work; isolation does.
 
 ### Why MCP?
 The original "stdio" clients parse game output as text. MCP clients use structured tool calls, allowing agents to:
@@ -77,7 +82,7 @@ cd packages/agno
 uv sync --upgrade
 ```
 
-### Benchmark All 4 Frameworks
+### Benchmark All 5 Frameworks
 ```bash
 ./bin/dustwood-go --mcp-http --mcp-addr 127.0.0.1:8765 --mcp-json-response &
 ./play-mcp-game.sh google:gemini-3.5-flash full 1 5
@@ -115,4 +120,3 @@ No automated test suite currently. Manual testing via the MCP clients (see "Comm
   - Agno: https://docs.phidata.com/
   - Strands: https://github.com/strands-ai/strands-agents-api
   - Microsoft Agent: https://github.com/microsoft/autogen
-

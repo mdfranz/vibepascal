@@ -30,10 +30,14 @@ packages/
 │   ├── strands_client.py
 │   └── strands_mcp_client.py
 │
-└── ms_agent/            # Microsoft Agent Framework
+├── ms_agent/            # Microsoft Agent Framework
+│   ├── pyproject.toml
+│   ├── ms_agent_client.py
+│   └── ms_agent_mcp_client.py
+│
+└── adk/                 # Google ADK (MCP)
     ├── pyproject.toml
-    ├── ms_agent_client.py
-    └── ms_agent_mcp_client.py
+    └── adk_mcp_client.py
 ```
 
 ## Setup
@@ -54,6 +58,7 @@ From the repo root, use the orchestrator scripts:
 ./agno-mcp-game.sh full gpt-4o-mini 1 5
 ./strands-mcp-game.sh full gemini/gemini-3.5-flash 1 5
 ./ms-agent-mcp-game.sh full gpt-4o-mini 1 5
+./adk-mcp-game.sh full gemini-3.5-flash 1 5
 ```
 
 Each script automatically invokes `uv run --project packages/<fw>`, ensuring the right venv is used.
@@ -90,6 +95,11 @@ The shared package is installed as an editable local dependency in each framewor
 - Models: OpenAI, Anthropic, Google, Ollama
 - Built-in tool/MCP integration
 
+### adk (2.0.0)
+- `google-adk[extensions,mcp]` for ADK MCP + LiteLLM model routing support
+- Models: Native Gemini IDs (for example `gemini-3.5-flash`) and LiteLLM provider IDs (for example `openai/gpt-5-mini`)
+- MCP-only package, optimized for benchmark parity with the other MCP clients
+
 ## Isolation Benefits
 
 - **No version conflicts** — Each framework can use incompatible versions of shared deps (e.g., pydantic 2.13 vs 2.14a1)
@@ -99,7 +109,7 @@ The shared package is installed as an editable local dependency in each framewor
 
 ## Benchmarking
 
-Run all 4 frameworks against a single model:
+Run all 5 frameworks against a single model:
 
 ```bash
 ./play-mcp-game.sh google:gemini-3.5-flash full 1 5
