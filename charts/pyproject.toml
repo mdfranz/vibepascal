@@ -1,0 +1,12 @@
+[project]
+name = "vibepascal-charts"
+version = "0.1.0"
+description = "Benchmark visualizations for the Echoes of Dustwood framework comparison."
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.10.9",
+    "numpy>=1.26",
+]
+
+[tool.uv]
+package = false

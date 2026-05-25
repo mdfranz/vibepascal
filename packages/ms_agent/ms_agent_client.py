@@ -9,12 +9,20 @@ from typing import Optional
 from dotenv import load_dotenv
 
 from agent_framework import Agent
-from agent_framework.openai import OpenAIChatClient
+from agent_framework.openai import OpenAIChatClient, OpenAIChatCompletionClient
 from agent_framework.anthropic import AnthropicClient
 from agent_framework.ollama import OllamaChatClient
 
-from llm_observability import enable_http_debug_logging, http_debug_logging_enabled
-from llm_observability import Timer, format_payload, log_kv, provider_payload_logging_enabled
+from agent_framework import ChatResponse
+original_init = ChatResponse.__init__
+def patched_init(self, *args, **kwargs):
+    if "model_id" in kwargs:
+        kwargs["model"] = kwargs.pop("model_id")
+    original_init(self, *args, **kwargs)
+ChatResponse.__init__ = patched_init
+
+from vibepascal_shared.llm_observability import enable_http_debug_logging, http_debug_logging_enabled
+from vibepascal_shared.llm_observability import Timer, format_payload, log_kv, provider_payload_logging_enabled
 
 # Load environment variables
 load_dotenv()
@@ -341,9 +349,25 @@ async def run_ms_agent(level: str, model_name: str, delay: int, max_turns: int):
                 host=os.environ.get("OLLAMA_HOST", "http://localhost:11434")
             )
             client = LoggingChatClient(client, client_name="ollama", default_model_id=clean_model)
+        elif "gemini" in model_name.lower():
+            clean_model = model_name
+            if "/" in clean_model:
+                clean_model = clean_model.split("/")[-1]
+            if not clean_model.startswith("models/"):
+                clean_model = f"models/{clean_model}"
+            api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+            client = OpenAIChatCompletionClient(
+                model=clean_model,
+                api_key=api_key,
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+            )
+            client = LoggingChatClient(client, client_name="openai", default_model_id=clean_model)
         else:
-            client = OpenAIChatClient(model_id=model_name)
-            client = LoggingChatClient(client, client_name="openai", default_model_id=model_name)
+            clean_model = model_name
+            if clean_model.startswith("openai:"):
+                clean_model = clean_model.removeprefix("openai:")
+            client = OpenAIChatClient(model=clean_model)
+            client = LoggingChatClient(client, client_name="openai", default_model_id=clean_model)
         
         # Instantiate the agent
         agent = Agent(

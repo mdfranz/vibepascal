@@ -15,25 +15,29 @@ STEPS = 50
 CLIENTS = [
     {
         "name": "Pydantic AI",
-        "script": "scripts/pydantic_mcp_client.py",
+        "project": "packages/pydantic",
+        "script": "packages/pydantic/pydantic_mcp_client.py",
         "args": ["anthropic:claude-3-opus-20240229", GOAL], # Pydantic AI naming
         "type": "json-rpc"
     },
     {
         "name": "MS Agent Framework",
-        "script": "scripts/ms_agent_mcp_client.py",
+        "project": "packages/ms_agent",
+        "script": "packages/ms_agent/ms_agent_mcp_client.py",
         "args": [DEFAULT_MODEL, GOAL, "--steps", str(STEPS)],
         "type": "json-rpc"
     },
     {
         "name": "Agno (formerly Phidata)",
-        "script": "scripts/agno_mcp_client.py",
+        "project": "packages/agno",
+        "script": "packages/agno/agno_mcp_client.py",
         "args": [DEFAULT_MODEL, GOAL, "--steps", str(STEPS)],
         "type": "json-rpc"
     },
     {
         "name": "Strands SDK",
-        "script": "scripts/strands_mcp_client.py",
+        "project": "packages/strands",
+        "script": "packages/strands/strands_mcp_client.py",
         "args": [STRANDS_MODEL, GOAL, "stdio"],
         "type": "stdio"
     }
@@ -43,7 +47,7 @@ def run_client(client: Dict[str, Any]) -> Dict[str, Any]:
     print(f"\n>>> Running Benchmark for: {client['name']} ...")
     start_time = time.time()
     
-    cmd = ["uv", "run", "python3", client["script"]] + client["args"]
+    cmd = ["uv", "run", "--project", client["project"], "python3", client["script"]] + client["args"]
     
     try:
         # Run with a 10-minute timeout for a 50-turn run

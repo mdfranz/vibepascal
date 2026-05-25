@@ -44,8 +44,8 @@ MAX_TURNS = 25
 EPOCH = int(time.time())
 LOG_FILE = f"logs/strands_mcp_client-{EPOCH}.log"
 
-from guidance_loader import load_guidance
-from llm_observability import (
+from vibepascal_shared.guidance_loader import load_guidance
+from vibepascal_shared.llm_observability import (
     Timer,
     console_logging_enabled,
     enable_http_debug_logging,
@@ -56,7 +56,7 @@ from llm_observability import (
     print_game,
     provider_payload_logging_enabled,
 )
-from mcp_command_policy import CommandPolicy, sanitize_command
+from vibepascal_shared.mcp_command_policy import CommandPolicy, sanitize_command
 
 # --- Setup Logging ---
 logger = logging.getLogger(__name__)
@@ -96,6 +96,10 @@ def run_strands_agent(
     if model_id.startswith("gemini-") and "/" not in model_id:
         logger.info(f"Auto-prepending 'gemini/' to model ID: {model_id}")
         model_id = f"gemini/{model_id}"
+    elif model_id.startswith("openai:"):
+        model_id = model_id.removeprefix("openai:")
+    elif model_id.startswith("anthropic:"):
+        model_id = model_id.replace("anthropic:", "anthropic/")
 
     # 1. Initialize the LLM
     llm_model = LiteLLMModel(model_id=model_id, params={"max_tokens": 20000})

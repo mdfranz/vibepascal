@@ -36,6 +36,6 @@ DELAY=${3:-1}
 MAX_TURNS=${4:-25}
 
 echo "--- Starting Agno Agent (Level: $LEVEL, Model: $MODEL, Delay: ${DELAY}s, Max Turns: $MAX_TURNS) ---"
-uv run python3 scripts/agno_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
+uv run --project packages/agno python3 packages/agno/agno_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
 
 echo "--- Session Complete ---"

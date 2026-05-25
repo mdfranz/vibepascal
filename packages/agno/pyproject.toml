@@ -1,0 +1,22 @@
+[project]
+name = "vibepascal-agno"
+version = "0.1.0"
+description = "Agno framework client for the Echoes of Dustwood game (both direct-stdio and MCP variants)."
+requires-python = ">=3.12"
+dependencies = [
+    "agno>=2.5.11",
+    "anthropic>=0.28.0",
+    "google-genai>=0.3.0",
+    "mcp>=1.0.0",
+    "openai>=1.0.0",
+    "ollama>=0.1.0",
+    "python-dotenv>=1.2.1",
+    "pydantic>=2.0",
+    "vibepascal-shared",
+]
+
+[tool.uv.sources]
+vibepascal-shared = { path = "../shared", editable = true }
+
+[tool.uv]
+package = false

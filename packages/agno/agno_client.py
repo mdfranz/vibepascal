@@ -14,8 +14,8 @@ from agno.models.anthropic import Claude
 from agno.models.google import Gemini
 from agno.models.ollama import Ollama
 
-from llm_observability import enable_http_debug_logging, http_debug_logging_enabled
-from llm_observability import Timer, format_payload, log_kv, provider_payload_logging_enabled
+from vibepascal_shared.llm_observability import enable_http_debug_logging, http_debug_logging_enabled
+from vibepascal_shared.llm_observability import Timer, format_payload, log_kv, provider_payload_logging_enabled
 
 # Load environment variables
 load_dotenv()

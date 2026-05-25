@@ -1,0 +1,19 @@
+[project]
+name = "vibepascal-strands"
+version = "0.1.0"
+description = "Strands Agents client for the Echoes of Dustwood game (both direct-stdio and MCP variants)."
+requires-python = ">=3.12"
+dependencies = [
+    "strands-agents>=1.33.0",
+    "litellm>=1.81.16",
+    "mcp>=1.0.0",
+    "python-dotenv>=1.2.1",
+    "pydantic>=2.0",
+    "vibepascal-shared",
+]
+
+[tool.uv.sources]
+vibepascal-shared = { path = "../shared", editable = true }
+
+[tool.uv]
+package = false

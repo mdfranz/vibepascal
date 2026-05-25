@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cd "$ROOT_DIR"
 
 # Ensure directories exist
@@ -40,6 +40,6 @@ DELAY=${3:-1}
 MAX_TURNS=${4:-25}
 
 echo "--- Starting AI Player (Level: $LEVEL, Model: $MODEL, Delay: ${DELAY}s, Max Turns: $MAX_TURNS) ---"
-uv run python3 scripts/strands_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
+uv run --project packages/strands python3 packages/strands/strands_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
 
 echo "--- Session Complete ---"

@@ -36,6 +36,6 @@ DELAY=${3:-1}
 MAX_TURNS=${4:-25}
 
 echo "--- Starting MS Agent (Level: $LEVEL, Model: $MODEL, Delay: ${DELAY}s, Max Turns: $MAX_TURNS) ---"
-uv run python3 scripts/ms_agent_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
+uv run --project packages/ms_agent python3 packages/ms_agent/ms_agent_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
 
 echo "--- Session Complete ---"

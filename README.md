@@ -36,37 +36,41 @@ Echoes of Dustwood uses a **Persistent Sidecar** architecture to bridge a legacy
 ### Component Overview
 
 - **Game Engine:** Either the Pascal or Go implementation.
-- **Sidecar API (`scripts/sidecar.py`):** A FastAPI wrapper that exposes the game as a REST service. It manages state by keeping a single headless process alive and streaming commands to it. The binary used can be configured via the `DUSTWOOD_BIN` environment variable.
-- **AI Clients (Original):**
-  - **Pydantic AI (`scripts/ai_client.py`):** The original implementation using `pydantic-ai` for autonomous gameplay.
-  - **Strands SDK (`scripts/strands_ai_client.py`):** A modern port using the **Strands Agents SDK** and **LiteLLM**, providing broad model support and robust state management.
-  - **Microsoft Agent Framework (`scripts/ms_agent_client.py`):** A client using the **Microsoft Agent Framework**, optimized for OpenAI models.
-  - **Agno (`scripts/agno_client.py`):** A lightweight client using the **Agno** framework (formerly Phidata).
-- **AI Clients (MCP):**
-  - **MCP Pydantic AI (`scripts/pydantic_mcp_client.py`):** A client that plays the game via the Go MCP server using Pydantic AI.
-  - **MCP Strands Agent (`scripts/strands_mcp_client.py`):** A client that plays the game via the Go MCP server using Strands SDK.
-  - **MCP Microsoft Agent (`scripts/ms_agent_mcp_client.py`):** A stateful MCP client using the Microsoft Agent Framework.
-  - **MCP Agno Agent (`scripts/agno_mcp_client.py`):** A stateful MCP client using the Agno framework.
-- **Orchestrators:**
-  - `scripts/ai-game.sh`: Runner for the Pydantic AI client.
-  - `scripts/strands-ai-game.sh`: Runner for the Strands SDK client.
-  - `scripts/ms-agent-game.sh`: Runner for the Microsoft Agent Framework client.
-  - `scripts/ms-mcp-agent-game.sh`: Runner for the Microsoft Agent MCP client.
-  - `scripts/agno-game.sh`: Runner for the Agno client.
-  - `scripts/agno-mcp-game.sh`: Runner for the Agno MCP client.
+- **Shared Utilities (`packages/shared/vibepascal_shared/`):** Common modules used by all framework clients:
+  - `guidance_loader.py`: Loads gameplay guidance (full/medium/minimal difficulty levels)
+  - `llm_observability.py`: Logging, HTTP debugging, and performance metrics
+  - `mcp_command_policy.py`: Command validation and sanitization for MCP safety
+- **AI Framework Packages:** Each framework has its own isolated venv and dependencies:
+  - **Pydantic AI (`packages/pydantic/`):** Both direct and MCP variants using `pydantic-ai` (2.0.0b3)
+  - **Strands SDK (`packages/strands/`):** Both direct and MCP variants using Strands Agents + LiteLLM
+  - **Microsoft Agent Framework (`packages/ms_agent/`):** Both direct and MCP variants with broad model support
+  - **Agno (`packages/agno/`):** Both direct and MCP variants using Agno (formerly Phidata)
+- **Orchestrators (root directory):**
+  - `*-game.sh`: Runners for direct (stdio) client variants
+  - `*-mcp-game.sh`: Runners for MCP client variants
+  - `play-mcp-game.sh`: Multi-client benchmark runner
+- **Chart Visualization (`charts/`):** Benchmark result visualization using matplotlib
 
 ## Project Structure
 
 ```text
 .
 ├── bin/                # Compiled Pascal and Go binaries
+├── charts/             # Benchmark visualization (matplotlib)
+│   └── pyproject.toml  # Chart generation venv
 ├── data/               # Configuration, guidance, and state (world.ini, save.ini)
-├── logs/               # Sidecar and AI client logs
-├── scripts/            # Python sidecar, AI agents, and runners
-├── tests/              # Pytest end-to-end tests for the sidecar
-└── src/
-    ├── golang/         # Go source code
-    └── pascal/         # Modular Free Pascal source code
+├── logs/               # MCP server and AI client logs
+├── packages/           # Framework packages with isolated venvs
+│   ├── shared/         # Common utilities (guidance_loader, llm_observability, mcp_command_policy)
+│   ├── agno/           # Agno framework clients
+│   ├── strands/        # Strands Agents SDK clients
+│   ├── pydantic/       # Pydantic AI clients
+│   └── ms_agent/       # Microsoft Agent Framework clients
+├── src/
+│   ├── golang/         # Go source code (MCP server implementation)
+│   └── pascal/         # Modular Free Pascal source code
+├── *.sh                # Root-level orchestrator scripts (wrappers for each framework)
+└── CLAUDE.md           # (optional) Codebase documentation for Claude Code
 ```
 
 ## Pascal Source Reference
@@ -261,23 +265,45 @@ MCP flags:
 
 ### AI Agents via MCP
 
-You can also run AI agents that interact with the game specifically through the MCP interface. These clients are more robust as they use the structured state returned by the server.
+You can run AI agents that interact with the game through the MCP interface. These clients are more robust as they use the structured state returned by the server.
 
 **1. Start the MCP Server:**
 ```bash
-./bin/dustwood-go --mcp-http --mcp-addr 127.0.0.1:8765 
+./bin/dustwood-go --mcp-http --mcp-addr 127.0.0.1:8765 --mcp-json-response
 ```
 
-**2. Run an MCP Client:**
+**2. Sync the framework package (one-time setup):**
+Each framework has isolated dependencies. Choose one and sync it:
+```bash
+cd packages/pydantic && uv sync --prerelease=allow
+# OR
+cd packages/agno && uv sync --upgrade
+# OR
+cd packages/strands && uv sync --upgrade
+# OR
+cd packages/ms_agent && uv sync --upgrade
+```
 
-- **Pydantic AI MCP Client (Recommended):**
+**3. Run an MCP Client from the repo root:**
+
+- **Pydantic AI MCP Client:**
   ```bash
-  uv run python scripts/pydantic_mcp_client.py google-gla:gemini-3-flash-preview
+  ./pydantic-mcp-game.sh full google:gemini-3.5-flash 1 5
   ```
 
 - **Strands Agent MCP Client:**
   ```bash
-  uv run python scripts/strands_mcp_client.py google/gemini-3-flash-preview 
+  ./strands-mcp-game.sh full gemini/gemini-3.5-flash 1 5
+  ```
+
+- **Agno MCP Client:**
+  ```bash
+  ./agno-mcp-game.sh full gemini/gemini-3.5-flash 1 5
+  ```
+
+- **Microsoft Agent MCP Client:**
+  ```bash
+  ./ms-agent-mcp-game.sh full gpt-4o-mini 1 5
   ```
 
 ### Options
@@ -287,79 +313,174 @@ You can also run AI agents that interact with the game specifically through the 
 - `--turns <n>`: Set the maximum number of turns (default: 25).
 - `--seed <n>`: Set the random seed for deterministic gameplay.
 
-## AI Models
+## Setup & Installation
 
-The system supports two backends for AI gameplay. Both require the appropriate API keys or a local Ollama instance.
+### Per-Framework Virtual Environments
 
-### 1. Strands SDK (Recommended)
-Uses the Strands Agents SDK and LiteLLM. It is highly robust with reasoning models.
+Each AI framework has incompatible dependencies and lives in its own isolated package with a dedicated venv:
 
-- **Google Gemini (Default):**
+- **packages/shared/** — Common utilities (no external deps beyond httpx)
+- **packages/pydantic/** — Pydantic AI (2.0.0b3, requires `--prerelease=allow`)
+- **packages/strands/** — Strands Agents SDK + LiteLLM
+- **packages/agno/** — Agno 2.6.9+
+- **packages/ms_agent/** — Microsoft Agent Framework
+- **charts/** — Visualization dependencies
+
+### Quick Start
+
+1. **Build the game:**
+   ```bash
+   make build-go
+   ```
+
+2. **Sync a framework package (pick one):**
+   ```bash
+   cd packages/pydantic && uv sync --prerelease=allow
+   # OR
+   cd packages/agno && uv sync --upgrade
+   # etc.
+   ```
+
+3. **Start the MCP server:**
+   ```bash
+   ./bin/dustwood-go --mcp-http --mcp-addr 127.0.0.1:8765 --mcp-json-response
+   ```
+
+4. **In another terminal, run a game:**
+   ```bash
+   ./pydantic-mcp-game.sh full google:gemini-3.5-flash 1 5
+   ```
+
+### Environment Variables
+
+Set your API keys as needed:
+
+```bash
+export GOOGLE_API_KEY="..."       # For Gemini models
+export ANTHROPIC_API_KEY="..."    # For Claude models
+export OPENAI_API_KEY="..."       # For GPT models
+export GEMINI_API_KEY="..."       # Alternative Gemini key
+export OLLAMA_HOST="localhost:11434"  # For local Ollama
+```
+
+### Troubleshooting
+
+**"Unknown provider" error:** Make sure you're using the correct model prefix for the framework:
+- Pydantic AI: `google:gemini-3.5-flash` or `anthropic:claude-3-5-sonnet-20241022`
+- Strands: `gemini/gemini-3.5-flash` or `anthropic/claude-3-5-sonnet-20241022` (LiteLLM format)
+- Agno/MS Agent: Framework-specific naming (check wrapper script comments)
+
+**Prerelease deps:** Pydantic AI 2.0.0b3 has pre-release dependencies. Always use `uv sync --prerelease=allow` for that package.
+
+## AI Models & Framework Setup
+
+Each framework has its own isolated venv and dependencies. Set up the API keys you need, then run via the orchestrator scripts.
+
+### 1. Pydantic AI (2.0.0b3)
+Uses the Pydantic AI framework with support for Anthropic and Google Gemini.
+
+```bash
+cd packages/pydantic && uv sync --prerelease=allow
+```
+
+- **Google Gemini (Direct):**
+  ```bash
+  export GOOGLE_API_KEY="your-api-key"
+  ./pydantic-game.sh full google:gemini-3.5-flash 1 25
+  ```
+- **Anthropic Claude (Direct):**
+  ```bash
+  export ANTHROPIC_API_KEY="your-api-key"
+  ./pydantic-game.sh full anthropic:claude-3-5-sonnet-20241022 1 25
+  ```
+- **Via MCP:**
+  ```bash
+  ./pydantic-mcp-game.sh full google:gemini-3.5-flash 1 5
+  ```
+
+### 2. Strands SDK (Recommended for multi-provider)
+Uses Strands Agents SDK and LiteLLM for broad model support.
+
+```bash
+cd packages/strands && uv sync --upgrade
+```
+
+- **Google Gemini:**
   ```bash
   export GEMINI_API_KEY="your-api-key"
-  ./scripts/strands-ai-game.sh full
+  ./strands-game.sh full gemini/gemini-3.5-flash 1 25
+  ```
+- **Anthropic Claude:**
+  ```bash
+  export ANTHROPIC_API_KEY="your-api-key"
+  ./strands-game.sh full anthropic/claude-3-5-sonnet-20241022 1 25
   ```
 - **Ollama (Local):**
   ```bash
   export OLLAMA_HOST="127.0.0.1:11434"
-  ./scripts/strands-ai-game.sh minimal ollama/granite4:latest
+  ./strands-game.sh minimal ollama/granite4:latest 1 25
   ```
-
-### 2. Pydantic AI (Original)
-Uses the Pydantic AI framework.
-
-- **Google Gemini:**
+- **Via MCP:**
   ```bash
-  export GOOGLE_API_KEY="your-api-key"
-  ./scripts/ai-game.sh full
-  ```
-- **Anthropic:**
-  ```bash
-  export ANTHROPIC_API_KEY="your-api-key"
-  ./scripts/ai-game.sh medium anthropic:claude-3-5-sonnet-latest
+  ./strands-mcp-game.sh full gemini/gemini-3.5-flash 1 5
   ```
 
 ### 3. Microsoft Agent Framework
-The successor to AutoGen. Optimized for goal-oriented tasks and multi-provider support.
+Optimized for goal-oriented tasks with broad provider support.
 
-- **OpenAI GPT-5 (Default):**
+```bash
+cd packages/ms_agent && uv sync --upgrade
+```
+
+- **OpenAI GPT-4o:**
   ```bash
   export OPENAI_API_KEY="your-api-key"
-  ./scripts/ms-agent-game.sh gpt-5-mini "Explore Dustwood."
+  ./ms-agent-game.sh full gpt-4o-mini 1 25
   ```
 - **Anthropic Claude:**
   ```bash
   export ANTHROPIC_API_KEY="your-api-key"
-  ./scripts/ms-agent-game.sh claude-3-5-sonnet-latest "Find the hidden stream."
+  ./ms-agent-game.sh full claude-3-5-sonnet-20241022 1 25
   ```
-- **Google Gemini (v2.0+):**
+- **Google Gemini:**
   ```bash
   export GEMINI_API_KEY="your-api-key"
-  ./scripts/ms-agent-game.sh gemini-2.0-flash "Find the key under the stream rock."
+  ./ms-agent-game.sh full gemini-3.5-flash 1 25
   ```
-- **Ollama (Local/Remote):**
+- **Via MCP:**
   ```bash
-  export OLLAMA_HOST="http://your-server:11434"
-  ./scripts/ms-agent-game.sh ollama/granite4:3b "Explore the town."
+  ./ms-agent-mcp-game.sh full gpt-4o-mini 1 5
   ```
 
 ### 4. Agno (formerly Phidata)
-A lightweight multimodal agent framework.
+Lightweight multimodal agent framework.
 
-- **OpenAI GPT-5 (Default):**
+```bash
+cd packages/agno && uv sync --upgrade
+```
+
+- **OpenAI GPT-4o:**
   ```bash
   export OPENAI_API_KEY="your-api-key"
-  ./scripts/agno-game.sh gpt-5-mini "Find the general store."
+  ./agno-game.sh full gpt-4o-mini 1 25
   ```
 - **Anthropic Claude:**
   ```bash
   export ANTHROPIC_API_KEY="your-api-key"
-  ./scripts/agno-game.sh claude-3-5-sonnet-latest "Explore the town."
+  ./agno-game.sh full claude-3-5-sonnet-20241022 1 25
   ```
-- **Ollama:**
+- **Via MCP:**
   ```bash
-  ./scripts/agno-game.sh ollama/granite4:3b "Explore Dustwood."
+  ./agno-mcp-game.sh full gpt-4o-mini 1 5
   ```
+
+### Multi-Client Benchmark
+
+Run all 4 frameworks sequentially against a single model:
+
+```bash
+./play-mcp-game.sh google:gemini-3.5-flash full 1 5
+```
 
 ## Commands
 

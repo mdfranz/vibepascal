@@ -40,6 +40,6 @@ MAX_TURNS=${4:-25}
 
 echo "--- Starting AI Player (Level: $LEVEL, Model: $MODEL, Delay: ${DELAY}s, Max Turns: $MAX_TURNS) ---"
 # Run the AI client directly (it now manages the game process itself)
-uv run python3 scripts/pydantic_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
+uv run --project packages/pydantic python3 packages/pydantic/pydantic_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
 
 echo "--- Session Complete ---"

@@ -20,17 +20,19 @@ This document provides a technical comparison of the four AI agent frameworks im
 
 ### Strands SDK (`strands_ai_client.py`)
 *   **Robustness**: Uses a "Reverse-Search JSON Extractor" to handle models that output messy reasoning before their command.
-*   **Connectivity**: Best-in-class handling of LiteLLM/Ollama edge cases.
+*   **Connectivity**: Best-in-class handling of LiteLLM/Ollama edge cases. Integrates with LiteLLM's Google Gemini API handler to correctly forward `thought_signature` metadata.
 *   **Limitation**: Currently struggles with the Go server's specific SSE implementation.
 
 ### Microsoft Agent Framework (`ms_agent_client.py`)
 *   **Efficiency**: Extremely surgical behavior. Reaches goals with the minimum number of turns.
-*   **Limitation**: The standard OpenAI client is incompatible with Gemini 3.1 models due to missing `thought_signature` support.
+*   **Limitation**: The standard OpenAI client is incompatible with Gemini 3 models.
+    *   `OpenAIChatClient` fails with `404` because Gemini does not support OpenAI's Responses API (`/responses`).
+    *   `OpenAIChatCompletionClient` successfully calls the standard `/chat/completions` API but fails on the second turn with a `400 Bad Request` because the client does not preserve and forward Gemini 3's required `thought_signature` metadata.
 *   **Tested Models**: Excellent performance with `gpt-5-mini` and `ollama/gpt-oss:20b`.
 
 ### Agno (formerly Phidata) (`agno_client.py`)
 *   **Native SDKs**: Uses native Google/Anthropic SDKs rather than generic wrappers.
-*   **Gemini 3.1 Champion**: The **only** framework successfully running Gemini 3.1 Pro/Flash in this project.
+*   **Gemini 3 Champion**: The **only** framework successfully running Gemini 3 Pro/Flash natively. It handles Gemini's required `thought_signature` serialization automatically through the Google GenAI SDK.
 *   **Proactivity**: Showed high initiative in logs, often exploring beyond the immediate goal to gather survival items.
 
 ## 3. Performance & Latency (MCP vs. Original)
@@ -43,6 +45,7 @@ Testing reveals a significant performance gap between interaction methods:
 ## 4. Model Performance Observations (Updated)
 
 *   **gemini-3.1-pro-preview**: High-tier logic. Successfully handled complex puzzles via Agno.
+*   **gemini-3.5-flash**: Excellent, high-performing model. Successfully verified across Pydantic AI (v2.0.0b3), Agno, and Strands SDK.
 *   **gpt-5-mini**: The "Utility Player." Works reliably across all four frameworks with high efficiency.
 *   **claude-opus-4-6**: The planning expert. Best at long-term inventory management.
 *   **gpt-oss:20b (Ollama)**: Strong performance via MS Agent. Navigated to goals with zero typos or logic loops.

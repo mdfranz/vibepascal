@@ -1,0 +1,18 @@
+[project]
+name = "vibepascal-ms-agent"
+version = "0.1.0"
+description = "Microsoft Agent Framework client for the Echoes of Dustwood game (both direct-stdio and MCP variants)."
+requires-python = ">=3.12"
+dependencies = [
+    "agent-framework>=1.0.0rc3",
+    "agent-framework-anthropic==1.0.0b260311",
+    "python-dotenv>=1.2.1",
+    "pydantic>=2.0",
+    "vibepascal-shared",
+]
+
+[tool.uv.sources]
+vibepascal-shared = { path = "../shared", editable = true }
+
+[tool.uv]
+package = false

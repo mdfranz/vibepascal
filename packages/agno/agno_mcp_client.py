@@ -12,8 +12,8 @@ from agno.models.ollama import Ollama
 from agno.models.openai import OpenAIChat
 from agno.tools.mcp import MCPTools
 from dotenv import load_dotenv
-from guidance_loader import load_guidance
-from llm_observability import (
+from vibepascal_shared.guidance_loader import load_guidance
+from vibepascal_shared.llm_observability import (
     Timer,
     console_logging_enabled,
     enable_http_debug_logging,
@@ -24,7 +24,7 @@ from llm_observability import (
     print_game,
     provider_payload_logging_enabled,
 )
-from mcp_command_policy import CommandPolicy, sanitize_command
+from vibepascal_shared.mcp_command_policy import CommandPolicy, sanitize_command
 from pydantic import BaseModel
 
 # Load environment variables
@@ -235,7 +235,10 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
 
             # Instantiate the model
             if "claude" in model_name.lower():
-                model = Claude(id=model_name)
+                clean_model = model_name
+                if clean_model.startswith("anthropic:"):
+                    clean_model = clean_model.removeprefix("anthropic:")
+                model = Claude(id=clean_model)
             elif "gemini" in model_name.lower():
                 model = Gemini(id=model_name)
             elif "ollama" in model_name.lower():
@@ -248,7 +251,10 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
                     host=os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
                 )
             else:
-                model = OpenAIChat(id=model_name)
+                clean_model = model_name
+                if clean_model.startswith("openai:"):
+                    clean_model = clean_model.removeprefix("openai:")
+                model = OpenAIChat(id=clean_model)
 
             # Instantiate the agent
             guidance_block = (

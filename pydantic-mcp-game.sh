@@ -40,6 +40,6 @@ MAX_TURNS=${4:-25}
 
 echo "--- Starting Pydantic AI MCP Agent (Level: $LEVEL, Model: $MODEL, Delay: ${DELAY}s, Max Turns: $MAX_TURNS) ---"
 echo "--- Ensure MCP Server is running at http://127.0.0.1:8765/mcp ---"
-uv run python3 scripts/pydantic_mcp_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
+uv run --project packages/pydantic python3 packages/pydantic/pydantic_mcp_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
 
 echo "--- Session Complete ---"

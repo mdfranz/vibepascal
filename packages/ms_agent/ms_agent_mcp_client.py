@@ -12,15 +12,22 @@ from agent_framework._mcp import (
 )
 from agent_framework.anthropic import AnthropicClient
 from agent_framework.ollama import OllamaChatClient
-from agent_framework.openai import OpenAIChatClient
+from agent_framework.openai import OpenAIChatClient, OpenAIChatCompletionClient
 from agent_framework._types import Content, Message, FinishReason
-from agent_framework.openai._shared import OpenAIBase
 from typing_extensions import override
 from collections.abc import Mapping, Sequence
 
+from agent_framework import ChatResponse
+original_init = ChatResponse.__init__
+def patched_init(self, *args, **kwargs):
+    if "model_id" in kwargs:
+        kwargs["model"] = kwargs.pop("model_id")
+    original_init(self, *args, **kwargs)
+ChatResponse.__init__ = patched_init
+
 from dotenv import load_dotenv
-from guidance_loader import load_guidance
-from llm_observability import (
+from vibepascal_shared.guidance_loader import load_guidance
+from vibepascal_shared.llm_observability import (
     Timer,
     console_logging_enabled,
     enable_http_debug_logging,
@@ -31,7 +38,7 @@ from llm_observability import (
     print_game,
     provider_payload_logging_enabled,
 )
-from mcp_command_policy import CommandPolicy, sanitize_command
+from vibepascal_shared.mcp_command_policy import CommandPolicy, sanitize_command
 from pydantic import BaseModel
 
 # Load environment variables
@@ -468,9 +475,12 @@ async def run_ms_mcp_agent(level: str, model_name: str, delay: int, max_turns: i
     try:
         # 1. Instantiate the client with turn limit configuration
         if "claude" in model_name.lower():
-            client = AnthropicClient(model_id=model_name)
+            clean_model = model_name
+            if clean_model.startswith("anthropic:"):
+                clean_model = clean_model.removeprefix("anthropic:")
+            client = AnthropicClient(model_id=clean_model)
             client = LoggingChatClient(
-                client, client_name="anthropic", default_model_id=model_name
+                client, client_name="anthropic", default_model_id=clean_model
             )
         elif "ollama" in model_name.lower():
             clean_model = model_name
@@ -484,10 +494,28 @@ async def run_ms_mcp_agent(level: str, model_name: str, delay: int, max_turns: i
             client = LoggingChatClient(
                 client, client_name="ollama", default_model_id=clean_model
             )
-        else:
-            client = OpenAIChatClient(model_id=model_name)
+        elif "gemini" in model_name.lower():
+            clean_model = model_name
+            if "/" in clean_model:
+                clean_model = clean_model.split("/")[-1]
+            if not clean_model.startswith("models/"):
+                clean_model = f"models/{clean_model}"
+            api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+            client = OpenAIChatCompletionClient(
+                model=clean_model,
+                api_key=api_key,
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+            )
             client = LoggingChatClient(
-                client, client_name="openai", default_model_id=model_name
+                client, client_name="openai", default_model_id=clean_model
+            )
+        else:
+            clean_model = model_name
+            if clean_model.startswith("openai:"):
+                clean_model = clean_model.removeprefix("openai:")
+            client = OpenAIChatClient(model=clean_model)
+            client = LoggingChatClient(
+                client, client_name="openai", default_model_id=clean_model
             )
 
         # 2. Use the MCP Tool as an async context manager

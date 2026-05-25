@@ -47,16 +47,22 @@ echo "================================================================"
 STRANDS_MODEL="$MODEL"
 if [[ "$MODEL" == google-gla:* ]]; then
     STRANDS_MODEL="gemini/${MODEL#google-gla:}"
+elif [[ "$MODEL" == anthropic:* ]]; then
+    STRANDS_MODEL="anthropic/${MODEL#anthropic:}"
 fi
 
 AGNO_MODEL="$MODEL"
 if [[ "$MODEL" == google-gla:* ]]; then
     AGNO_MODEL="gemini/${MODEL#google-gla:}"
+elif [[ "$MODEL" == anthropic:* ]]; then
+    AGNO_MODEL="${MODEL#anthropic:}"
 fi
 
 MS_MODEL="$MODEL"
 if [[ "$MODEL" == google-gla:* ]]; then
     MS_MODEL="${MODEL#google-gla:}"
+elif [[ "$MODEL" == anthropic:* ]]; then
+    MS_MODEL="${MODEL#anthropic:}"
 fi
 
 echo ""

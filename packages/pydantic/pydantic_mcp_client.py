@@ -5,8 +5,8 @@ import sys
 import time
 
 from dotenv import load_dotenv
-from guidance_loader import load_guidance
-from llm_observability import (
+from vibepascal_shared.guidance_loader import load_guidance
+from vibepascal_shared.llm_observability import (
     Timer,
     console_logging_enabled,
     enable_http_debug_logging,
@@ -21,7 +21,7 @@ from pydantic_ai import Agent, ModelSettings
 from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
 from pydantic_ai.capabilities import Thinking
-from pydantic_ai.mcp import MCPServerStreamableHTTP
+from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.messages import (
     ModelResponse,
     ModelRequest,
@@ -93,7 +93,7 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
     reasoning_enabled = os.environ.get("AI_REASONING", "0") not in {"0", "false", "False"}
     capabilities = [Thinking()] if reasoning_enabled else []
 
-    server = MCPServerStreamableHTTP(MCP_URL, max_retries=3)
+    server = MCPToolset(MCP_URL, max_retries=3)
 
     agent = Agent(
         model=model_name,
@@ -130,7 +130,7 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
         async with agent.iter(prompt, usage_limits=UsageLimits(request_limit=max_turns * 4)) as agent_run:
             async for node in agent_run:
                 # 1. Capture incremental usage and log provider call for this turn
-                current_usage = agent_run.usage()
+                current_usage = agent_run.usage
                 in_tokens = current_usage.input_tokens or 0
                 out_tokens = current_usage.output_tokens or 0
                 
@@ -223,7 +223,7 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
         return
 
     # Final summary log
-    final_usage = agent_run.result.usage()
+    final_usage = agent_run.result.usage
     logger.info(f"\n[FINAL AGENT RESPONSE]\n{agent_run.result.output}")
     logger.info(f"Total Usage: {final_usage}")
 

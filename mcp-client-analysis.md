@@ -72,3 +72,20 @@ The frameworks exhibit four distinct operational philosophies:
 | **Max Token Economy (Cost)** | **Claude Sonnet 4-6 + MS Agent (MCP)** |
 | **Minimal API Overhead** | **Claude Sonnet 4-6 + Strands (MCP)** |
 | **Lowest Overall Cost** | **GPT-5-mini + Pydantic (MCP)** (at the cost of 50% performance) |
+
+## 5. Claude Haiku 4-5 Benchmark (10-Turn Test)
+
+To compare the frameworks under tight turn constraints, we ran a 10-turn session using `claude-haiku-4-5`.
+
+| Model | Framework | Score (10 Turns) | Outcome / Status |
+| :--- | :--- | :---: | :--- |
+| Claude Haiku 4-5 | **Agno (MCP)** | **35** | **Success.** Gathered Book, Map, Canteen, Leather, and Saddle (5/5 inventory limit). |
+| Claude Haiku 4-5 | **Pydantic (MCP)** | **25** | **Success.** Systematically explored, retrieved the Map, and reached turn limit. |
+| Claude Haiku 4-5 | **MS Agent (MCP)** | **24** | **Success.** Collected Canteen, Leather, and Saddle. (Map was blocked by snake in Livery). |
+| Claude Haiku 4-5 | **Strands (MCP)** | **8** | **Failed.** Collected Map but died to rattlesnake in the General Store. |
+
+### Observations:
+- **Agno (MCP)** performed optimally, reaching a high score of 35 by collecting multiple key inventory items very quickly.
+- **Pydantic (MCP)** and **MS Agent (MCP)** both reached the turn limit successfully, executing strategic exploration paths.
+- **Strands (MCP)** struggled with reactive recovery after dying to the rattlesnake on the first attempt, highlighting the challenge of one-shot generation when dealing with hostile interactive hazards.
+

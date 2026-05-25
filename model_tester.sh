@@ -29,13 +29,13 @@ make build > /dev/null 2>&1
 echo ""
 echo "🚀 [1/2] Launching Pydantic AI Client..."
 echo "----------------------------------------------------"
-uv run python3 scripts/pydantic_client.py "$LEVEL" "$MODEL" "$DELAY" "$TURNS"
+uv run --project packages/pydantic python3 packages/pydantic/pydantic_client.py "$LEVEL" "$MODEL" "$DELAY" "$TURNS"
 
 echo ""
 echo "🚀 [2/2] Launching Strands SDK Client..."
 echo "----------------------------------------------------"
 # strands_client.py includes a mapper to handle Pydantic-style model names
-uv run python3 scripts/strands_client.py "$LEVEL" "$MODEL" "$DELAY" "$TURNS"
+uv run --project packages/strands python3 packages/strands/strands_client.py "$LEVEL" "$MODEL" "$DELAY" "$TURNS"
 
 echo ""
 echo "===================================================="

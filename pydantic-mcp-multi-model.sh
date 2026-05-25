@@ -41,7 +41,7 @@ for MODEL in "${MODELS[@]}"; do
         export AI_REASONING=0
     fi
     
-    uv run python3 scripts/pydantic_mcp_client.py "$LEVEL" "$MODEL" "$DELAY" "$TURNS"
+    uv run --project packages/pydantic python3 packages/pydantic/pydantic_mcp_client.py "$LEVEL" "$MODEL" "$DELAY" "$TURNS"
     
     echo "----------------------------------------------------"
     echo "✅ Finished $MODEL"

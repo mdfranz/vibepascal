@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cd "$ROOT_DIR"
 
 # Ensure directories exist
@@ -40,6 +40,6 @@ MAX_TURNS=${4:-25}
 
 echo "--- Starting Strands MCP Agent (Level: $LEVEL, Model: $MODEL, Delay: ${DELAY}s, Max Turns: $MAX_TURNS) ---"
 echo "--- Ensure MCP Server is running at http://127.0.0.1:8765/mcp ---"
-uv run python3 scripts/strands_mcp_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
+uv run --project packages/strands python3 packages/strands/strands_mcp_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
 
 echo "--- Session Complete ---"
