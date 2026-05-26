@@ -1,0 +1,181 @@
+# Echoes of Dustwood: A Tale of Two Engines and Many Agents
+
+This document chronicles the rapid evolution of *Echoes of Dustwood*, a journey from a modular Pascal text adventure to a multi-engine, AI-powered immersive experience using the Model Context Protocol (MCP).
+
+**Project Age:** Approximately 4 days (Started: February 26, 2026)
+
+## Phase 1: Foundation (Pascal & World DB)
+**Timeline:** February 26, 2026 (Morning/Afternoon)
+
+The project began as a pure modular Free Pascal text adventure. The core vision was established early: a survival-focused exploration of a deserted frontier town. Key to this phase was the decision to move the game world (rooms, items, exits) into an external `world.ini` file, allowing for easy expansion and modding without recompiling the engine.
+
+*   **Key Milestones:** Initial world loading from INI, basic command parsing (N/S/E/W, LOOK, TAKE), and the implementation of survival mechanics like thirst.
+*   **Key Code Changes & Improvements:**
+    *   `5494ac9`: Refactored hardcoded world data to external `data/world.ini`.
+    *   `f1935cc`: Fixed early Pascal pointer issues in item handling.
+    *   `u_world.pas`: Implemented deterministic randomization for item placement.
+    *   `u_io.pas`: Added automatic word-wrapping for terminal output.
+
+## Phase 2: Sidecars & Python Integration (The AI Bridge)
+**Timeline:** February 26, 2026 (Evening)
+
+As the engine matured, the focus shifted towards AI-driven gameplay. The "Persistent Sidecar" architecture was born. By creating a FastAPI wrapper (`sidecar.py`), the legacy-style Pascal binary could be controlled via REST, providing a bridge for modern AI agents.
+
+*   **Key Milestones:** Introduction of `sidecar.py`, `ai_client.py` using Pydantic AI, and early experiments with local LLMs via Ollama.
+*   **Key Code Changes & Improvements:**
+    *   `scripts/sidecar.py`: Created a FastAPI wrapper that manages a long-running subprocess and handles I/O redirection.
+    *   `scripts/ai_client.py`: Initial implementation of a Pydantic AI agent with specific game-state awareness.
+    *   `scripts/client.py`: Developed a simple HTTP client to test the sidecar API independently.
+
+## Phase 3: Gameplay Mechanics & Refinement
+**Timeline:** February 26 - 27, 2026
+
+With the bridge in place, the game world became more interactive. Features like drinking from a canteen, saddling a horse, and time-of-day mechanics were added. The AI client was continuously refined to handle these new mechanics, ensuring it could navigate and survive the desert.
+
+*   **Key Milestones:** `TAKE CANTEEN`, `DRINK`, horse mechanics ("Horseplay"), and better "LOOK" functionality to help agents understand their surroundings.
+*   **Key Code Changes & Improvements:**
+    *   `1780099`: Added canteen-specific state and the `DRINK` command.
+    *   `8059886`: Implemented complex horse mechanics: `SADDLE`, `RIDE`, and horse-specific thirst.
+    *   `0cea0f5`: Enhanced the Pascal binary with command-line arguments for `--headless` mode and `--turns` limits.
+    *   `e524d3b`: Improved `LOOK` command to allow peering into adjacent rooms, crucial for AI spatial reasoning.
+
+## Phase 4: Agent Robustness & Multi-Model Support
+**Timeline:** February 27, 2026
+
+The project saw a major push for robustness. It became clear that different LLMs (from GPT-4 to smaller local models) had varying abilities to follow game logic. The introduction of "Strands" support and the Strands Agents SDK provided a more robust framework for agents to plan and execute tasks.
+
+*   **Key Milestones:** Integration of Strands SDK, improved guidance for agents, and fixes for various LLM-specific behaviors (e.g., handling unexpected output formats).
+*   **Key Code Changes & Improvements:**
+    *   `54c3c41`: Integrated Strands Agents SDK and LiteLLM for broad model support.
+    *   `283090f`: Massive update to agent guidance and error handling based on failures with local Ollama models.
+    *   `model_tester.sh`: Created a utility to benchmark different LLM models against a standard game scenario.
+    *   [AGENT-NUANCES.md](file:///home/mfranz/github/vibepascal/AGENT-NUANCES.md): Started documenting specific model quirks discovered during testing.
+
+## Phase 5: The Go Port & Modern Architecture
+**Timeline:** February 28, 2026 (Early Morning)
+
+To improve performance, terminal handling, and modernize the codebase, the entire Pascal engine was ported to Go. This "Go Port" was designed to be logic-identical to the original Pascal version but offered a cleaner foundation for future features.
+
+*   **Key Milestones:** Complete rewrite of the engine in Go (`bin/dustwood-go`), maintaining parity with all Pascal features.
+*   **Key Code Changes & Improvements:**
+    *   `src/golang/`: Re-implemented the entire game logic in Go, using structs and interfaces for better modularity.
+    *   `src/golang/persistence.go`: Ported the INI-based save/load system to Go with full compatibility.
+    *   `Makefile`: Updated to support multi-language builds (Pascal and Go).
+
+## Phase 6: MCP Maturity & Ecosystem Integration
+**Timeline:** February 28, 2026 (Mid-day)
+
+The final (and current) phase saw the Go engine evolve into a full Model Context Protocol (MCP) server. This allowed *Echoes of Dustwood* to be seamlessly integrated into modern AI tools like Claude Code, where the game engine acts as a "tool" that agents can use directly.
+
+*   **Key Milestones:** MCP Streamable HTTP server implementation, stateless JSON mode for Claude Code, and specialized MCP clients (`pydantic_mcp_client.py`, `strands_mcp_client.py`).
+*   **Key Code Changes & Improvements:**
+    *   `1d31778`: Added a full MCP server implementation to the Go engine using `mcp-golang-sdk`.
+    *   `4d334c8`: Fixed turn tracking bugs in the Go engine discovered during MCP integration.
+    *   `scripts/pydantic_mcp_client.py`: Created a next-gen AI client that uses structured tool-calls via the MCP interface.
+        * `src/golang/mcp_server.go`: Added support for stateless sessions and JSON-RPC over HTTP.
+    
+## Phase 7: Dual-Path Evolution & Advanced Survival
+**Timeline:** March 1, 2026 (Morning)
+
+As the game world expanded and models became more complex (specifically the rise of "reasoning" models like DeepSeek-R1), the project adopted a dual-client strategy. Both the **Pydantic AI** client and the **Strands** client were matured in parallel to provide maximum flexibility across different LLM ecosystems.
+
+*   **Key Milestones:** Parallel maturation of `ai_client.py` (Pydantic AI) and `strands_ai_client.py` (Strands), implementation of "Hardened Survival Logic," and the introduction of MCP Tool-Calling.
+*   **Key Code Changes & Improvements:**
+    *   **Robust Command Sanitization**: Both clients now share an advanced sanitization layer featuring `NOUN_ALIASES` (mapping "sturdy chestnut mare" to "HORSE") and `ITEM_KEYWORDS` to resolve model hallucinations during interaction.
+    *   **Hardened Survival Logic**: Integrated `_threat_override` systems to handle immediate dangers automatically (e.g., `FREEZE` when a rattlesnake is detected or strategic escapes when outlaws appear), ensuring agent longevity.
+    *   **The Strands Path (`strands_ai_client.py`)**: Developed for universal model support via **LiteLLM** and the **Strands SDK**. It features a "Reverse-Search JSON Extractor" specifically for reasoning models that output pages of `<thought>` blocks.
+    *   **The Pydantic AI Path (`ai_client.py`)**: Retained and optimized for high-performance structured output. It uses native Pydantic schema validation and retries to ensure type-safe command generation even with smaller local models.
+    *   **Augmented Reality (AR) Context**: Both clients now inject "Correction Hints" (e.g., "The item you tried to TAKE is not in this room") and strategy hints (e.g., "Your inventory is FULL") directly into the agent's perception, preventing hallucination loops.
+    *   **MCP Tool-Calling Transformation**: Developed `scripts/strands_mcp_client.py`, allowing agents to interact with the Go engine as a set of structured tools via the Model Context Protocol, moving beyond terminal text parsing to direct programmatic state interaction.
+        *   **Dynamic Loop Breakers**: Enhanced the "Frustration" mechanic across both paths to detect "stagnant state" where a model is stuck in a loop of invalid actions.
+
+## Phase 8: The MCP Structural Shift (Tools over Text)
+**Timeline:** March 1, 2026 (Mid-day)
+
+The transition to a full Model Context Protocol (MCP) architecture represents a fundamental shift in how agents interact with *Echoes of Dustwood*. By exposing the Go engine's internal state directly through a `command` tool, the brittle "screen scraping" era of agent development was replaced with structured, programmatic interaction.
+
+*   **Key Milestones:** Implementation of `src/golang/mcp_server.go`, development of the `GameSummary` state-injection layer, and the rollout of `scripts/strands_mcp_client.py`.
+*   **Interaction Simplification:**
+    *   **Elimination of Regex Hell**: Large blocks of complex regex in `ai_client.py` used to detect room names, inventory changes, and thirst levels were entirely eliminated in the MCP client.
+    *   **Direct State Injection**: The Go engine now returns a `GameSummary` JSON object (defined in `summary.go`) alongside every command response. This provides the agent with "Perfect Perception"—exact counts for thirst, score, and a canonical list of inventory items without parsing flavor text.
+    *   **Tool-Centric Reasoning**: Instead of trying to guess if a command worked, the agent now receives an `IsPlaying` flag and a `State` object. This allows the LLM to use "Tool-Calling" logic: "I will call the `command` tool with `TAKE CANTEEN` and then verify the `inventory` array in the returned state."
+*   **Code Elimination & Mapping:**
+    *   **Removed**: Hundreds of lines of manual state-tracking (room matching, item tracking, error phrase detection) were removed from the client-side logic.
+    *   **Mapped**: The `command` tool in the Go server maps directly to the `ExecuteCommand` function, which handles the I/O redirection internally. The server manages the long-running `GameState` and returns a `CommandOutput` containing both the narrative `Output` and the structured `State`.
+    *   **Stateless vs. Stateful**: The Go MCP server supports both standard stateful sessions and a "Stateless" mode (via `RunMCPHTTP`), which is crucial for modern reasoning models like Claude 3.5 Sonnet that prefer fresh context for every tool call.
+
+## Phase 9: Persistence Upgrades and Server Consolidation
+**Timeline:** March 1 - 8, 2026
+
+To provide reliable state tracking for long-running sessions, the Go engine was updated with modern database and SDK integrations, and the server was consolidated to simplify setup.
+
+*   **Key Milestones:** Embedded database integration (`bbolt`), tool registration refactoring, and SDK version updates.
+*   **Key Code Changes & Improvements:**
+    *   `27b3adc`: Integrated `bbolt` as a key-value store persistence layer for persistent server sessions.
+    *   `f6c8e19`: Implemented an automatic game state autosave mechanism.
+    *   `af5117a`: Updated the Go MCP stdio server transport to support `modelcontextprotocol/go-sdk` v1.4.0 API.
+    *   `0e1cb92`: Consolidated tool, resource, and prompt registration in the Go server into a single `createMCPServer` utility.
+    *   `e8850c6` / `4569a1d`: Attempted Gemini compatibility patches in MS Agent client before ultimately deprecating MS Agent support for Gemini.
+
+## Phase 10: Streamable HTTP and Autonomous Iteration
+**Timeline:** March 22 - 31, 2026
+
+The project transitioned toward high-performance stateless HTTP servers and refined how agents run autonomously inside their frameworks.
+
+*   **Key Milestones:** Implementation of native HTTP MCP streaming, Anthropic compatibility fixes, and wrapper scripts refactoring.
+*   **Key Code Changes & Improvements:**
+    *   `a727ef9`: Refactored `pydantic_mcp_client.py` to communicate directly with the server via the native `MCPServerStreamableHTTP` transport rather than wrapping stdio.
+    *   `467696a`: Fixed model-specific compatibility bugs for Anthropic Claude models running in Strands and Pydantic AI.
+    *   `e88c406`: Merged native capabilities updates for Pydantic AI clients.
+    *   `b3ec7f4` / `3284022`: Restructured top-level client runner scripts (`*-mcp-game.sh`) to align argument ordering and handle clean process termination.
+
+## Phase 11: Package Isolation and Multi-Framework Structure
+**Timeline:** May 25, 2026
+
+As the number of agent frameworks grew, dependency conflicts between packages became a major issue. The project underwent a massive restructuring to isolate each framework client.
+
+*   **Key Milestones:** Restructuring of the repository into isolated packages, deprecation of legacy frameworks, and the introduction of a new Google ADK client.
+*   **Key Code Changes & Improvements:**
+    *   `2dd6af0`: Restructured the monolithic `scripts/` directory into isolated packages under `packages/` (`adk`, `agno`, `pydantic`, `strands`, `ms_agent`, `shared`), each containing its own `pyproject.toml` and `uv` virtual environment.
+    *   `a3dc918`: Deprecated the Microsoft Agent (`ms_agent`) framework due to dependency resolution issues and lack of standardized observability hooks.
+    *   `8a5510c`: Created the Google ADK MCP client (`packages/adk/adk_mcp_client.py`) utilizing `google-adk[extensions,mcp]`, providing native Gemini model support and LiteLLM fallback routing.
+    *   `1cfc162`: Synced, tested, and resolved dependency overrides across all active framework packages using `uv`.
+
+## Phase 12: Telemetry Standardization and Benchmark Observability
+**Timeline:** May 25 - 26, 2026
+
+With four active frameworks playing the game over MCP, the focus shifted to benchmarking and standardized logging to evaluate cost, performance, and token efficiency.
+
+*   **Key Milestones:** Standardized telemetry hooks, a canonical schema for token metrics, and benchmark runner consolidation.
+*   **Key Code Changes & Improvements:**
+    *   `31e3b50` / `e36514e`: Established standard `provider_call` and `run_summary` schemas under `packages/shared/vibepascal_shared/llm_observability.py`.
+    *   `4278674`: Fixed a LiteLLM token extraction bug where Anthropic models returned `None` due to camelCase keys (`inputTokens` / `outputTokens`).
+    *   `3284022`: Patched a teardown bug in the Agno client where AnyIO TaskGroups would crash on session exit.
+    *   `9aa3d10` / `1e99a86`: Consolidated legacy python files and shell scripts into `junk/` to keep the root directory clean.
+    *   `2e79908`: Created [packages/IMPL.md](file:///home/mfranz/github/vibepascal/packages/IMPL.md) to document the details of each client's loop execution style and hook architecture.
+
+## Learnings & The "Broken" Path
+Building a game for AI agents revealed fundamental differences between human and machine play. Each "broken" behavior led to a more robust architecture.
+
+*   **The Inventory Loop**: High-reasoning models (GPT-4o, Claude 3.5) often got stuck in "inventory loops"—repeatedly swapping items when full.
+    *   *Solution*: Implemented an **Augmented Reality** layer that injects strategy hints (e.g., "Drop the Book") when capacity is reached.
+*   **Reasoning Interruption**: Reasoning models (like DeepSeek-R1) would output `<thought>` blocks that broke standard JSON parsers.
+    *   *Solution*: Developed a **Reverse-Search JSON Extractor** that surgically finds the final command block even if preceded by pages of "thinking."
+*   **AI Frustration**: When models got stuck in logical dead-ends, they would often loop on the same invalid command.
+    *   *Solution*: The **Frustration Mechanic**. After 3 failed attempts, the client forces a state change (like `BURN <ITEM>`) to "shake" the AI into a new branch of the game tree.
+*   **The Safety Override**: Models would often try to "TAKE" or "FIX" things while being shot at by outlaws or hissed at by snakes.
+    *   *Solution*: **Hard-coded safety overrides** that force a `WAIT` or `SHOOT` command when a threat is detected, overriding the LLM's intended move.
+*   **Spatial Blindness**: Early agents struggled to remember where they had been.
+    *   *Solution*: A **Knowledge Base** that parses game output to maintain a persistent map of cleared vs. uncleared rooms, which is then fed back into the model's prompt.
+
+---
+*The journey of Dustwood continues, bridging the gap between retro-computing and the frontier of AI.*
+
+## Related Documentation
+
+- **Overview Index:** [README.md](file:///home/mfranz/github/vibepascal/README.md)
+- **Framework Comparisons:** [AGENT-NUANCES.md](file:///home/mfranz/github/vibepascal/AGENT-NUANCES.md) — Detailed observations.
+- **Mirrored Engines Architecture:** [src/ARCHITECTURE.md](file:///home/mfranz/github/vibepascal/src/ARCHITECTURE.md) — Deep dive into the game engines.
+- **Client Implementations:** [packages/IMPL.md](file:///home/mfranz/github/vibepascal/packages/IMPL.md) — Comparative overview of each client's implementation details.
+- **Control Flows:** [packages/FLOW.md](file:///home/mfranz/github/vibepascal/packages/FLOW.md) — Comparative execution loops and boundaries.
+- **Telemetry Observability:** [packages/shared/OBSERVABILITY.md](file:///home/mfranz/github/vibepascal/packages/shared/OBSERVABILITY.md) — Hook APIs and standardized token event schemas.
