@@ -238,12 +238,13 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
         # Instantiate the model
         if "claude" in model_name.lower():
             clean_model = model_name
-            if clean_model.startswith("anthropic:"):
-                clean_model = clean_model.removeprefix("anthropic:")
+            for prefix in ["anthropic:", "anthropic/", "claude:", "claude/"]:
+                if clean_model.lower().startswith(prefix):
+                    clean_model = clean_model[len(prefix):]
             model = Claude(id=clean_model)
         elif "gemini" in model_name.lower():
             clean_model = model_name
-            for prefix in ["gemini:", "gemini/"]:
+            for prefix in ["gemini:", "gemini/", "google:", "google/"]:
                 if clean_model.lower().startswith(prefix):
                     clean_model = clean_model[len(prefix):]
             model = Gemini(id=clean_model)
@@ -258,8 +259,9 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
             )
         else:
             clean_model = model_name
-            if clean_model.startswith("openai:"):
-                clean_model = clean_model.removeprefix("openai:")
+            for prefix in ["openai:", "openai/"]:
+                if clean_model.lower().startswith(prefix):
+                    clean_model = clean_model[len(prefix):]
             model = OpenAIChat(id=clean_model)
 
         # Instantiate the agent
