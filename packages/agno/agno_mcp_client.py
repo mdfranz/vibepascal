@@ -130,6 +130,15 @@ def _format_command_result(*, structured_content: dict) -> str:
 async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns: int):
     logger.info(f"--- Agno MCP Client Starting (Model: {model_name}) ---")
 
+    run_timer = Timer.start_new()
+    token_accumulator = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "reasoning_tokens": 0,
+        "requests": 0,
+    }
+
     guidance_map = {
         "full": "data/guidance_full.txt",
         "medium": "data/guidance_medium.txt",
@@ -276,6 +285,22 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
         def _provider_post_hook(run_output) -> None:
             latency_ms = _call_timer[0].elapsed_ms() if _call_timer else None
             metrics = getattr(run_output, "metrics", None)
+
+            in_t = getattr(metrics, "input_tokens", None)
+            out_t = getattr(metrics, "output_tokens", None)
+            tot_t = getattr(metrics, "total_tokens", None)
+            reas_t = getattr(metrics, "reasoning_tokens", None)
+
+            if in_t:
+                token_accumulator["input_tokens"] += in_t
+            if out_t:
+                token_accumulator["output_tokens"] += out_t
+            if tot_t:
+                token_accumulator["total_tokens"] += tot_t
+            if reas_t:
+                token_accumulator["reasoning_tokens"] += reas_t
+            token_accumulator["requests"] += 1
+
             log_kv(
                 logger,
                 event="provider_call",
@@ -283,10 +308,11 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
                 model_provider=getattr(run_output, "model_provider", None),
                 model=getattr(run_output, "model", None),
                 latency_ms=latency_ms,
-                input_tokens=getattr(metrics, "input_tokens", None),
-                output_tokens=getattr(metrics, "output_tokens", None),
-                total_tokens=getattr(metrics, "total_tokens", None),
-                reasoning_tokens=getattr(metrics, "reasoning_tokens", None),
+                input_tokens=in_t,
+                output_tokens=out_t,
+                total_tokens=tot_t,
+                reasoning_tokens=reas_t,
+                token_scope="call_total",
                 tool_calls=(
                     len(getattr(run_output, "tools", []) or [])
                     if getattr(run_output, "tools", None) is not None
@@ -380,6 +406,22 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
                 await mcp_tools.close()
             except Exception:
                 pass
+        
+        # Log run summary
+        log_kv(
+            logger,
+            event="run_summary",
+            client="agno",
+            model=model_name,
+            latency_ms=run_timer.elapsed_ms(),
+            input_tokens=token_accumulator["input_tokens"] or None,
+            output_tokens=token_accumulator["output_tokens"] or None,
+            total_tokens=token_accumulator["total_tokens"] or None,
+            reasoning_tokens=token_accumulator["reasoning_tokens"] or None,
+            requests=token_accumulator["requests"] or None,
+            token_scope="run_total",
+            stop_reason="Agent completed." if last_state is not None and not last_state.is_playing else "Agent stopped or error.",
+        )
         # Final grace period outside context manager
         await asyncio.sleep(0.2)
 

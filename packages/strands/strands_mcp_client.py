@@ -189,6 +189,7 @@ def run_strands_agent(
         obs = event.invocation_state.setdefault("_obs", {})
         obs["invocation_start"] = time.perf_counter()
         obs["model_starts"] = []
+        obs["requests"] = 0
         log_kv(
             logger,
             event="invocation_start",
@@ -225,19 +226,24 @@ def run_strands_agent(
         output_tokens = None
         total_tokens = None
         if usage is not None:
+            def _get_val(obj, key):
+                if isinstance(obj, dict):
+                    return obj.get(key)
+                return getattr(obj, key, None)
+
             input_tokens = (
-                getattr(usage, "prompt_tokens", None)
-                or getattr(usage, "input_tokens", None)
-                or getattr(usage, "inputTokens", None)
+                _get_val(usage, "prompt_tokens")
+                or _get_val(usage, "input_tokens")
+                or _get_val(usage, "inputTokens")
             )
             output_tokens = (
-                getattr(usage, "completion_tokens", None)
-                or getattr(usage, "output_tokens", None)
-                or getattr(usage, "outputTokens", None)
+                _get_val(usage, "completion_tokens")
+                or _get_val(usage, "output_tokens")
+                or _get_val(usage, "outputTokens")
             )
             total_tokens = (
-                getattr(usage, "total_tokens", None)
-                or getattr(usage, "totalTokens", None)
+                _get_val(usage, "total_tokens")
+                or _get_val(usage, "totalTokens")
             )
 
         log_kv(
@@ -250,6 +256,7 @@ def run_strands_agent(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=total_tokens,
+            token_scope="run_total",
             usage=(
                 format_payload(usage)
                 if (usage is not None and provider_payload_logging_enabled())
@@ -267,12 +274,28 @@ def run_strands_agent(
             ),
         )
 
+        requests = obs.get("requests", 0)
+        log_kv(
+            logger,
+            event="run_summary",
+            client="strands",
+            model=model_id,
+            latency_ms=invocation_latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            requests=requests,
+            token_scope="run_total",
+            stop_reason="Agent completed.",
+        )
+
     def _before_model_call(event: BeforeModelCallEvent) -> None:
         obs = event.invocation_state.setdefault("_obs", {})
         obs.setdefault("model_starts", []).append(time.perf_counter())
 
     def _after_model_call(event: AfterModelCallEvent) -> None:
         obs = event.invocation_state.get("_obs", {})
+        obs["requests"] = obs.get("requests", 0) + 1
         starts = obs.get("model_starts") or []
         started = starts.pop() if starts else None
         latency_ms = (

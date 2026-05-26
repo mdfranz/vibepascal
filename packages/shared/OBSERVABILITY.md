@@ -95,7 +95,7 @@ Token fields in run summary:
 
 - `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens`, `requests`
 
-> Note: Pydantic AI 2.0.0b3 does not expose a `hooks` module. The iterator approach is the correct pattern for this version.
+> Note: Pydantic AI 2.0.0b3 does expose a `Hooks` class, but it is located under the capabilities module (`pydantic_ai.capabilities.hooks.Hooks`) and must be registered as a capability (`capabilities=[hooks]`) rather than imported from the top-level `pydantic_ai.hooks` namespace. The current client uses the iterator-based loop as it integrates cleanly with the step-by-step console logging flow, but the native hooks capability is fully functional.
 
 ### Strands
 
@@ -129,6 +129,16 @@ The `model_call` event logs per-call latency and `stop_reason` but does not emit
 | Pydantic AI | Iterator delta loop | `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens` | ✅ | ✅ |
 | Strands | `AfterInvocationEvent` hook | `input_tokens`, `output_tokens`, `total_tokens` | ✅ | ✅ Resolved (camelCase fallbacks added) |
 | MS Agent | ~~`LoggingChatClient` wrapper~~ | ~~blob only~~ | — | **Deprecated** |
+## Hooks Implementation Comparison
+
+The frameworks differ significantly in how they design and expose hooks for runtime observability, instrumentation, and execution interception:
+
+| Framework | Hook Architecture | Lifecycles & Events Exposed | Integration Style |
+| :--- | :--- | :--- | :--- |
+| **ADK** | Functional Callbacks | `before_agent_callback`, `after_agent_callback`, `before_model_callback`, `after_model_callback`, `before_tool_callback`, `after_tool_callback` | Registered as keyword args (callbacks) directly on the `Agent` configuration. |
+| **Agno** | Sequential Interceptors | `pre_hooks` (runs before agent execution), `post_hooks` (runs after agent execution), `tool_hooks` (runs during tool runs) | Registered as lists of callables on the `Agent`. Callables mutate context or log metrics directly. |
+| **Pydantic AI** | Capability Hooks | Run-level (`before_run`/`after_run`), Node-level (per loop-turn), Model-level (`before_model_request`/`after_model_request`), Tool-level (pre/post execute and validate), Output-level (pre/post validate) | Registered via the modular capabilities system (`capabilities=[hooks]`) using `pydantic_ai.capabilities.hooks.Hooks` decorators/kwargs. |
+| **Strands** | Event-Driven Hooks | `BeforeInvocationEvent`/`AfterInvocationEvent`, `BeforeModelCallEvent`/`AfterModelCallEvent`, `BeforeToolCallEvent`/`AfterToolCallEvent` | Event listeners attached dynamically using `agent.add_hook(callback, EventClass)`. |
 
 ## Observed Run Behaviour (claude-haiku-4-5, 25 turns)
 
@@ -157,9 +167,23 @@ This has been resolved by manually connecting the tool and calling `await mcp_to
 
 When using Anthropic models, Pydantic AI passes through all MCP tools individually (`go`, `take`, `drop`, etc.) rather than routing through the single `command` tool. This may be intentional MCP server behaviour or a schema negotiation difference. Investigate whether `MCPToolset` filters tools differently per model provider.
 
+## Telemetry Standardization Walkthrough
+
+A telemetry standardization effort has successfully aligned logging behavior across all active clients:
+
+* **Standardized `token_scope`**:
+  * ADK & Agno: Emitted on `provider_call` as `token_scope="call_total"`.
+  * Pydantic AI: Emitted on `provider_call` as `token_scope="call_delta"`.
+  * Strands: Emitted on `provider_call` as `token_scope="run_total"` (since Strands collects accumulated totals).
+* **Standardized `run_summary`**:
+  * All active clients now emit a `run_summary` event at session completion with `token_scope="run_total"`.
+  * ADK & Agno: Track token totals across step callbacks and output them in the final log.
+  * Strands: Standardized `run_summary` to include requests count and cumulative tokens.
+  * Pydantic AI: Refactored to guarantee the `run_summary` logs even if the agent is aborted by a turn-limit exception.
+* **LiteLLM Token Normalization**:
+  * Added dict-or-object key helper in Strands to correctly extract camelCase and snake_case properties from LiteLLM's `accumulated_usage` mapping, resolving a bug where token counts originally logged as `None` for Strands runs.
+
 ## Remaining Gaps
 
 - Strands does not emit per-model-call token deltas — only per-invocation accumulated totals. `AfterModelCallEvent` does not currently expose per-call usage.
 - Strands `cache_read_tokens` and `reasoning_tokens` are not extracted (not present in LiteLLM's `accumulated_usage` for any tested provider).
-- Pydantic AI `hooks` module (`pydantic_ai.hooks.Hooks`) not available in installed version 2.0.0b3; revisit on upgrade.
-- No `token_scope` field on Agno or Strands `provider_call` events.

@@ -127,8 +127,10 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
     # Start the first turn timer
     turn_timer = Timer.start_new()
     
+    agent_run = None
     try:
-        async with agent.iter(prompt, usage_limits=UsageLimits(request_limit=max_turns * 4)) as agent_run:
+        async with agent.iter(prompt, usage_limits=UsageLimits(request_limit=max_turns * 4)) as run_iter:
+            agent_run = run_iter
             async for node in agent_run:
                 # 1. Capture incremental usage and log provider call for this turn
                 current_usage = agent_run.usage
@@ -153,6 +155,7 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
                         output_tokens=delta_out,
                         total_tokens=delta_in + delta_out,
                         cache_read_tokens=delta_cache_read or None,
+                        token_scope="call_delta",
                     )
 
                     # Reset turn timer and usage trackers for the next step
@@ -225,23 +228,33 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
 
     except (UnexpectedModelBehavior, UsageLimitExceeded) as e:
         logger.info(f"[GAME ENDED] {e}")
-        return
 
     # Final summary log
-    final_usage = agent_run.result.usage
-    logger.info(f"\n[FINAL AGENT RESPONSE]\n{agent_run.result.output}")
-    log_kv(
-        logger,
-        event="run_summary",
-        client="pydantic_ai",
-        model=model_name,
-        input_tokens=final_usage.input_tokens,
-        output_tokens=final_usage.output_tokens,
-        total_tokens=final_usage.total_tokens,
-        cache_read_tokens=final_usage.cache_read_tokens or None,
-        requests=final_usage.requests,
-        token_scope="run_total",
-    )
+    if agent_run is not None:
+        try:
+            usage = agent_run.usage
+            output = ""
+            if hasattr(agent_run, "result") and agent_run.result is not None:
+                output = getattr(agent_run.result, "output", "")
+                usage = getattr(agent_run.result, "usage", usage)
+                
+            if output:
+                logger.info(f"\n[FINAL AGENT RESPONSE]\n{output}")
+            
+            log_kv(
+                logger,
+                event="run_summary",
+                client="pydantic_ai",
+                model=model_name,
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+                total_tokens=usage.total_tokens,
+                cache_read_tokens=usage.cache_read_tokens or None,
+                requests=usage.requests,
+                token_scope="run_total",
+            )
+        except Exception as ex:
+            logger.debug(f"Failed to log run summary: {ex}")
 
 
 if __name__ == "__main__":

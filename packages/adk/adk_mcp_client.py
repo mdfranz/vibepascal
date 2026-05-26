@@ -202,7 +202,7 @@ def _extract_state_and_output(response_payload: Any) -> tuple[Optional[GameState
     return state, output
 
 
-def _make_after_model_callback(resolved_model_id: str):
+def _make_after_model_callback(resolved_model_id: str, token_accumulator: dict):
     def _after_model_callback(callback_context, llm_response):
         usage = getattr(llm_response, "usage_metadata", None)
         if usage is None:
@@ -212,6 +212,17 @@ def _make_after_model_callback(resolved_model_id: str):
         total_tokens = getattr(usage, "total_token_count", None)
         thoughts_tokens = getattr(usage, "thoughts_token_count", None) or None
         cached_tokens = getattr(usage, "cached_content_token_count", None) or None
+
+        if prompt_tokens:
+            token_accumulator["input_tokens"] += prompt_tokens
+        if candidates_tokens:
+            token_accumulator["output_tokens"] += candidates_tokens
+        if total_tokens:
+            token_accumulator["total_tokens"] += total_tokens
+        if cached_tokens:
+            token_accumulator["cache_read_tokens"] += cached_tokens
+        token_accumulator["requests"] += 1
+
         log_kv(
             logger,
             event="provider_call",
@@ -222,6 +233,7 @@ def _make_after_model_callback(resolved_model_id: str):
             total_tokens=total_tokens,
             reasoning_tokens=thoughts_tokens,
             cache_read_tokens=cached_tokens,
+            token_scope="call_total",
         )
         return None
     return _after_model_callback
@@ -230,6 +242,14 @@ def _make_after_model_callback(resolved_model_id: str):
 async def run_adk_mcp_agent(level: str, model_name: str, delay: int, max_turns: int):
     model, resolved_model_id = _resolve_model(model_name)
     logger.info(f"--- ADK MCP Client Starting (Model: {resolved_model_id}) ---")
+
+    token_accumulator = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cache_read_tokens": 0,
+        "requests": 0,
+    }
 
     guidance_map = {
         "full": "data/guidance_full.txt",
@@ -255,7 +275,7 @@ async def run_adk_mcp_agent(level: str, model_name: str, delay: int, max_turns: 
     agent = Agent(
         name="dustwood_adk_agent",
         model=model,
-        after_model_callback=_make_after_model_callback(resolved_model_id),
+        after_model_callback=_make_after_model_callback(resolved_model_id, token_accumulator),
         instruction=(
             "You are an expert adventurer playing 'Echoes of Dustwood' via MCP.\n"
             "Use the `command` tool for every game interaction.\n"
@@ -385,6 +405,12 @@ async def run_adk_mcp_agent(level: str, model_name: str, delay: int, max_turns: 
         client="adk",
         model=resolved_model_id,
         latency_ms=run_timer.elapsed_ms(),
+        input_tokens=token_accumulator["input_tokens"] or None,
+        output_tokens=token_accumulator["output_tokens"] or None,
+        total_tokens=token_accumulator["total_tokens"] or None,
+        cache_read_tokens=token_accumulator["cache_read_tokens"] or None,
+        requests=token_accumulator["requests"] or None,
+        token_scope="run_total",
         stop_reason=stop_reason or "Agent completed.",
     )
     if final_text:
