@@ -107,13 +107,14 @@ Registered hooks:
 - `BeforeModelCallEvent` / `AfterModelCallEvent`
 - `BeforeToolCallEvent` / `AfterToolCallEvent`
 
-Token data is extracted in `_after_invocation` from `event.result.metrics.accumulated_usage`. Field names are resolved with LiteLLM fallbacks:
+Token data is extracted in `_after_invocation` from `event.result.metrics.accumulated_usage`. Field names vary by provider — LiteLLM normalizes differently depending on which backend is in use:
 
-| LiteLLM field | Fallback | Emitted as |
+| Provider | LiteLLM field names | Emitted as |
 | :--- | :--- | :--- |
-| `prompt_tokens` | `input_tokens` | `input_tokens` |
-| `completion_tokens` | `output_tokens` | `output_tokens` |
-| `total_tokens` | — | `total_tokens` |
+| Gemini (via LiteLLM) | `prompt_tokens`, `completion_tokens` | `input_tokens`, `output_tokens` |
+| Anthropic (via LiteLLM) | `inputTokens`, `outputTokens`, `totalTokens` (camelCase) | **currently broken** — fallbacks not implemented |
+
+> **Known bug**: Anthropic runs via Strands produce `input_tokens=None output_tokens=None` in the `provider_call` event because `accumulated_usage` uses camelCase keys (`inputTokens`/`outputTokens`) rather than the LiteLLM snake_case names the normalization code expects. The raw blob is still logged correctly. Fix: add camelCase fallbacks to the extraction in `_after_invocation`.
 
 The raw `usage` and `metrics` blobs are still logged when `LOG_PAYLOADS` is enabled.
 
@@ -121,17 +122,60 @@ The `model_call` event logs per-call latency and `stop_reason` but does not emit
 
 ## Token Telemetry Status Matrix
 
-| Framework | Hook/callback mechanism | Normalized token fields | Notes |
-| :--- | :--- | :--- | :--- |
-| ADK | `after_model_callback` | `input_tokens`, `output_tokens`, `total_tokens`, `reasoning_tokens`, `cache_read_tokens` | Per LLM call |
-| Agno | `post_hooks` | `input_tokens`, `output_tokens`, `total_tokens`, `reasoning_tokens`, `tool_calls` | Per `arun()` call |
-| Pydantic AI | Iterator delta loop | `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens` | Per step (delta) + run total |
-| Strands | `AfterInvocationEvent` hook | `input_tokens`, `output_tokens`, `total_tokens` | Per invocation (accumulated) |
-| MS Agent | ~~`LoggingChatClient` wrapper~~ | ~~blob only~~ | **Deprecated** |
+| Framework | Hook/callback mechanism | Normalized token fields | Gemini | Anthropic |
+| :--- | :--- | :--- | :--- | :--- |
+| ADK | `after_model_callback` | `input_tokens`, `output_tokens`, `total_tokens`, `reasoning_tokens`, `cache_read_tokens` | ✅ | ✅ |
+| Agno | `post_hooks` | `input_tokens`, `output_tokens`, `total_tokens`, `reasoning_tokens`, `tool_calls` | ✅ | ⚠️ crashes (TaskGroup teardown) |
+| Pydantic AI | Iterator delta loop | `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens` | ✅ | ✅ |
+| Strands | `AfterInvocationEvent` hook | `input_tokens`, `output_tokens`, `total_tokens` | ✅ | ⚠️ token fields None (camelCase bug) |
+| MS Agent | ~~`LoggingChatClient` wrapper~~ | ~~blob only~~ | — | **Deprecated** |
+
+## Observed Run Behaviour (claude-haiku-4-5, 25 turns)
+
+| Framework | Final score | Turns used | Total tokens | Outcome |
+| :--- | :--- | :--- | :--- | :--- |
+| ADK | 70 | 23 | ~260k | Completed |
+| Strands | 70 | 25 | 184,650 | Completed |
+| Pydantic AI | 65 | 24 | 193,743 | Completed |
+| Agno | ~10 | 4 | 14,613 | Crashed mid-game |
+
+Notable: Pydantic AI with Anthropic uses individual named MCP tools (`go`, `take`, `drop`) rather than the single `command` tool — Claude Haiku discovers and prefers the more specific tools the MCP server exposes.
+
+## Known Bugs / Fixes Needed
+
+### 1. Strands — camelCase token fields for Anthropic (priority: high)
+
+`accumulated_usage` from Anthropic via LiteLLM uses camelCase keys. The normalization in `_after_invocation` only checks snake_case names so all token fields log as `None`.
+
+Fix: extend the extraction in `strands_mcp_client.py`:
+```python
+input_tokens = (
+    getattr(usage, "prompt_tokens", None)
+    or getattr(usage, "input_tokens", None)
+    or getattr(usage, "inputTokens", None)   # Anthropic via LiteLLM
+)
+output_tokens = (
+    getattr(usage, "completion_tokens", None)
+    or getattr(usage, "output_tokens", None)
+    or getattr(usage, "outputTokens", None)  # Anthropic via LiteLLM
+)
+total_tokens = (
+    getattr(usage, "total_tokens", None)
+    or getattr(usage, "totalTokens", None)   # Anthropic via LiteLLM
+)
+```
+
+### 2. Agno — TaskGroup teardown crash on Anthropic (priority: medium)
+
+Agno crashes with `unhandled errors in a TaskGroup (1 sub-exception)` during async teardown when using the Anthropic provider. The agent completes several tool calls successfully then dies during MCP session cleanup. This is an upstream Agno/Anthropic async compatibility issue. No workaround implemented yet; track the Agno issue tracker.
+
+### 3. Pydantic AI — multi-tool MCP exposure (priority: low, investigate)
+
+When using Anthropic models, Pydantic AI passes through all MCP tools individually (`go`, `take`, `drop`, etc.) rather than routing through the single `command` tool. This may be intentional MCP server behaviour or a schema negotiation difference. Investigate whether `MCPToolset` filters tools differently per model provider.
 
 ## Remaining Gaps
 
 - Strands does not emit per-model-call token deltas — only per-invocation accumulated totals. `AfterModelCallEvent` does not currently expose per-call usage.
-- Strands `cache_read_tokens` and `reasoning_tokens` are not extracted (not present in LiteLLM's `accumulated_usage`).
-- Pydantic AI hooks (`pydantic_ai.hooks.Hooks`) are not yet available in the installed version (2.0.0b3); revisit when upgrading.
-- No `token_scope` field on Agno or Strands events (ADK and Pydantic AI emit it implicitly via event type).
+- Strands `cache_read_tokens` and `reasoning_tokens` are not extracted (not present in LiteLLM's `accumulated_usage` for any tested provider).
+- Pydantic AI `hooks` module (`pydantic_ai.hooks.Hooks`) not available in installed version 2.0.0b3; revisit on upgrade.
+- No `token_scope` field on Agno or Strands `provider_call` events.
