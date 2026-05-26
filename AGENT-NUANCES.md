@@ -71,3 +71,10 @@ Testing reveals a significant performance gap between interaction methods:
 | `OLLAMA_HOST` | All | Ollama server base URL (e.g. `http://127.0.0.1:11434`) |
 | `MCP_URL` | MCP Clients | Go Server endpoint (default: `http://127.0.0.1:8765/mcp`) |
 | `AI_REASONING` | Original | Toggle reasoning logs (`0`/`1`) |
+
+## Related Documentation
+
+- **Overview Index:** [README.md](file:///home/mfranz/github/vibepascal/README.md)
+- **Agent Gameplay Logic:** [AI-GAMEPLAY.md](file:///home/mfranz/github/vibepascal/AI-GAMEPLAY.md) — Mechanics of autonomous play.
+- **Performance Evaluation:** [mcp-client-analysis.md](file:///home/mfranz/github/vibepascal/mcp-client-analysis.md) — Latency, costs, and token efficiency analysis.
+- **Historical Benchmarks:** [MEMORIAL-AGENTS-2026.md](file:///home/mfranz/github/vibepascal/MEMORIAL-AGENTS-2026.md) — Compatibility and scores database.

@@ -113,6 +113,9 @@ No automated test suite currently. Manual testing via the MCP clients (see "Comm
 
 ## References
 
+- **Documentation:** See the main [README.md](file:///home/mfranz/github/vibepascal/README.md) for the project overview and index.
+- **System Architecture:** [src/ARCHITECTURE.md](file:///home/mfranz/github/vibepascal/src/ARCHITECTURE.md) — Detailed mirrored engines walkthrough.
+- **Framework Setup:** [packages/README.md](file:///home/mfranz/github/vibepascal/packages/README.md) — How virtual environments are structured.
 - **Game world:** `data/world.ini` — Edit to add/modify rooms and items
 - **MCP spec:** Game exposes `command` tool; see `src/golang/mcp_server.go` for implementation
 - **Framework docs:**

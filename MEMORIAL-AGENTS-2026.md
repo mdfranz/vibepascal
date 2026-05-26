@@ -275,3 +275,10 @@ These are the verified python packages installed in the virtual environment as o
 *   `strands-agents` = `1.41.0`
 *   `agent-framework` = `1.6.0`
 *   `litellm` = `1.87.0rc1`
+
+## Related Documentation
+
+- **Overview Index:** [README.md](file:///home/mfranz/github/vibepascal/README.md)
+- **Client Performance Analysis:** [mcp-client-analysis.md](file:///home/mfranz/github/vibepascal/mcp-client-analysis.md) — Detailed latency, costs, and token efficiency evaluation.
+- **Framework Comparisons:** [AGENT-NUANCES.md](file:///home/mfranz/github/vibepascal/AGENT-NUANCES.md) — Decision matrix and framework details.
+- **Agent Gameplay Logic:** [AI-GAMEPLAY.md](file:///home/mfranz/github/vibepascal/AI-GAMEPLAY.md) — Mechanics of autonomous play.

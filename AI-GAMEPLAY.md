@@ -141,3 +141,11 @@ By using `pydantic-ai`, the system is model-agnostic. It supports:
 | `GAME_SEED` | Integer seed for reproducible game runs | (random) |
 
 Note: `OLLAMA_BASE_URL` / `OLLAMA_API_BASE` are set programmatically; users only set `OLLAMA_HOST`.
+
+## Related Documentation
+
+- **Overview Index:** [README.md](file:///home/mfranz/github/vibepascal/README.md)
+- **Framework Comparisons:** [AGENT-NUANCES.md](file:///home/mfranz/github/vibepascal/AGENT-NUANCES.md) — Decision matrix and framework nuances.
+- **Performance Evaluation:** [mcp-client-analysis.md](file:///home/mfranz/github/vibepascal/mcp-client-analysis.md) — Latency, costs, and token efficiency analysis.
+- **Detailed Execution Flow:** [packages/FLOW.md](file:///home/mfranz/github/vibepascal/packages/FLOW.md) — Comparative logic control flows.
+- **Observability Configuration:** [packages/shared/OBSERVABILITY.md](file:///home/mfranz/github/vibepascal/packages/shared/OBSERVABILITY.md) — Telemetry logging setup.

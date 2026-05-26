@@ -89,3 +89,10 @@ To compare the frameworks under tight turn constraints, we ran a 10-turn session
 - **Pydantic (MCP)** and **MS Agent (MCP)** both reached the turn limit successfully, executing strategic exploration paths.
 - **Strands (MCP)** struggled with reactive recovery after dying to the rattlesnake on the first attempt, highlighting the challenge of one-shot generation when dealing with hostile interactive hazards.
 
+## Related Documentation
+
+- **Overview Index:** [README.md](file:///home/mfranz/github/vibepascal/README.md)
+- **Framework Comparisons:** [AGENT-NUANCES.md](file:///home/mfranz/github/vibepascal/AGENT-NUANCES.md) — Decision matrix and framework nuances.
+- **Agent Compatibility Memorial:** [MEMORIAL-AGENTS-2026.md](file:///home/mfranz/github/vibepascal/MEMORIAL-AGENTS-2026.md) — Detailed compatibility matrix and scores database.
+- **Agent Gameplay Logic:** [AI-GAMEPLAY.md](file:///home/mfranz/github/vibepascal/AI-GAMEPLAY.md) — Mechanics of autonomous play.
+

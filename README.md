@@ -26,6 +26,27 @@ A small Free Pascal text adventure. You explore a deserted frontier town in 1884
 
 The game features automatic word-wrapping for long descriptions and a custom input handler with command history and `Control-D` exit support.
 
+## Documentation Index
+
+Explore the detailed documentation for different areas of this project:
+
+- **Core & Engines:**
+  - [src/ARCHITECTURE.md](file:///home/mfranz/github/vibepascal/src/ARCHITECTURE.md) — Deep dive into the logic parity, dual Free Pascal and Go mirror-engine architecture.
+  - [CLAUDE.md](file:///home/mfranz/github/vibepascal/CLAUDE.md) — Reference guide for Claude Code command usage, testing, and debugging.
+  - [PKG.md](file:///home/mfranz/github/vibepascal/PKG.md) — System-wide dependency catalog and versioning strategy for Python and Go.
+- **AI Agent Frameworks & Clients:**
+  - [packages/README.md](file:///home/mfranz/github/vibepascal/packages/README.md) — Setup, dependency isolation, and configuration instructions for framework virtual environments.
+  - [packages/IMPL.md](file:///home/mfranz/github/vibepascal/packages/IMPL.md) — Comparative implementation analysis of the Pydantic AI, Agno, Strands, ADK, and MS Agent clients.
+  - [packages/FLOW.md](file:///home/mfranz/github/vibepascal/packages/FLOW.md) — Detailed comparison of control loops, execution flows, and logic boundaries across active clients.
+  - [packages/shared/OBSERVABILITY.md](file:///home/mfranz/github/vibepascal/packages/shared/OBSERVABILITY.md) — Logging conventions, hook architectures, and token metric schemas for telemetry standardization.
+- **AI Gameplay, Benchmarks, and Evaluation:**
+  - [AI-GAMEPLAY.md](file:///home/mfranz/github/vibepascal/AI-GAMEPLAY.md) — Mechanics of autonomous play: stdio vs MCP interaction, prompt formatting, loop detection, and override safety.
+  - [AGENT-NUANCES.md](file:///home/mfranz/github/vibepascal/AGENT-NUANCES.md) — Decision matrix and detailed observations of framework behaviors and model compatibility issues.
+  - [mcp-client-analysis.md](file:///home/mfranz/github/vibepascal/mcp-client-analysis.md) — Framework and model token efficiency, cost metrics, and performance evaluation summaries.
+  - [MEMORIAL-AGENTS-2026.md](file:///home/mfranz/github/vibepascal/MEMORIAL-AGENTS-2026.md) — Historical performance records, heatmaps, and variance reports for 10-turn benchmark runs (May 2026).
+- **History & Narrative:**
+  - [STORY.md](file:///home/mfranz/github/vibepascal/STORY.md) — Chronological storytelling of the project's rapid multi-engine and agentic evolution.
+
 ## Architecture
 
 Echoes of Dustwood uses a **Persistent Sidecar** architecture to bridge a legacy-style CLI game with modern AI agents and REST interfaces. The game engine is available in two implementations:
@@ -72,7 +93,7 @@ Echoes of Dustwood uses a **Persistent Sidecar** architecture to bridge a legacy
 │   ├── golang/         # Go source code (MCP server implementation)
 │   └── pascal/         # Modular Free Pascal source code
 ├── *.sh                # Root-level orchestrator scripts (wrappers for each framework)
-└── CLAUDE.md           # (optional) Codebase documentation for Claude Code
+└── [CLAUDE.md](file:///home/mfranz/github/vibepascal/CLAUDE.md)           # (optional) Codebase documentation for Claude Code
 ```
 
 ## Pascal Source Reference

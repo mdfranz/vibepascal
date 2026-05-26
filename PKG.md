@@ -106,3 +106,9 @@ The Go implementation provides:
 - **Google ADK:** Pinned to `2.0.0` (breaking changes expected in future)
 - **Python:** Requires `>=3.12` across all packages
 - **Go:** Go 1.24.0
+
+## Related Documentation
+
+- **Overview Index:** [README.md](file:///home/mfranz/github/vibepascal/README.md)
+- **Framework Packages Setup:** [packages/README.md](file:///home/mfranz/github/vibepascal/packages/README.md) — How isolated framework virtual environments are structured.
+- **Client Implementation Details:** [packages/IMPL.md](file:///home/mfranz/github/vibepascal/packages/IMPL.md) — Comparative overview of each client's dependencies and logic.

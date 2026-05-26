@@ -1,6 +1,6 @@
 # Execution Flow and Logic in MCP Clients
 
-This document complements `OBSERVABILITY.md` by focusing on **execution flow and decision logic** across the active MCP clients in `packages/`.
+This document complements [OBSERVABILITY.md](file:///home/mfranz/github/vibepascal/packages/shared/OBSERVABILITY.md) by focusing on **execution flow and decision logic** across the active MCP clients in `packages/`.
 It describes where control decisions are made (loop, tool boundary, or hooks), where state is updated, and where termination is enforced.
 
 ## High-Level Architectural Summary
@@ -26,7 +26,7 @@ This analysis compares how each active client:
 - Updates state and history
 - Terminates execution
 
-This document is intentionally about **control flow and logic boundaries**, not telemetry schema design (see `OBSERVABILITY.md`).
+This document is intentionally about **control flow and logic boundaries**, not telemetry schema design (see [OBSERVABILITY.md](file:///home/mfranz/github/vibepascal/packages/shared/OBSERVABILITY.md)).
 
 ## Cross-Client Flow Matrix
 
@@ -297,3 +297,10 @@ Risk points to monitor in future analysis:
 - Hook/tool-boundary rewrites can be harder to reason about than explicit loop transforms.
 - Prompt/history window differences can change command quality independently of policy.
 - ADK and Pydantic AI have no loop-break protection — a model stuck in a repetitive pattern relies solely on `RunConfig`/`UsageLimits` to terminate.
+
+## Related Documentation
+
+- **Framework Setup & Overview:** [packages/README.md](file:///home/mfranz/github/vibepascal/packages/README.md)
+- **Client Implementations:** [packages/IMPL.md](file:///home/mfranz/github/vibepascal/packages/IMPL.md) — How each client functions.
+- **Observability Configuration:** [packages/shared/OBSERVABILITY.md](file:///home/mfranz/github/vibepascal/packages/shared/OBSERVABILITY.md) — Telemetry logging setup.
+- **Main Overview Index:** [README.md](file:///home/mfranz/github/vibepascal/README.md)

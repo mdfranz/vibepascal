@@ -195,3 +195,10 @@ A telemetry standardization effort has successfully aligned logging behavior acr
 
 - Strands does not emit per-model-call token deltas — only per-invocation accumulated totals. `AfterModelCallEvent` does not currently expose per-call usage.
 - Strands `cache_read_tokens` and `reasoning_tokens` are not extracted (not present in LiteLLM's `accumulated_usage` for any tested provider).
+
+## Related Documentation
+
+- **Framework Setup & Overview:** [packages/README.md](file:///home/mfranz/github/vibepascal/packages/README.md)
+- **Detailed Control Flow:** [packages/FLOW.md](file:///home/mfranz/github/vibepascal/packages/FLOW.md) — Comparison of execution loops and logical boundaries.
+- **Client Implementations:** [packages/IMPL.md](file:///home/mfranz/github/vibepascal/packages/IMPL.md) — How each client functions.
+- **Main Overview Index:** [README.md](file:///home/mfranz/github/vibepascal/README.md)

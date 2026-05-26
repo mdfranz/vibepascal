@@ -2,6 +2,11 @@
 
 Each AI framework package has isolated dependencies and its own virtual environment. This allows testing frameworks with incompatible library versions side-by-side.
 
+For deep dives into individual clients, execution flows, and telemetry schemas, see:
+- [packages/IMPL.md](file:///home/mfranz/github/vibepascal/packages/IMPL.md) — Implementation breakdown of each client.
+- [packages/FLOW.md](file:///home/mfranz/github/vibepascal/packages/FLOW.md) — Control loop and logical boundary comparisons.
+- [packages/shared/OBSERVABILITY.md](file:///home/mfranz/github/vibepascal/packages/shared/OBSERVABILITY.md) — Hook APIs and standardized token event schemas.
+
 ## Structure
 
 ```
@@ -116,3 +121,11 @@ Run all 5 frameworks against a single model:
 ```
 
 This script invokes each `*-mcp-game.sh` sequentially and compares performance.
+
+## Related Documentation
+
+- **Overview Index:** [README.md](file:///home/mfranz/github/vibepascal/README.md)
+- **Client Implementations:** [packages/IMPL.md](file:///home/mfranz/github/vibepascal/packages/IMPL.md)
+- **Control Flows:** [packages/FLOW.md](file:///home/mfranz/github/vibepascal/packages/FLOW.md)
+- **Observability Setup:** [packages/shared/OBSERVABILITY.md](file:///home/mfranz/github/vibepascal/packages/shared/OBSERVABILITY.md)
+- **Dependency Rationale:** [PKG.md](file:///home/mfranz/github/vibepascal/PKG.md) — Detailed rationale for system dependencies.

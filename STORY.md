@@ -49,7 +49,7 @@ The project saw a major push for robustness. It became clear that different LLMs
     *   `54c3c41`: Integrated Strands Agents SDK and LiteLLM for broad model support.
     *   `283090f`: Massive update to agent guidance and error handling based on failures with local Ollama models.
     *   `model_tester.sh`: Created a utility to benchmark different LLM models against a standard game scenario.
-    *   `AGENT-NUANCES.md`: Started documenting specific model quirks discovered during testing.
+    *   [AGENT-NUANCES.md](file:///home/mfranz/github/vibepascal/AGENT-NUANCES.md): Started documenting specific model quirks discovered during testing.
 
 ## Phase 5: The Go Port & Modern Architecture
 **Timeline:** February 28, 2026 (Early Morning)
@@ -121,3 +121,9 @@ The final (and current) phase saw the Go engine evolve into a full Model Context
 
 ---
 *The journey of Dustwood continues, bridging the gap between retro-computing and the frontier of AI.*
+
+## Related Documentation
+
+- **Overview Index:** [README.md](file:///home/mfranz/github/vibepascal/README.md)
+- **Framework Comparisons:** [AGENT-NUANCES.md](file:///home/mfranz/github/vibepascal/AGENT-NUANCES.md) — Detailed observations.
+- **Mirrored Engines Architecture:** [src/ARCHITECTURE.md](file:///home/mfranz/github/vibepascal/src/ARCHITECTURE.md) — Deep dive into the game engines.

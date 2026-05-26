@@ -304,3 +304,10 @@ flowchart TD
     L --> M
     M([Rewritten command])
 ```
+
+## Related Documentation
+
+- **Framework Setup & Overview:** [packages/README.md](file:///home/mfranz/github/vibepascal/packages/README.md)
+- **Detailed Control Flow:** [packages/FLOW.md](file:///home/mfranz/github/vibepascal/packages/FLOW.md) — Comparison of execution loops and logical boundaries.
+- **Observability Configuration:** [packages/shared/OBSERVABILITY.md](file:///home/mfranz/github/vibepascal/packages/shared/OBSERVABILITY.md) — Telemetry logging setup.
+- **Main Overview Index:** [README.md](file:///home/mfranz/github/vibepascal/README.md)
