@@ -26,6 +26,13 @@ This document commemorates the behavior and compatibility of the Python agent fr
 
 *Note: Microsoft Agent Framework was not included in this benchmark run suite.*
 
+### 2.1 Multi-Axis Framework Comparison & Reliability
+Below is the normalized multi-axis profile of the frameworks, followed by the run reliability matrix.
+
+![Framework Profile: Normalized Multi-Axis Comparison](charts/radar_framework_profile.png)
+
+![Reliability: Successful Completions / Total Attempts](charts/reliability_matrix.png)
+
 ---
 
 ## 3. Run Results
@@ -59,15 +66,31 @@ This document commemorates the behavior and compatibility of the Python agent fr
 *   **Claude Haiku 4.5** runs peaked at **60 points** (Strands) and **57 points** (ADK) when they avoided outlaws and managed their inventory space.
 *   **GPT-5-mini** was severely held back by random blockades (double hazard at stables in Agno's run) and navigation loops, peaking at **45 points** (Agno).
 
+![Game Score by Framework & Model (Best Run)](charts/score_by_framework_model.png)
+
+![Score Distribution: All Runs per Framework](charts/all_runs_boxplot.png)
+
+![Framework Sensitivity: Score Variance by Model](charts/framework_sensitivity.png)
+
 ### 4.2 Latency: Who is Fastest?
 *   **Claude Haiku 4.5** remains the speed champion, with per-turn latencies ranging from **1.9s to 3.2s**.
 *   **Gemini 3.5 Flash** is highly competitive, running at **2.0s to 4.3s** per turn.
 *   **GPT-5-mini** is the slowest, averaging **2.9s to 6.7s** per turn.
 
+![Wall Time (seconds) — 10-Turn Game Session](charts/latency_heatmap.png)
+
+![Per-Turn Latency by Model & Framework](charts/per_turn_latency.png)
+
 ### 4.3 Token Efficiency & Context Management
 *   **Agno** is the most token-efficient framework, consuming only **31k–43k input tokens** total for 15 turns due to its sliding-window history loop.
 *   **Strands AI** and **Pydantic AI** consume **80k–109k input tokens** due to quadratic growth from preserving raw JSON payload history.
 *   **Reasoning Cost**: Running `gpt-5-mini` under Agno resulted in `5,168` output tokens (of which `4,992` were reasoning tokens), compared to only `40` output tokens for `gemini-3.5-flash` under Agno.
+
+![Token Usage by Model & Framework (10-Turn Session)](charts/token_usage.png)
+
+![Score Efficiency: Points Earned per 1,000 Tokens](charts/score_efficiency.png)
+
+![Efficiency: Score vs Latency (bubble size = token cost)](charts/efficiency_scatter.png)
 
 ---
 
@@ -116,6 +139,8 @@ This document commemorates the behavior and compatibility of the Python agent fr
 | **Fastest Gameplay** | Strands + `claude-haiku-4-5` (~28s) |
 | **Cheapest Tokens** | Agno + any model (keeps context history minimal) |
 | **Avoid** | Wasting inventory space (remember to `DROP BOOK` to make room for essential items) |
+
+![Cost-Normalized Ranking: Bang for Your Buck](charts/cost_normalized_ranking.png)
 
 ---
 
