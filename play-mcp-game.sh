@@ -73,19 +73,19 @@ fi
 
 echo ""
 echo "--- Running Client 1: Pydantic AI (MCP) ---"
-./pydantic-mcp-game.sh "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
+./pydantic-mcp-game.sh "$MODEL" "$LEVEL" "$DELAY" "$MAX_TURNS"
 
 echo ""
 echo "--- Running Client 2: Agno (MCP) ---"
-./agno-mcp-game.sh "$LEVEL" "$AGNO_MODEL" "$DELAY" "$MAX_TURNS"
+./agno-mcp-game.sh "$AGNO_MODEL" "$LEVEL" "$DELAY" "$MAX_TURNS"
 
 echo ""
 echo "--- Running Client 3: Strands AI (MCP) ---"
-./strands-mcp-game.sh "$LEVEL" "$STRANDS_MODEL" "$DELAY" "$MAX_TURNS"
+./strands-mcp-game.sh "$STRANDS_MODEL" "$LEVEL" "$DELAY" "$MAX_TURNS"
 
 echo ""
 echo "--- Running Client 4: ADK (MCP) ---"
-./adk-mcp-game.sh "$LEVEL" "$ADK_MODEL" "$DELAY" "$MAX_TURNS"
+./adk-mcp-game.sh "$ADK_MODEL" "$LEVEL" "$DELAY" "$MAX_TURNS"
 
 echo ""
 echo "================================================================"

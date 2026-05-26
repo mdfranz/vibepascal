@@ -20,21 +20,21 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo "Note: This script requires the Go MCP server to be running."
     echo "      You can start it with: ./bin/dustwood --mcp"
     echo ""
-    echo "Usage: ./pydantic-mcp-game.sh [difficulty] [model] [delay] [max_turns]"
+    echo "Usage: ./pydantic-mcp-game.sh [model] [difficulty] [delay] [max_turns]"
     echo ""
     echo "Arguments:"
-    echo "  difficulty    full, medium, minimal (default: full)"
     echo "  model         Pydantic AI model name (default: google-gla:gemini-3-flash-preview)"
+    echo "  difficulty    full, medium, minimal (default: full)"
     echo "  delay         Seconds to wait between turns (default: 1)"
     echo "  max_turns     Maximum turns before stopping (default: 25)"
     echo ""
     echo "Examples:"
-    echo "  ./pydantic-mcp-game.sh full google-gla:gemini-3-flash-preview 1 25"
+    echo "  ./pydantic-mcp-game.sh google-gla:gemini-3-flash-preview full 1 25"
     exit 0
 fi
 
-LEVEL=${1:-full}
-MODEL=${2:-google-gla:gemini-3-flash-preview}
+MODEL=${1:-google-gla:gemini-3-flash-preview}
+LEVEL=${2:-full}
 DELAY=${3:-1}
 MAX_TURNS=${4:-25}
 

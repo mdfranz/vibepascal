@@ -148,221 +148,223 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
     llm_calls = 0
     history: list[str] = []
 
+    mcp_tools = None
     try:
         # Agno MCP integration
-        async with MCPTools(url=MCP_URL, transport=MCP_TRANSPORT) as mcp_tools:
-            last_state: Optional[GameSummary] = None
-            last_output_text: str = ""
+        mcp_tools = MCPTools(url=MCP_URL, transport=MCP_TRANSPORT)
+        await mcp_tools.__aenter__()
+        last_state: Optional[GameSummary] = None
+        last_output_text: str = ""
 
-            async def command(command: str, reset: bool = False) -> str:
-                """Send a game command via MCP and return narrative output plus a structured state summary."""
-                nonlocal last_state
-                nonlocal last_output_text
-                logger.info(f"Agent executing command: {command}")
-                if game_console_enabled():
-                    print_game(f"\n> {command}")
+        async def command(command: str, reset: bool = False) -> str:
+            """Send a game command via MCP and return narrative output plus a structured state summary."""
+            nonlocal last_state
+            nonlocal last_output_text
+            logger.info(f"Agent executing command: {command}")
+            if game_console_enabled():
+                print_game(f"\n> {command}")
 
-                if global_delay > 0 and not reset:
-                    await asyncio.sleep(global_delay)
+            if global_delay > 0 and not reset:
+                await asyncio.sleep(global_delay)
 
-                tool_timer = Timer.start_new()
-                tool_args = {"command": command, "reset": reset}
-                try:
-                    result = await mcp_tools.session.call_tool(  # type: ignore[union-attr]
-                        "command",
-                        tool_args,
-                    )
-                    log_kv(
-                        logger,
-                        event="tool_call",
-                        client="agno",
-                        tool_name="mcp.command",
-                        latency_ms=tool_timer.elapsed_ms(),
-                        args=(
-                            format_payload(tool_args)
-                            if provider_payload_logging_enabled()
-                            else None
-                        ),
-                        result=(
-                            format_payload(
-                                getattr(result, "structuredContent", None)
-                                or getattr(result, "content", None)
-                            )
-                            if provider_payload_logging_enabled()
-                            else None
-                        ),
-                        is_error=getattr(result, "isError", None),
-                    )
-                except Exception as e:
-                    log_kv(
-                        logger,
-                        level="error",
-                        event="tool_call",
-                        client="agno",
-                        tool_name="mcp.command",
-                        latency_ms=tool_timer.elapsed_ms(),
-                        args=(
-                            format_payload(tool_args)
-                            if provider_payload_logging_enabled()
-                            else None
-                        ),
-                        error=str(e),
-                    )
-                    raise
-
-                if result.isError:
-                    raise RuntimeError("MCP tool 'command' returned an error.")
-
-                if result.structuredContent:
-                    parsed = CommandOutput(**result.structuredContent)
-                    last_state = parsed.state
-                    last_output_text = parsed.output
-                    return _format_command_result(
-                        structured_content=result.structuredContent
-                    )
-
-                text_parts = [getattr(c, "text", "") for c in (result.content or [])]
-                last_output_text = next((t for t in text_parts if t), "No output")
-                return last_output_text
-
-            # Initial look + reset
-            initial_summary = await command("LOOK", reset=True)
-            logger.info(f"\n[STARTING GAME]\n{initial_summary}")
-            if last_state is not None:
-                policy.observe(
-                    command="LOOK", state=last_state, output_text=last_output_text
+            tool_timer = Timer.start_new()
+            tool_args = {"command": command, "reset": reset}
+            try:
+                result = await mcp_tools.session.call_tool(  # type: ignore[union-attr]
+                    "command",
+                    tool_args,
                 )
-
-            # Instantiate the model
-            if "claude" in model_name.lower():
-                clean_model = model_name
-                if clean_model.startswith("anthropic:"):
-                    clean_model = clean_model.removeprefix("anthropic:")
-                model = Claude(id=clean_model)
-            elif "gemini" in model_name.lower():
-                clean_model = model_name
-                for prefix in ["gemini:", "gemini/"]:
-                    if clean_model.lower().startswith(prefix):
-                        clean_model = clean_model[len(prefix):]
-                model = Gemini(id=clean_model)
-            elif "ollama" in model_name.lower():
-                clean_model = model_name
-                for prefix in ["ollama:", "ollama/"]:
-                    if clean_model.lower().startswith(prefix):
-                        clean_model = clean_model[len(prefix) :]
-                model = Ollama(
-                    id=clean_model,
-                    host=os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
-                )
-            else:
-                clean_model = model_name
-                if clean_model.startswith("openai:"):
-                    clean_model = clean_model.removeprefix("openai:")
-                model = OpenAIChat(id=clean_model)
-
-            # Instantiate the agent
-            guidance_block = (
-                f"\n\nGUIDANCE (follow this):\n{guidance_cfg.text}"
-                if guidance_cfg.text
-                else ""
-            )
-
-            _call_timer: list[Timer] = []
-
-            def _provider_post_hook(run_output) -> None:
-                latency_ms = _call_timer[0].elapsed_ms() if _call_timer else None
-                metrics = getattr(run_output, "metrics", None)
                 log_kv(
                     logger,
-                    event="provider_call",
+                    event="tool_call",
                     client="agno",
-                    model_provider=getattr(run_output, "model_provider", None),
-                    model=getattr(run_output, "model", None),
-                    latency_ms=latency_ms,
-                    input_tokens=getattr(metrics, "input_tokens", None),
-                    output_tokens=getattr(metrics, "output_tokens", None),
-                    total_tokens=getattr(metrics, "total_tokens", None),
-                    reasoning_tokens=getattr(metrics, "reasoning_tokens", None),
-                    tool_calls=(
-                        len(getattr(run_output, "tools", []) or [])
-                        if getattr(run_output, "tools", None) is not None
+                    tool_name="mcp.command",
+                    latency_ms=tool_timer.elapsed_ms(),
+                    args=(
+                        format_payload(tool_args)
+                        if provider_payload_logging_enabled()
                         else None
                     ),
+                    result=(
+                        format_payload(
+                            getattr(result, "structuredContent", None)
+                            or getattr(result, "content", None)
+                        )
+                        if provider_payload_logging_enabled()
+                        else None
+                    ),
+                    is_error=getattr(result, "isError", None),
+                )
+            except Exception as e:
+                log_kv(
+                    logger,
+                    level="error",
+                    event="tool_call",
+                    client="agno",
+                    tool_name="mcp.command",
+                    latency_ms=tool_timer.elapsed_ms(),
+                    args=(
+                        format_payload(tool_args)
+                        if provider_payload_logging_enabled()
+                        else None
+                    ),
+                    error=str(e),
+                )
+                raise
+
+            if result.isError:
+                raise RuntimeError("MCP tool 'command' returned an error.")
+
+            if result.structuredContent:
+                parsed = CommandOutput(**result.structuredContent)
+                last_state = parsed.state
+                last_output_text = parsed.output
+                return _format_command_result(
+                    structured_content=result.structuredContent
                 )
 
-            agent = Agent(
-                model=model,
-                name="DustwoodAgnoMCPAdventurer",
-                description=(
-                    "You are an expert adventurer playing 'Echoes of Dustwood' via an MCP interface.\n"
-                    "You must choose the next game command to execute.\n"
-                    "Only output a single game command per step (one line, no extra text).\n"
-                    "Prefer standard parser commands like LOOK, INVENTORY, N/S/E/W, TAKE <item>, USE <item>.\n"
-                    "Your goal is to survive, explore, and increase your score."
-                    f"{guidance_block}"
-                ),
-                markdown=True,
-                post_hooks=[_provider_post_hook],
+            text_parts = [getattr(c, "text", "") for c in (result.content or [])]
+            last_output_text = next((t for t in text_parts if t), "No output")
+            return last_output_text
+
+        # Initial look + reset
+        initial_summary = await command("LOOK", reset=True)
+        logger.info(f"\n[STARTING GAME]\n{initial_summary}")
+        if last_state is not None:
+            policy.observe(
+                command="LOOK", state=last_state, output_text=last_output_text
             )
 
-            # Bounded interaction loop
-            current_summary = initial_summary
-            while (
-                last_state is not None
-                and last_state.is_playing
-                and last_state.turns < max_turns
-                and llm_calls < max_llm_calls
-            ):
-                remaining_turns = max(
-                    0, max_turns - (last_state.turns if last_state is not None else 0)
-                )
-                if last_state is not None and not last_state.is_playing:
-                    logger.info("\n[GAME OVER]")
-                    break
+        # Instantiate the model
+        if "claude" in model_name.lower():
+            clean_model = model_name
+            if clean_model.startswith("anthropic:"):
+                clean_model = clean_model.removeprefix("anthropic:")
+            model = Claude(id=clean_model)
+        elif "gemini" in model_name.lower():
+            clean_model = model_name
+            for prefix in ["gemini:", "gemini/"]:
+                if clean_model.lower().startswith(prefix):
+                    clean_model = clean_model[len(prefix):]
+            model = Gemini(id=clean_model)
+        elif "ollama" in model_name.lower():
+            clean_model = model_name
+            for prefix in ["ollama:", "ollama/"]:
+                if clean_model.lower().startswith(prefix):
+                    clean_model = clean_model[len(prefix) :]
+            model = Ollama(
+                id=clean_model,
+                host=os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
+            )
+        else:
+            clean_model = model_name
+            if clean_model.startswith("openai:"):
+                clean_model = clean_model.removeprefix("openai:")
+            model = OpenAIChat(id=clean_model)
 
-                recent_history = (
-                    "\n".join(history[-policy.history_limit :]) if history else "(none)"
-                )
-                prompt = (
-                    f"RECENT HISTORY (most recent last):\n{recent_history}\n\n"
-                    f"CURRENT STATE:\n{current_summary}\n\n"
-                    f"Remaining game turns: {remaining_turns}\n"
-                    f"Output exactly one next game command (one line).\n"
-                    f"Rules: LOOK does not consume a game turn; do not repeat LOOK if turns did not change. "
-                    f"Exits may not be listed; try NORTH/EAST/SOUTH/WEST to explore when unsure."
-                )
-                _call_timer.clear()
-                _call_timer.append(Timer.start_new())
-                run_output = await agent.arun(prompt)
-                llm_calls += 1
-                raw_cmd = (run_output.content or "").strip()
-                if raw_cmd.startswith("```"):
-                    lines = raw_cmd.splitlines()
-                    inner = [l for l in lines[1:] if l.strip() != "```"]
-                    raw_cmd = "\n".join(inner).strip()
-                raw_cmd = raw_cmd.splitlines()[0].strip().strip("`").strip()
-                raw_cmd = sanitize_command(raw_cmd)
-                next_cmd = policy.rewrite(
-                    proposed_command=raw_cmd,
-                    state=last_state,
-                    max_turns=max_turns,
-                )
-                if not next_cmd:
-                    raise RuntimeError("Agent produced an empty command.")
+        # Instantiate the agent
+        guidance_block = (
+            f"\n\nGUIDANCE (follow this):\n{guidance_cfg.text}"
+            if guidance_cfg.text
+            else ""
+        )
 
-                current_summary = await command(next_cmd)
-                if last_state is not None:
-                    policy.observe(
-                        command=next_cmd, state=last_state, output_text=last_output_text
-                    )
-                    history.append(
-                        f"t={last_state.turns} cmd={next_cmd} room={last_state.room_name} score={last_state.score} thirst={last_state.thirst}\n"
-                        f"{_trim_output(last_output_text, max_chars=500)}"
-                    )
-                    if len(history) > policy.history_limit:
-                        history = history[-policy.history_limit :]
+        _call_timer: list[Timer] = []
 
-            logger.info(f"\n[FINAL STATE]\n{current_summary}")
+        def _provider_post_hook(run_output) -> None:
+            latency_ms = _call_timer[0].elapsed_ms() if _call_timer else None
+            metrics = getattr(run_output, "metrics", None)
+            log_kv(
+                logger,
+                event="provider_call",
+                client="agno",
+                model_provider=getattr(run_output, "model_provider", None),
+                model=getattr(run_output, "model", None),
+                latency_ms=latency_ms,
+                input_tokens=getattr(metrics, "input_tokens", None),
+                output_tokens=getattr(metrics, "output_tokens", None),
+                total_tokens=getattr(metrics, "total_tokens", None),
+                reasoning_tokens=getattr(metrics, "reasoning_tokens", None),
+                tool_calls=(
+                    len(getattr(run_output, "tools", []) or [])
+                    if getattr(run_output, "tools", None) is not None
+                    else None
+                ),
+            )
+
+        agent = Agent(
+            model=model,
+            name="DustwoodAgnoMCPAdventurer",
+            description=(
+                "You are an expert adventurer playing 'Echoes of Dustwood' via an MCP interface.\n"
+                "You must choose the next game command to execute.\n"
+                "Only output a single game command per step (one line, no extra text).\n"
+                "Prefer standard parser commands like LOOK, INVENTORY, N/S/E/W, TAKE <item>, USE <item>.\n"
+                "Your goal is to survive, explore, and increase your score."
+                f"{guidance_block}"
+            ),
+            markdown=True,
+            post_hooks=[_provider_post_hook],
+        )
+
+        # Bounded interaction loop
+        current_summary = initial_summary
+        while (
+            last_state is not None
+            and last_state.is_playing
+            and last_state.turns < max_turns
+            and llm_calls < max_llm_calls
+        ):
+            remaining_turns = max(
+                0, max_turns - (last_state.turns if last_state is not None else 0)
+            )
+            if last_state is not None and not last_state.is_playing:
+                logger.info("\n[GAME OVER]")
+                break
+
+            recent_history = (
+                "\n".join(history[-policy.history_limit :]) if history else "(none)"
+            )
+            prompt = (
+                f"RECENT HISTORY (most recent last):\n{recent_history}\n\n"
+                f"CURRENT STATE:\n{current_summary}\n\n"
+                f"Remaining game turns: {remaining_turns}\n"
+                f"Output exactly one next game command (one line).\n"
+                f"Rules: LOOK does not consume a game turn; do not repeat LOOK if turns did not change. "
+                f"Exits may not be listed; try NORTH/EAST/SOUTH/WEST to explore when unsure."
+            )
+            _call_timer.clear()
+            _call_timer.append(Timer.start_new())
+            run_output = await agent.arun(prompt)
+            llm_calls += 1
+            raw_cmd = (run_output.content or "").strip()
+            if raw_cmd.startswith("```"):
+                lines = raw_cmd.splitlines()
+                inner = [l for l in lines[1:] if l.strip() != "```"]
+                raw_cmd = "\n".join(inner).strip()
+            raw_cmd = raw_cmd.splitlines()[0].strip().strip("`").strip()
+            raw_cmd = sanitize_command(raw_cmd)
+            next_cmd = policy.rewrite(
+                proposed_command=raw_cmd,
+                state=last_state,
+                max_turns=max_turns,
+            )
+            if not next_cmd:
+                raise RuntimeError("Agent produced an empty command.")
+
+            current_summary = await command(next_cmd)
+            if last_state is not None:
+                policy.observe(
+                    command=next_cmd, state=last_state, output_text=last_output_text
+                )
+                history.append(
+                    f"t={last_state.turns} cmd={next_cmd} room={last_state.room_name} score={last_state.score} thirst={last_state.thirst}\n"
+                    f"{_trim_output(last_output_text, max_chars=500)}"
+                )
+                if len(history) > policy.history_limit:
+                    history = history[-policy.history_limit :]
+
+        logger.info(f"\n[FINAL STATE]\n{current_summary}")
 
     except BaseException as e:
         # Catch even SystemExit and KeyboardInterrupt to avoid messy teardown logs if they are just from TaskGroups
@@ -371,6 +373,11 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
         else:
             logger.error(f"Error running agent: {e}")
     finally:
+        if mcp_tools is not None:
+            try:
+                await mcp_tools.close()
+            except Exception:
+                pass
         # Final grace period outside context manager
         await asyncio.sleep(0.2)
 
