@@ -1,177 +1,168 @@
 # Observability in MCP Clients
 
-This document analyzes and compares how observability (logging, latency tracking, and telemetry) is implemented across various Python agent frameworks in the `scripts/` directory.
+This document summarizes the current observability implementation across the framework clients in this repository:
 
-## Core Foundation: `llm_observability.py`
+- `packages/adk/adk_mcp_client.py`
+- `packages/agno/agno_mcp_client.py`
+- `packages/ms_agent/ms_agent_mcp_client.py`
+- `packages/pydantic/pydantic_mcp_client.py`
+- `packages/strands/strands_mcp_client.py`
 
-All clients share `llm_observability.py`, a purpose-built utility module designed for structured, safe, and configurable telemetry in LLM-driven applications.
+It also captures verified ADK capabilities from the installed package in `packages/adk/.venv`.
 
-### 1. Configuration (Environment Variables)
-The module's behavior is controlled via environment variables, allowing for runtime adjustment of verbosity and detail:
-- **`LOG_PAYLOADS`** (Default: `True`): Controls whether full request/response payloads and tool arguments are logged.
-- **`GAME_CONSOLE`** (Default: `True`): Enables the "clean" game-only output to stdout via `print_game()`.
-- **`LOG_CONSOLE`** (Default: `False`): If `True`, attaches a `StreamHandler` to the logger to print structured logs to stderr.
-- **`LOG_HTTP`** (Default: `False`): Enables low-level HTTP debugging for `httpx`, `httpcore`, and `h11` using `enable_http_debug_logging()`.
-- **`LOG_MAX_CHARS`** (Default: `20,000`): Maximum length for any single logged value before it is truncated.
+## Shared Foundation: `vibepascal_shared.llm_observability`
 
-### 2. Structured Logging (`log_kv`)
-Instead of free-form text, `log_kv` enforces a `key=value` format where every value is JSON-encoded. This ensures that:
-- Multi-line strings (like prompts) are safely escaped into a single line.
-- Quotes and special characters don't break downstream log parsers.
-- Events are easy to filter using standard CLI tools like `grep` or `awk`.
+All clients rely on a shared utility module for structured telemetry:
 
-### 3. Security & Safety
-- **Secret Redaction**: The module maintains a list of `_SENSITIVE_KEYS` (e.g., `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`). The `redact_secrets()` function uses regex to scrub these values from logs and payloads automatically.
-- **Safe Serialization**: `_try_to_dict()` recursively converts complex objects into serializable types, automatically detecting and calling `.to_dict()`, `.model_dump()`, or `.dict()` if they exist.
+- `log_kv`: emits one-line `key=value` logs with JSON-safe value encoding.
+- `Timer`: latency timing in milliseconds.
+- `format_payload`: serialization + redaction + truncation.
+- `redact_secrets`: secret scrubbing.
 
-### 4. Telemetry Helpers
-- **`Timer`**: A high-resolution `time.perf_counter()` wrapper for measuring latency in milliseconds.
-- **`format_payload`**: Orchestrates JSON serialization, redaction, and truncation into a single safe-to-log string.
-- **`print_game`**: Decouples "interactive narrative" output from "structured system" logs, allowing the user to follow the game without seeing the underlying telemetry unless they check the log files.
+### Environment Controls
 
----
+- `LOG_PAYLOADS` (default `True`): include full request/response/tool payloads.
+- `GAME_CONSOLE` (default `True`): print game narrative to stdout.
+- `LOG_CONSOLE` (default `False`): duplicate structured logs to stderr.
+- `LOG_HTTP` (default `False`): enable low-level HTTP logging.
+- `LOG_MAX_CHARS` (default `20000`): payload truncation bound.
 
-## Client Implementation Patterns
+## Instrumentation Pattern by Framework
 
-### 1. Agno (`agno_mcp_client.py`)
-**Pattern: Procedural / Inline**
-- **Mechanism**: Telemetry is explicitly "baked" into the main execution loop and helper functions.
-- **Detailed Implementation**:
-    - **Tool Calls**: Within the local `command` async function, a `Timer` is started manually, and `log_kv` is called immediately after `mcp_tools.session.call_tool` returns.
-    - **Provider Calls**: Metrics are logged directly in the `while` loop after `agent.arun(prompt)`. It extracts `input_tokens`, `output_tokens`, `total_tokens`, and `reasoning_tokens` from the `run_output.metrics` attribute.
-- **Example**:
-```python
-# Provider call logging in Agno
-run_output = await agent.arun(prompt)
-metrics = getattr(run_output, "metrics", None)
-log_kv(
-    logger,
-    event="provider_call",
-    client="agno",
-    latency_ms=provider_timer.elapsed_ms(),
-    input_tokens=getattr(metrics, "input_tokens", None),
-    output_tokens=getattr(metrics, "output_tokens", None),
-)
-```
-- **Pros**: Zero abstraction overhead; easy to see exactly what is logged by reading the main loop.
-- **Cons**: High code duplication if multiple agents or tools are used; business logic is cluttered with telemetry calls.
+### Agno
 
-### 2. Strands (`strands_mcp_client.py`)
-**Pattern: Event-Driven / Hooks**
-- **Mechanism**: A formal lifecycle hook system where the agent emits events at specific stages.
-- **Detailed Implementation**:
-    - **Lifecycle Stages**: Hooks are registered for `BeforeInvocationEvent`, `AfterModelCallEvent`, and `AfterToolCallEvent`.
-    - **State Management**: It uses the `event.invocation_state` dictionary to pass data across the lifecycle. For example, `_before_invocation` stores a timestamp in `_obs["invocation_start"]`, which `_after_invocation` later retrieves to calculate total latency.
-    - **Granular Metrics**: The `AfterModelCallEvent` hook captures specific LLM metadata like `stop_reason`.
-- **Example**:
-```python
-# Shared state across hooks in Strands
-def _before_invocation(event: BeforeInvocationEvent) -> None:
-    obs = event.invocation_state.setdefault("_obs", {})
-    obs["invocation_start"] = time.perf_counter()
+Pattern: inline/procedural logging.
 
-def _after_invocation(event: AfterInvocationEvent) -> None:
-    obs = event.invocation_state.get("_obs", {})
-    start = obs.get("invocation_start")
-    latency_ms = int((time.perf_counter() - start) * 1000)
-    log_kv(logger, event="provider_call", client="strands", latency_ms=latency_ms, ...)
+- Provider metrics logged after each `agent.arun(prompt)`.
+- Extracts numeric token fields directly from `run_output.metrics`.
+- Tool calls logged inline around `mcp_tools.session.call_tool`.
 
-agent.add_hook(_before_invocation, BeforeInvocationEvent)
-agent.add_hook(_after_invocation, AfterInvocationEvent)
-```
-- **Pros**: Cleanest separation of concerns; the main execution path remains purely about agent logic.
-- **Cons**: Requires a framework that supports a robust event/hook system.
+Current token fields in logs:
 
-### 3. Microsoft Agent Framework (`ms_agent_mcp_client.py`)
-**Pattern: Structural / Decoration & Subclassing**
-- **Mechanism**: Intercepting framework behavior by wrapping classes and overriding methods.
-- **Detailed Implementation**:
-    - **Decorator Pattern**: The `LoggingChatClient` class wraps any `ChatClient`. It intercepts the `get_response` method, using `with_result_hook` (for streaming) or an internal `_await_and_log` coroutine to capture usage and latency without changing the calling code.
-    - **Inheritance Pattern**: It subclasses the official `MCPStreamableHTTPTool` into `DelayedMCPStreamableHTTPTool`, overriding `call_tool` to inject `Timer` logic and `log_kv` calls.
-- **Example**:
-```python
-# Structural interception in MS Agent
-class LoggingChatClient:
-    def get_response(self, messages, **kwargs):
-        request_timer = Timer.start_new()
-        # Intercepts the underlying client's response call
-        inner_result = self._inner.get_response(messages, **kwargs)
-        # ... logic to wrap and log usage upon completion ...
-        log_kv(logger, event="provider_call", latency_ms=request_timer.elapsed_ms(), ...)
+- `input_tokens`
+- `output_tokens`
+- `total_tokens`
+- `reasoning_tokens`
+- `tool_calls` (count of tool calls in run output, often `0` in current runs)
 
-class DelayedMCPStreamableHTTPTool(MCPStreamableHTTPTool):
-    async def call_tool(self, tool_name: str, **kwargs: Any) -> str:
-        tool_timer = Timer.start_new()
-        result = await super().call_tool(tool_name, **kwargs)
-        log_kv(logger, event="tool_call", latency_ms=tool_timer.elapsed_ms(), ...)
-```
-- **Pros**: Allows adding deep observability to "black-box" framework components without modifying their source code.
-- **Cons**: Requires deep knowledge of the framework's internal class hierarchies and method signatures.
+### Pydantic AI
 
-### 4. Pydantic AI (`pydantic_mcp_client.py`)
-**Pattern: Encapsulated Procedural**
-- **Mechanism**: Encapsulating tool telemetry in dependency classes while keeping provider telemetry in the loop.
-- **Detailed Implementation**:
-    - **Tool Encapsulation**: Since Pydantic AI uses a "Dependencies" pattern, all MCP tool telemetry (including the raw JSON-RPC `initialize` and `tools/call` handshakes) is encapsulated within the `MCPDeps` class.
-    - **Built-in Metrics**: It utilizes Pydantic AI's native `result.usage()` for `requests`, `input_tokens`, `output_tokens`, `total_tokens`, and `tool_calls`. Additionally, `result.response.tool_calls()` is called separately to log per-call tool details (name + args) when payload logging is enabled.
-- **Example**:
-```python
-# Tool encapsulation + Native metrics in Pydantic AI
-class MCPDeps:
-    async def execute_command(self, command: str, reset: bool = False):
-        tool_timer = Timer.start_new()
-        response = await self.client.post(...)
-        log_kv(logger, event="tool_call", tool_name="mcp.command", latency_ms=tool_timer.elapsed_ms(), ...)
+Pattern: loop-based usage deltas plus final run usage line.
 
-# Provider call logging in loop
-result = await agent.run(prompt, deps=deps)
-usage = result.usage()
-log_kv(logger, event="provider_call", input_tokens=usage.input_tokens, tool_calls=usage.tool_calls, ...)
-```
-- **Pros**: Tool-level logging is neatly tucked away in a helper class; provider logging is concise due to built-in framework support.
-- **Cons**: The boundary between manual tool logging and framework provider logging can lead to slightly inconsistent event schemas if not carefully managed.
+- Uses cumulative `agent_run.usage`, logs deltas per provider step.
+- Logs `input_tokens`, `output_tokens`, `total_tokens` per step.
+- Emits a final `Total Usage: RunUsage(...)` line with richer aggregate usage.
 
-## Code Metrics & Complexity
+Current token coverage:
 
-| Metric | Agno | Strands | MS Agent | Pydantic AI |
-| :--- | :---: | :---: | :---: | :---: |
-| **Total LOC** | 377 | 427 | **605** | 397 |
-| **Classes** | 2 | 0 | **5** | 3 |
-| **Functions** | 4 | 8 | **15** | 5 |
-| **Total Symbols** | 6 | 8 | **20** | 8 |
+- Per step: `input_tokens`, `output_tokens`, `total_tokens`
+- Run summary (string payload): includes `requests`, `tool_calls`, and in some runs `cache_read_tokens` and `reasoning_tokens` inside details.
 
-### Complexity Analysis
-- **Agno (377 LOC / 6 Symbols)**: The lowest "symbol density." This reflects its procedural nature where logic and observability are flattened into the main execution loop. It is the easiest to follow linearly but the hardest to scale.
-- **Strands (427 LOC / 8 Symbols)**: Highly functional. The 0-class architecture reflects its heavy reliance on independent hook functions. The higher function count relative to Agno shows its decomposition of the lifecycle into discrete, testable units.
-- **Microsoft Agent (605 LOC / 20 Symbols)**: The most complex and abstract implementation. The class count (5: `GameSummary`, `CommandOutput`, `LoggingChatClient`, `DelayedMCPStreamableHTTPTool`, `PolicyMCPTool`) reflects the heavy use of the **Decorator** and **Subclassing** patterns. This results in the longest file but offers the most decoupled and reusable observability logic.
-- **Pydantic AI (397 LOC / 8 Symbols)**: Balanced complexity. It uses classes (`MCPDeps`) to encapsulate tool-specific logic while keeping the core agent flow relatively flat.
+### Microsoft Agent Framework
 
----
+Pattern: wrapper/decorator + subclassed tool wrapper.
 
-## Architectural Insight
+- `LoggingChatClient` intercepts provider responses and logs latency.
+- Usage is available as `usage_details` and currently logged as a serialized blob (`usage=`), not normalized numeric fields.
+- Tool logging via `DelayedMCPStreamableHTTPTool`.
 
-The four clients demonstrate a clear spectrum of architectural maturity, ranging from **procedural scripts** to **extensible systems**.
+Current token coverage:
 
-### 1. Modularity & Reusability
-- **MS Agent** and **Strands** are the clear winners for modularity. By moving observability into **decorators** or **hooks**, the same telemetry logic can be reused across dozens of different agents or tools without changing a single line of the agent's core code.
-- **Agno** and **Pydantic AI** (in their current implementations) couple their logging tightly to the main execution loop. If you wanted to add a second agent or a new toolset, you would have to duplicate the logging code.
+- Potentially available via `usage_details`
+- Not normalized into top-level `input_tokens`/`output_tokens`/`total_tokens` fields today
 
-### 2. Scalability vs. Readability
-- **Agno** is the most "readable" for a single developer writing a one-off script. You can see every metric being extracted right where it's used. However, it scales poorly; as the logic grows, the "signal-to-noise" ratio of business logic to telemetry logic becomes problematic.
-- **Strands** offers the best balance for production systems. The use of an `invocation_state` context allows for complex, multi-step tracing (e.g., linking multiple tool calls to a single user request) that is nearly impossible to maintain in a flat procedural loop.
+### Strands
 
-### 3. Traceability & Debugging
-- The **MS Agent** structural approach (wrappers) is particularly powerful for debugging "black-box" frameworks. Because it intercepts calls at the class boundary, it can capture internal framework behavior (like retry attempts or hidden initialization calls) that might be invisible to a loop-based implementation like Agno.
+Pattern: lifecycle hooks.
 
-### 4. Recommendation Guide
+Registered hooks include:
 
-| Use Case | Recommended Pattern | Implementation |
-| :--- | :--- | :--- |
-| **Rapid Prototyping** | Procedural / Inline | **Agno**: Quickest to write; metrics are immediately visible. |
-| **Production Agents** | Event-Driven / Hooks | **Strands**: Cleanest separation; best for long-running, multi-turn sessions. |
-| **Library Retrofitting** | Structural / Wrapper | **MS Agent**: Best for adding telemetry to existing code you can't easily modify. |
-| **Schema-First Design** | Encapsulated Procedural | **Pydantic AI**: Best when using strong typing for both tools and metrics. |
+- `BeforeInvocationEvent` / `AfterInvocationEvent`
+- `BeforeModelCallEvent` / `AfterModelCallEvent`
+- `BeforeToolCallEvent` / `AfterToolCallEvent`
 
-### Final Conclusion
-While **Agno** and **Pydantic AI** are effective for straightforward implementations, **Strands** and **MS Agent** offer the most scalable patterns for production-grade observability. The **Strands Hook system** is the most sophisticated, allowing for shared state across a complex multi-step reasoning chain, while the **MS Agent Wrapper** approach is the most flexible for non-invasive instrumentation.
+Current behavior:
 
+- Provider telemetry is logged from hook callbacks.
+- Token usage comes from `event.result.metrics.accumulated_usage` and is logged as serialized `usage=` JSON blob (plus `metrics=` blob).
+- `model_call` logs latency/stop reason, but token counters are not emitted as normalized top-level numeric fields.
+
+### ADK
+
+Pattern: event-stream processing (`Runner.run_async(...)`), not lifecycle hooks.
+
+Current client behavior:
+
+- Logs `tool_intent`, `tool_call`, and `run_summary`.
+- Does not currently extract or log provider token metrics.
+
+Verified ADK package capability (`packages/adk/.venv`):
+
+- ADK `LlmResponse` includes `usage_metadata`.
+- `Event` inherits from `LlmResponse`, so emitted events can carry `usage_metadata`.
+- ADK LLM flow merges LLM response fields into events before yielding, so usage metadata is propagated to event stream.
+
+Available ADK usage fields:
+
+- `prompt_token_count`
+- `candidates_token_count`
+- `total_token_count`
+- `thoughts_token_count`
+- `cached_content_token_count`
+- optional extras such as `tool_use_prompt_token_count` and detail structs
+
+Implication: ADK can support normalized token logging now by reading `event.usage_metadata` inside the `run_async` loop.
+
+## Lifecycle Hooks vs Non-Hook Patterns
+
+Only Strands currently uses lifecycle hooks to capture metrics.
+
+Other frameworks use non-hook mechanisms:
+
+- Agno: inline loop/tool instrumentation
+- Pydantic AI: iterator/usage loop instrumentation
+- MS Agent: wrapper/decorator interception
+- ADK: event stream consumption
+
+## Token Telemetry Status Matrix
+
+| Framework | Native token info available | Currently logged as numeric fields | Notes |
+| :--- | :--- | :--- | :--- |
+| ADK | Yes (`event.usage_metadata`) | No | Client not extracting usage yet |
+| Agno | Yes (`run_output.metrics`) | Yes | Best current normalized per-call shape |
+| MS Agent | Yes (`usage_details`) | No | Usage logged as blob |
+| Pydantic AI | Yes (`agent_run.usage`) | Yes (per-step deltas) | Final total usage is currently plain text |
+| Strands | Yes (`accumulated_usage`) | Partial | Usage logged as blob, not normalized fields |
+
+## Current Gaps
+
+- No single cross-framework token schema in emitted logs.
+- ADK and MS Agent are missing normalized top-level token counters in current output.
+- Strands usage is present but blob-shaped.
+- Pydantic final run usage is not emitted as structured `log_kv` fields.
+
+## Recommended Normalization Direction
+
+Adopt canonical top-level fields across all provider-call events:
+
+- `input_tokens`
+- `output_tokens`
+- `total_tokens`
+- `reasoning_tokens`
+- `cache_read_tokens`
+- `cache_write_tokens` (when available)
+- `tool_calls`
+- `requests` (for run-level summaries)
+
+Add two metadata fields:
+
+- `token_scope`: `delta`, `cumulative`, or `run_total`
+- `token_source`: `native`, `parsed_usage_blob`, or `unavailable`
+
+Practical rollout:
+
+1. Add token extraction in ADK from `event.usage_metadata`.
+2. Parse and normalize Strands `usage` into numeric fields while keeping raw blob.
+3. Parse and normalize MS Agent `usage_details` similarly.
+4. Emit Pydantic final usage as structured `event="usage_summary"` instead of plain string.
+5. Keep raw usage payloads for debugging, but treat normalized numeric fields as source of truth.

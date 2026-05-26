@@ -202,6 +202,31 @@ def _extract_state_and_output(response_payload: Any) -> tuple[Optional[GameState
     return state, output
 
 
+def _make_after_model_callback(resolved_model_id: str):
+    def _after_model_callback(callback_context, llm_response):
+        usage = getattr(llm_response, "usage_metadata", None)
+        if usage is None:
+            return None
+        prompt_tokens = getattr(usage, "prompt_token_count", None)
+        candidates_tokens = getattr(usage, "candidates_token_count", None)
+        total_tokens = getattr(usage, "total_token_count", None)
+        thoughts_tokens = getattr(usage, "thoughts_token_count", None) or None
+        cached_tokens = getattr(usage, "cached_content_token_count", None) or None
+        log_kv(
+            logger,
+            event="provider_call",
+            client="adk",
+            model=resolved_model_id,
+            input_tokens=prompt_tokens,
+            output_tokens=candidates_tokens,
+            total_tokens=total_tokens,
+            reasoning_tokens=thoughts_tokens,
+            cache_read_tokens=cached_tokens,
+        )
+        return None
+    return _after_model_callback
+
+
 async def run_adk_mcp_agent(level: str, model_name: str, delay: int, max_turns: int):
     model, resolved_model_id = _resolve_model(model_name)
     logger.info(f"--- ADK MCP Client Starting (Model: {resolved_model_id}) ---")
@@ -230,6 +255,7 @@ async def run_adk_mcp_agent(level: str, model_name: str, delay: int, max_turns: 
     agent = Agent(
         name="dustwood_adk_agent",
         model=model,
+        after_model_callback=_make_after_model_callback(resolved_model_id),
         instruction=(
             "You are an expert adventurer playing 'Echoes of Dustwood' via MCP.\n"
             "Use the `command` tool for every game interaction.\n"

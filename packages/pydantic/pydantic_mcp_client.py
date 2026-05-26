@@ -122,7 +122,8 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
     # Incremental usage tracking
     last_input_tokens = 0
     last_output_tokens = 0
-    
+    last_cache_read_tokens = 0
+
     # Start the first turn timer
     turn_timer = Timer.start_new()
     
@@ -133,13 +134,15 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
                 current_usage = agent_run.usage
                 in_tokens = current_usage.input_tokens or 0
                 out_tokens = current_usage.output_tokens or 0
-                
+                cache_read = current_usage.cache_read_tokens or 0
+
                 # If usage changed, it means a model call just finished
                 if in_tokens > last_input_tokens or out_tokens > last_output_tokens:
                     delta_in = in_tokens - last_input_tokens
                     delta_out = out_tokens - last_output_tokens
+                    delta_cache_read = cache_read - last_cache_read_tokens
                     latency = turn_timer.elapsed_ms()
-                    
+
                     log_kv(
                         logger,
                         event="provider_call",
@@ -149,11 +152,13 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
                         input_tokens=delta_in,
                         output_tokens=delta_out,
                         total_tokens=delta_in + delta_out,
+                        cache_read_tokens=delta_cache_read or None,
                     )
-                    
+
                     # Reset turn timer and usage trackers for the next step
                     last_input_tokens = in_tokens
                     last_output_tokens = out_tokens
+                    last_cache_read_tokens = cache_read
                     turn_timer = Timer.start_new()
 
                 # 2. Process messages in this yield
@@ -225,7 +230,18 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
     # Final summary log
     final_usage = agent_run.result.usage
     logger.info(f"\n[FINAL AGENT RESPONSE]\n{agent_run.result.output}")
-    logger.info(f"Total Usage: {final_usage}")
+    log_kv(
+        logger,
+        event="run_summary",
+        client="pydantic_ai",
+        model=model_name,
+        input_tokens=final_usage.input_tokens,
+        output_tokens=final_usage.output_tokens,
+        total_tokens=final_usage.total_tokens,
+        cache_read_tokens=final_usage.cache_read_tokens or None,
+        requests=final_usage.requests,
+        token_scope="run_total",
+    )
 
 
 if __name__ == "__main__":

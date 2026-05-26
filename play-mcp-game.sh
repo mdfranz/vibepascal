@@ -54,15 +54,10 @@ fi
 AGNO_MODEL="$MODEL"
 if [[ "$MODEL" == google-gla:* ]]; then
     AGNO_MODEL="gemini/${MODEL#google-gla:}"
+elif [[ "$MODEL" == google:* ]]; then
+    AGNO_MODEL="gemini/${MODEL#google:}"
 elif [[ "$MODEL" == anthropic:* ]]; then
     AGNO_MODEL="${MODEL#anthropic:}"
-fi
-
-MS_MODEL="$MODEL"
-if [[ "$MODEL" == google-gla:* ]]; then
-    MS_MODEL="${MODEL#google-gla:}"
-elif [[ "$MODEL" == anthropic:* ]]; then
-    MS_MODEL="${MODEL#anthropic:}"
 fi
 
 ADK_MODEL="$MODEL"
@@ -83,15 +78,11 @@ echo "--- Running Client 2: Agno (MCP) ---"
 ./agno-mcp-game.sh "$LEVEL" "$AGNO_MODEL" "$DELAY" "$MAX_TURNS"
 
 echo ""
-echo "--- Running Client 3: Microsoft Agent Framework (MCP) ---"
-./ms-agent-mcp-game.sh "$LEVEL" "$MS_MODEL" "$DELAY" "$MAX_TURNS"
-
-echo ""
-echo "--- Running Client 4: Strands AI (MCP) ---"
+echo "--- Running Client 3: Strands AI (MCP) ---"
 ./strands-mcp-game.sh "$LEVEL" "$STRANDS_MODEL" "$DELAY" "$MAX_TURNS"
 
 echo ""
-echo "--- Running Client 5: ADK (MCP) ---"
+echo "--- Running Client 4: ADK (MCP) ---"
 ./adk-mcp-game.sh "$LEVEL" "$ADK_MODEL" "$DELAY" "$MAX_TURNS"
 
 echo ""

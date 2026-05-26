@@ -266,6 +266,30 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
                 if guidance_cfg.text
                 else ""
             )
+
+            _call_timer: list[Timer] = []
+
+            def _provider_post_hook(run_output) -> None:
+                latency_ms = _call_timer[0].elapsed_ms() if _call_timer else None
+                metrics = getattr(run_output, "metrics", None)
+                log_kv(
+                    logger,
+                    event="provider_call",
+                    client="agno",
+                    model_provider=getattr(run_output, "model_provider", None),
+                    model=getattr(run_output, "model", None),
+                    latency_ms=latency_ms,
+                    input_tokens=getattr(metrics, "input_tokens", None),
+                    output_tokens=getattr(metrics, "output_tokens", None),
+                    total_tokens=getattr(metrics, "total_tokens", None),
+                    reasoning_tokens=getattr(metrics, "reasoning_tokens", None),
+                    tool_calls=(
+                        len(getattr(run_output, "tools", []) or [])
+                        if getattr(run_output, "tools", None) is not None
+                        else None
+                    ),
+                )
+
             agent = Agent(
                 model=model,
                 name="DustwoodAgnoMCPAdventurer",
@@ -278,6 +302,7 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
                     f"{guidance_block}"
                 ),
                 markdown=True,
+                post_hooks=[_provider_post_hook],
             )
 
             # Bounded interaction loop
@@ -306,38 +331,10 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
                     f"Rules: LOOK does not consume a game turn; do not repeat LOOK if turns did not change. "
                     f"Exits may not be listed; try NORTH/EAST/SOUTH/WEST to explore when unsure."
                 )
-                provider_timer = Timer.start_new()
+                _call_timer.clear()
+                _call_timer.append(Timer.start_new())
                 run_output = await agent.arun(prompt)
-                latency_ms = provider_timer.elapsed_ms()
                 llm_calls += 1
-                metrics = getattr(run_output, "metrics", None)
-                log_kv(
-                    logger,
-                    event="provider_call",
-                    client="agno",
-                    model_provider=getattr(run_output, "model_provider", None),
-                    model=getattr(run_output, "model", None),
-                    latency_ms=latency_ms,
-                    input_tokens=getattr(metrics, "input_tokens", None),
-                    output_tokens=getattr(metrics, "output_tokens", None),
-                    total_tokens=getattr(metrics, "total_tokens", None),
-                    reasoning_tokens=getattr(metrics, "reasoning_tokens", None),
-                    tool_calls=(
-                        len(getattr(run_output, "tools", []) or [])
-                        if getattr(run_output, "tools", None) is not None
-                        else None
-                    ),
-                    prompt=(
-                        format_payload(prompt)
-                        if provider_payload_logging_enabled()
-                        else None
-                    ),
-                    response=(
-                        format_payload(getattr(run_output, "content", None))
-                        if provider_payload_logging_enabled()
-                        else None
-                    ),
-                )
                 raw_cmd = (run_output.content or "").strip()
                 if raw_cmd.startswith("```"):
                     lines = raw_cmd.splitlines()

@@ -94,6 +94,17 @@ if file_handler not in obs_logger.handlers:
     obs_logger.addHandler(file_handler)
 obs_logger.propagate = False
 
+
+def _make_agent(*args, **kwargs) -> Agent:
+    """Compatibility wrapper for pydantic-ai versions that removed output_retries."""
+    try:
+        return Agent(*args, **kwargs)
+    except TypeError as e:
+        if "unexpected keyword argument 'output_retries'" not in str(e):
+            raise
+        kwargs.pop("output_retries", None)
+        return Agent(*args, **kwargs)
+
 # --- Game Interface ---
 
 class DustwoodGame:
@@ -414,14 +425,14 @@ def ai_play(guidance_file: str, raw_model_name: str, delay: int, max_turns: int)
     )
 
     if use_raw_json:
-        agent = Agent(
+        agent = _make_agent(
             model_name,
             deps_type=GameDeps,
             capabilities=capabilities,
             system_prompt=system_prompt
         )
     else:
-        agent = Agent(
+        agent = _make_agent(
             model_name,
             deps_type=GameDeps,
             output_type=output_model,

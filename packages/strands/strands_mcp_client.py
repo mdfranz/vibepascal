@@ -215,10 +215,25 @@ def run_strands_agent(
         )
 
         usage = None
-        metrics = None
+        result_metrics = None
         if event.result is not None and hasattr(event.result, "metrics"):
             usage = getattr(event.result.metrics, "accumulated_usage", None)
-            metrics = getattr(event.result.metrics, "accumulated_metrics", None)
+            result_metrics = getattr(event.result.metrics, "accumulated_metrics", None)
+
+        # Normalize token fields from LiteLLM accumulated_usage
+        input_tokens = None
+        output_tokens = None
+        total_tokens = None
+        if usage is not None:
+            input_tokens = (
+                getattr(usage, "prompt_tokens", None)
+                or getattr(usage, "input_tokens", None)
+            )
+            output_tokens = (
+                getattr(usage, "completion_tokens", None)
+                or getattr(usage, "output_tokens", None)
+            )
+            total_tokens = getattr(usage, "total_tokens", None)
 
         log_kv(
             logger,
@@ -227,14 +242,17 @@ def run_strands_agent(
             provider="litellm",
             model=model_id,
             latency_ms=invocation_latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
             usage=(
                 format_payload(usage)
                 if (usage is not None and provider_payload_logging_enabled())
                 else None
             ),
             metrics=(
-                format_payload(metrics)
-                if (metrics is not None and provider_payload_logging_enabled())
+                format_payload(result_metrics)
+                if (result_metrics is not None and provider_payload_logging_enabled())
                 else None
             ),
             response=(
