@@ -309,22 +309,22 @@ cd packages/adk && uv sync --upgrade
 
 - **Pydantic AI MCP Client:**
   ```bash
-  ./pydantic-mcp-game.sh full google:gemini-3.5-flash 1 5
+  ./pydantic-mcp-game.sh google:gemini-3.5-flash 5 1 full
   ```
 
 - **Strands Agent MCP Client:**
   ```bash
-  ./strands-mcp-game.sh full gemini/gemini-3.5-flash 1 5
+  ./strands-mcp-game.sh gemini/gemini-3.5-flash 5 1 full
   ```
 
 - **Agno MCP Client:**
   ```bash
-  ./agno-mcp-game.sh full gemini/gemini-3.5-flash 1 5
+  ./agno-mcp-game.sh gemini/gemini-3.5-flash 5 1 full
   ```
 
 - **ADK MCP Client:**
   ```bash
-  ./adk-mcp-game.sh full gemini-3.5-flash 1 5
+  ./adk-mcp-game.sh gemini-3.5-flash 5 1 full
   ```
 
 ### Options
@@ -369,7 +369,7 @@ Each AI framework has incompatible dependencies and lives in its own isolated pa
 
 4. **In another terminal, run a game:**
    ```bash
-   ./pydantic-mcp-game.sh full google:gemini-3.5-flash 1 5
+   ./pydantic-mcp-game.sh google:gemini-3.5-flash 5 1 full
    ```
 
 ### Environment Variables
@@ -417,7 +417,7 @@ cd packages/pydantic && uv sync --prerelease=allow
   ```
 - **Via MCP:**
   ```bash
-  ./pydantic-mcp-game.sh full google:gemini-3.5-flash 1 5
+  ./pydantic-mcp-game.sh google:gemini-3.5-flash 5 1 full
   ```
 
 ### 2. Strands SDK (Recommended for multi-provider)
@@ -444,7 +444,7 @@ cd packages/strands && uv sync --upgrade
   ```
 - **Via MCP:**
   ```bash
-  ./strands-mcp-game.sh full gemini/gemini-3.5-flash 1 5
+  ./strands-mcp-game.sh gemini/gemini-3.5-flash 5 1 full
   ```
 
 ### 3. Agno (formerly Phidata)
@@ -466,7 +466,7 @@ cd packages/agno && uv sync --upgrade
   ```
 - **Via MCP:**
   ```bash
-  ./agno-mcp-game.sh full gpt-4o-mini 1 5
+  ./agno-mcp-game.sh gpt-4o-mini 5 1 full
   ```
 
 ### 4. ADK (Google Agent Development Kit)
@@ -479,13 +479,13 @@ cd packages/adk && uv sync --upgrade
 - **Via MCP:**
   ```bash
   export GOOGLE_API_KEY="your-api-key"
-  ./adk-mcp-game.sh full gemini-3.5-flash 1 5
+  ./adk-mcp-game.sh gemini-3.5-flash 5 1 full
   ```
 
 - **Via LiteLLM provider routing (OpenAI example):**
   ```bash
   export OPENAI_API_KEY="your-api-key"
-  ./adk-mcp-game.sh full gpt-5-mini 1 5
+  ./adk-mcp-game.sh gpt-5-mini 5 1 full
   ```
 
 ### Multi-Client Benchmark
@@ -493,7 +493,7 @@ cd packages/adk && uv sync --upgrade
 Run all 4 frameworks sequentially against a single model:
 
 ```bash
-./play-mcp-game.sh google:gemini-3.5-flash full 1 5
+./play-mcp-game.sh google:gemini-3.5-flash 5 1 full
 ```
 
 ## Commands

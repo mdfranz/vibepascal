@@ -48,10 +48,19 @@ Testing reveals a significant performance gap between interaction methods:
 *   **gemini-3.5-flash**: Excellent, high-performing model. Successfully verified across Pydantic AI (v2.0.0b3), Agno, and Strands SDK.
 *   **gpt-5-mini**: The "Utility Player." Works reliably across all four frameworks with high efficiency.
 *   **claude-opus-4-6**: The planning expert. Best at long-term inventory management.
+*   **claude-haiku-4-5**: High-speed, highly capable logic, but sensitive to framework orchestration constraints. Successfully achieved a peak score of **60 points** (in 15 turns) via Strands SDK and **57 points** via ADK by managing inventory capacity, repairing the water pump (+20), and saddling the horse. However, it can get stuck by inventory limitations (Agno) or random hazards (Pydantic AI) if the orchestration does not enforce item dropping or hazard bypasses.
 *   **gpt-oss:20b (Ollama)**: Strong performance via MS Agent. Navigated to goals with zero typos or logic loops.
 *   **granite4:3b (Ollama)**: Struggles with "common sense." Requires frameworks with strong retry logic to recover from typos like `TAKE SPPOOL`.
 
-## 5. Framework Decision Matrix
+## 5. Token Efficiency & Context Management
+
+The frameworks differ significantly in how they manage conversation context, which directly impacts input token usage and cost:
+
+*   **Agno**: Uses a lightweight loop that only forwards a sliding window of the last few turns (`policy.history_limit` formatted as a text string) as context. Because raw JSON-RPC tool payloads are discarded from the prompt, context sizes remain small and stable (~31k–43k total input tokens for 15 turns).
+*   **Pydantic AI & Strands SDK**: Retain the complete message history (verbose system prompts, raw JSON-RPC tool calls, and tool returns) in memory, re-submitting the full thread on each turn. This causes quadratic context growth (~80k–100k total input tokens for 15 turns).
+*   **Reasoning Models (`gpt-5-mini`)**: When running reasoning models, output token counts scale dramatically (e.g., from ~100 tokens to over 5,000 tokens) because the model's internal thinking/reasoning process is billed and returned as part of the `output_tokens` metrics, even if the final extracted gameplay command is only a single word.
+
+## 6. Framework Decision Matrix
 
 | If you want... | Use this Framework |
 | :--- | :--- |
@@ -61,7 +70,7 @@ Testing reveals a significant performance gap between interaction methods:
 | **Surgical Goal Completion** | MS Agent Framework |
 | **Pascal Engine Testing** | Any "Original" (non-mcp) client |
 
-## 6. Environment Variables Reference
+## 7. Environment Variables Reference
 
 | Variable | Frameworks | Purpose |
 | :--- | :--- | :--- |

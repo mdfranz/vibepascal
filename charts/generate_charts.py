@@ -13,7 +13,7 @@ COLORS = {
     "Agno": "#2ecc71",
     "Pydantic": "#3498db",
     "Strands": "#e67e22",
-    "MS Agent": "#e74c3c",
+    "ADK": "#e74c3c",
 }
 
 MODEL_COLORS = {
@@ -24,37 +24,37 @@ MODEL_COLORS = {
 
 # Data: scores (best run per model/framework combo, excluding errors)
 scores = {
-    "Agno":     {"gemini-3.5-flash": 35, "gpt-5-mini": 35, "claude-haiku-4-5": 35},
-    "Pydantic": {"gemini-3.5-flash": 35, "gpt-5-mini": 35, "claude-haiku-4-5": 28},
-    "Strands":  {"gemini-3.5-flash": 27, "gpt-5-mini": 30, "claude-haiku-4-5": 24},
-    "MS Agent": {"gemini-3.5-flash": 5,  "gpt-5-mini": 28, "claude-haiku-4-5": 24},
+    "Agno":     {"gemini-3.5-flash": 70, "gpt-5-mini": 45, "claude-haiku-4-5": 32},
+    "Pydantic": {"gemini-3.5-flash": 48, "gpt-5-mini": 38, "claude-haiku-4-5": 28},
+    "Strands":  {"gemini-3.5-flash": 55, "gpt-5-mini": 35, "claude-haiku-4-5": 60},
+    "ADK":      {"gemini-3.5-flash": 73, "gpt-5-mini": 32, "claude-haiku-4-5": 57},
 }
 
 # Latency in seconds (best successful run)
 latency = {
-    "Agno":     {"gemini-3.5-flash": 31, "gpt-5-mini": 44, "claude-haiku-4-5": 11},
-    "Pydantic": {"gemini-3.5-flash": 34, "gpt-5-mini": 70, "claude-haiku-4-5": 20},
-    "Strands":  {"gemini-3.5-flash": 16, "gpt-5-mini": 48, "claude-haiku-4-5": 23},
-    "MS Agent": {"gemini-3.5-flash": None, "gpt-5-mini": 94, "claude-haiku-4-5": 30},
+    "Agno":     {"gemini-3.5-flash": 51.6, "gpt-5-mini": 91.1, "claude-haiku-4-5": 42.4},
+    "Pydantic": {"gemini-3.5-flash": 66.0, "gpt-5-mini": 101.0, "claude-haiku-4-5": 49.0},
+    "Strands":  {"gemini-3.5-flash": 29.7, "gpt-5-mini": 43.7, "claude-haiku-4-5": 28.4},
+    "ADK":      {"gemini-3.5-flash": 49.8, "gpt-5-mini": 75.2, "claude-haiku-4-5": 46.7},
 }
 
 # Per-turn latency (seconds)
 per_turn = {
-    "Agno":     {"gemini-3.5-flash": 3.1, "gpt-5-mini": 4.4, "claude-haiku-4-5": 1.1},
-    "Pydantic": {"gemini-3.5-flash": 3.4, "gpt-5-mini": 7.0, "claude-haiku-4-5": 2.0},
-    "Strands":  {"gemini-3.5-flash": 1.6, "gpt-5-mini": 4.8, "claude-haiku-4-5": 2.3},
-    "MS Agent": {"gemini-3.5-flash": None, "gpt-5-mini": 9.4, "claude-haiku-4-5": 3.0},
+    "Agno":     {"gemini-3.5-flash": 3.4, "gpt-5-mini": 6.1, "claude-haiku-4-5": 2.8},
+    "Pydantic": {"gemini-3.5-flash": 4.3, "gpt-5-mini": 6.7, "claude-haiku-4-5": 3.2},
+    "Strands":  {"gemini-3.5-flash": 2.0, "gpt-5-mini": 2.9, "claude-haiku-4-5": 1.9},
+    "ADK":      {"gemini-3.5-flash": 3.3, "gpt-5-mini": 5.0, "claude-haiku-4-5": 3.1},
 }
 
 # Total tokens (approximate, using consistent measure across frameworks)
 tokens = {
-    "Agno":     {"gemini-3.5-flash": 22000, "gpt-5-mini": 23000, "claude-haiku-4-5": 25000},
-    "Pydantic": {"gemini-3.5-flash": 12000, "gpt-5-mini": 13000, "claude-haiku-4-5": 14000},
-    "Strands":  {"gemini-3.5-flash": 47000, "gpt-5-mini": 51000, "claude-haiku-4-5": 67000},
-    "MS Agent": {"gemini-3.5-flash": None,  "gpt-5-mini": 45000, "claude-haiku-4-5": 45000},
+    "Agno":     {"gemini-3.5-flash": 32392, "gpt-5-mini": 36242, "claude-haiku-4-5": 43458},
+    "Pydantic": {"gemini-3.5-flash": 109602, "gpt-5-mini": 104494, "claude-haiku-4-5": 98461},
+    "Strands":  {"gemini-3.5-flash": 97117, "gpt-5-mini": 80397, "claude-haiku-4-5": 92764},
+    "ADK":      {"gemini-3.5-flash": 99100, "gpt-5-mini": 98834, "claude-haiku-4-5": 99326},
 }
 
-frameworks = ["Agno", "Pydantic", "Strands", "MS Agent"]
+frameworks = ["Agno", "Pydantic", "Strands", "ADK"]
 models = ["gemini-3.5-flash", "gpt-5-mini", "claude-haiku-4-5"]
 
 plt.style.use("seaborn-v0_8-darkgrid")
@@ -79,8 +79,8 @@ def chart_1_grouped_bar_scores():
     ax.set_title("Game Score by Framework & Model (Best Run)")
     ax.set_xticks(x + width)
     ax.set_xticklabels(frameworks)
-    ax.set_ylim(0, 42)
-    ax.axhline(y=35, color="gray", linestyle="--", alpha=0.5, label="Max observed (35)")
+    ax.set_ylim(0, 80)
+    ax.axhline(y=73, color="gray", linestyle="--", alpha=0.5, label="Max observed (73)")
     ax.legend(loc="upper right")
     fig.tight_layout()
     fig.savefig(OUTPUT_DIR / "score_by_framework_model.png")
@@ -205,8 +205,8 @@ def chart_5_efficiency_scatter():
     ax.set_ylabel("Score")
     ax.set_title("Efficiency: Score vs Latency (bubble size = token cost)")
     ax.set_xlim(0, 100)
-    ax.set_ylim(0, 40)
-    ax.axhline(y=35, color="gray", linestyle="--", alpha=0.3)
+    ax.set_ylim(0, 80)
+    ax.axhline(y=73, color="gray", linestyle="--", alpha=0.3)
     fig.tight_layout()
     fig.savefig(OUTPUT_DIR / "efficiency_scatter.png")
     plt.close(fig)
@@ -231,7 +231,7 @@ def chart_6_framework_sensitivity():
 
     ax.set_ylabel("Score Spread (max - min)")
     ax.set_title("Framework Sensitivity: Score Variance by Model\n(lower = more consistent across frameworks)")
-    ax.set_ylim(0, 15)
+    ax.set_ylim(0, 35)
     fig.tight_layout()
     fig.savefig(OUTPUT_DIR / "framework_sensitivity.png")
     plt.close(fig)
@@ -241,10 +241,10 @@ def chart_7_reliability_matrix():
     """Heatmap: success rate (completed / attempted) per framework x model."""
     # All runs from logs: (completed, total_attempted)
     reliability = {
-        "Agno":     {"gemini-3.5-flash": (2, 2), "gpt-5-mini": (1, 1), "claude-haiku-4-5": (2, 2)},
-        "Pydantic": {"gemini-3.5-flash": (2, 4), "gpt-5-mini": (1, 1), "claude-haiku-4-5": (2, 2)},
-        "Strands":  {"gemini-3.5-flash": (2, 2), "gpt-5-mini": (1, 1), "claude-haiku-4-5": (1, 2)},
-        "MS Agent": {"gemini-3.5-flash": (0, 4), "gpt-5-mini": (1, 1), "claude-haiku-4-5": (1, 2)},
+        "Agno":     {"gemini-3.5-flash": (1, 1), "gpt-5-mini": (1, 1), "claude-haiku-4-5": (1, 1)},
+        "Pydantic": {"gemini-3.5-flash": (1, 1), "gpt-5-mini": (1, 1), "claude-haiku-4-5": (1, 1)},
+        "Strands":  {"gemini-3.5-flash": (1, 1), "gpt-5-mini": (1, 1), "claude-haiku-4-5": (1, 1)},
+        "ADK":      {"gemini-3.5-flash": (1, 1), "gpt-5-mini": (1, 1), "claude-haiku-4-5": (1, 1)},
     }
 
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -336,16 +336,16 @@ def chart_9_radar():
 
     # Reliability = avg success rate
     reliability_raw = {
-        "Agno": (5, 5), "Pydantic": (5, 7), "Strands": (4, 5), "MS Agent": (2, 7),
+        "Agno": (3, 3), "Pydantic": (3, 3), "Strands": (3, 3), "ADK": (3, 3),
     }
     avg_reliability = {fw: c / t for fw, (c, t) in reliability_raw.items()}
 
     # Telegraph rate: fraction of model combos that achieved FIX TELEGRAPH
     telegraph = {
-        "Agno": 3 / 3,       # all 3 models
+        "Agno": 2 / 3,       # gemini + gpt-5-mini
         "Pydantic": 2 / 3,   # gemini + gpt-5-mini
         "Strands": 0 / 3,    # none
-        "MS Agent": 1 / 3,   # gpt-5-mini only
+        "ADK": 1 / 3,        # gemini only
     }
 
     categories = ["Score", "Speed", "Token\nEfficiency", "Reliability", "Telegraph\nRate"]
@@ -393,10 +393,10 @@ def chart_10_all_runs_boxplot():
     """Box plot: all runs per framework (including failures as 0)."""
     # All individual run scores per framework
     all_runs = {
-        "Agno":     [35, 15, 35, 27, 35],
-        "Pydantic": [35, 0, 0, 23, 35, 28, 25],
-        "Strands":  [27, 23, 30, 24, 8],
-        "MS Agent": [0, 0, 0, 5, 28, 0, 24],
+        "Agno":     [70, 45, 32],
+        "Pydantic": [48, 38, 28],
+        "Strands":  [55, 35, 60],
+        "ADK":      [73, 32, 57],
     }
 
     fig, ax = plt.subplots(figsize=(9, 6))
@@ -425,8 +425,8 @@ def chart_10_all_runs_boxplot():
     ax.set_xticklabels(frameworks)
     ax.set_ylabel("Score")
     ax.set_title("Score Distribution: All Runs per Framework\n(including errors as 0, diamond = mean)")
-    ax.set_ylim(-3, 42)
-    ax.axhline(y=35, color="gray", linestyle="--", alpha=0.3, label="Max score (35)")
+    ax.set_ylim(-3, 80)
+    ax.axhline(y=73, color="gray", linestyle="--", alpha=0.3, label="Max score (73)")
     ax.axhline(y=0, color="red", linestyle=":", alpha=0.3, label="Error/failure")
     ax.legend(loc="upper left")
     fig.tight_layout()

@@ -13,9 +13,18 @@ MODELS=(
     "openai:o4-mini"
 )
 
-LEVEL=${1:-full}
-TURNS=${2:-25}
-DELAY=${3:-1}
+usage() {
+    echo "Usage: ./pydantic-mcp-multi-model.sh <max_turns> [delay] [difficulty]"
+    exit 1
+}
+
+if [[ $# -lt 1 || "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    usage
+fi
+
+TURNS=$1
+DELAY=${2:-1}
+LEVEL=${3:-full}
 
 echo "===================================================="
 echo "🤖 PYDANTIC AI MCP MULTI-MODEL RUNNER"

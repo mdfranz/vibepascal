@@ -14,29 +14,33 @@ if ! make build > /dev/null 2>&1; then
 fi
 
 # Display help if requested
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+usage() {
     echo "Echoes of Dustwood: ADK MCP Runner"
     echo ""
     echo "Note: This script requires the Go MCP server to be running."
     echo "      You can start it with: ./bin/dustwood-go --mcp-http --mcp-addr 127.0.0.1:8765 --mcp-json-response"
     echo ""
-    echo "Usage: ./adk-mcp-game.sh [model] [difficulty] [delay] [max_turns]"
+    echo "Usage: ./adk-mcp-game.sh <model> <max_turns> [delay] [difficulty]"
     echo ""
     echo "Arguments:"
-    echo "  model         ADK model name (default: gemini-3.5-flash)"
-    echo "  difficulty    full, medium, minimal (default: full)"
+    echo "  model         ADK model name (required)"
+    echo "  max_turns     Maximum turns before stopping (required)"
     echo "  delay         Seconds to wait between turns (default: 1)"
-    echo "  max_turns     Maximum turns before stopping (default: 25)"
+    echo "  difficulty    full, medium, minimal (default: full)"
     echo ""
     echo "Examples:"
-    echo "  ./adk-mcp-game.sh gemini-3.5-flash full 1 25"
-    exit 0
+    echo "  ./adk-mcp-game.sh gemini-3.5-flash 25 1 full"
+    exit 1
+}
+
+if [[ $# -lt 2 || "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    usage
 fi
 
-MODEL=${1:-gemini-3.5-flash}
-LEVEL=${2:-full}
+MODEL=$1
+MAX_TURNS=$2
 DELAY=${3:-1}
-MAX_TURNS=${4:-25}
+LEVEL=${4:-full}
 
 echo "--- Starting ADK MCP Agent (Level: $LEVEL, Model: $MODEL, Delay: ${DELAY}s, Max Turns: $MAX_TURNS) ---"
 echo "--- Ensure MCP Server is running at http://127.0.0.1:8765/mcp ---"
