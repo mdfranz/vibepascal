@@ -36,7 +36,7 @@ Explore the detailed documentation for different areas of this project:
   - [PKG.md](file:///home/mfranz/github/vibepascal/PKG.md) — System-wide dependency catalog and versioning strategy for Python and Go.
 - **AI Agent Frameworks & Clients:**
   - [packages/README.md](file:///home/mfranz/github/vibepascal/packages/README.md) — Setup, dependency isolation, and configuration instructions for framework virtual environments.
-  - [packages/IMPL.md](file:///home/mfranz/github/vibepascal/packages/IMPL.md) — Comparative implementation analysis of the Pydantic AI, Agno, Strands, ADK, and MS Agent clients.
+  - [packages/IMPL.md](file:///home/mfranz/github/vibepascal/packages/IMPL.md) — Comparative implementation analysis of the Pydantic AI, Agno, Strands, and ADK clients.
   - [packages/FLOW.md](file:///home/mfranz/github/vibepascal/packages/FLOW.md) — Detailed comparison of control loops, execution flows, and logic boundaries across active clients.
   - [packages/shared/OBSERVABILITY.md](file:///home/mfranz/github/vibepascal/packages/shared/OBSERVABILITY.md) — Logging conventions, hook architectures, and token metric schemas for telemetry standardization.
 - **AI Gameplay, Benchmarks, and Evaluation:**
@@ -64,7 +64,6 @@ Echoes of Dustwood uses a **Persistent Sidecar** architecture to bridge a legacy
 - **AI Framework Packages:** Each framework has its own isolated venv and dependencies:
   - **Pydantic AI (`packages/pydantic/`):** Both direct and MCP variants using `pydantic-ai` (2.0.0b3)
   - **Strands SDK (`packages/strands/`):** Both direct and MCP variants using Strands Agents + LiteLLM
-  - **Microsoft Agent Framework (`packages/ms_agent/`):** Both direct and MCP variants with broad model support
   - **Agno (`packages/agno/`):** Both direct and MCP variants using Agno (formerly Phidata)
   - **ADK (`packages/adk/`):** MCP variant using Google ADK (Python)
 - **Orchestrators (root directory):**
@@ -87,13 +86,12 @@ Echoes of Dustwood uses a **Persistent Sidecar** architecture to bridge a legacy
 │   ├── agno/           # Agno framework clients
 │   ├── strands/        # Strands Agents SDK clients
 │   ├── pydantic/       # Pydantic AI clients
-│   ├── ms_agent/       # Microsoft Agent Framework clients
 │   └── adk/            # Google ADK MCP client
 ├── src/
 │   ├── golang/         # Go source code (MCP server implementation)
 │   └── pascal/         # Modular Free Pascal source code
 ├── *.sh                # Root-level orchestrator scripts (wrappers for each framework)
-└── [CLAUDE.md](file:///home/mfranz/github/vibepascal/CLAUDE.md)           # (optional) Codebase documentation for Claude Code
+└── CLAUDE.md           # (optional) Codebase documentation for Claude Code
 ```
 
 ## Pascal Source Reference
@@ -304,8 +302,6 @@ cd packages/agno && uv sync --upgrade
 # OR
 cd packages/strands && uv sync --upgrade
 # OR
-cd packages/ms_agent && uv sync --upgrade
-# OR
 cd packages/adk && uv sync --upgrade
 ```
 
@@ -324,11 +320,6 @@ cd packages/adk && uv sync --upgrade
 - **Agno MCP Client:**
   ```bash
   ./agno-mcp-game.sh full gemini/gemini-3.5-flash 1 5
-  ```
-
-- **Microsoft Agent MCP Client:**
-  ```bash
-  ./ms-agent-mcp-game.sh full gpt-4o-mini 1 5
   ```
 
 - **ADK MCP Client:**
@@ -353,7 +344,6 @@ Each AI framework has incompatible dependencies and lives in its own isolated pa
 - **packages/pydantic/** — Pydantic AI (2.0.0b3, requires `--prerelease=allow`)
 - **packages/strands/** — Strands Agents SDK + LiteLLM
 - **packages/agno/** — Agno 2.6.9+
-- **packages/ms_agent/** — Microsoft Agent Framework
 - **packages/adk/** — Google ADK 2.0.0 (MCP)
 - **charts/** — Visualization dependencies
 
@@ -399,7 +389,7 @@ export OLLAMA_HOST="localhost:11434"  # For local Ollama
 **"Unknown provider" error:** Make sure you're using the correct model prefix for the framework:
 - Pydantic AI: `google:gemini-3.5-flash` or `anthropic:claude-3-5-sonnet-20241022`
 - Strands: `gemini/gemini-3.5-flash` or `anthropic/claude-3-5-sonnet-20241022` (LiteLLM format)
-- Agno/MS Agent: Framework-specific naming (check wrapper script comments)
+- Agno: Framework-specific naming (check wrapper script comments)
 - ADK: native Gemini ID (for example `gemini-3.5-flash`) or LiteLLM provider format (for example `openai/gpt-5-mini`)
 
 **Prerelease deps:** Pydantic AI 2.0.0b3 has pre-release dependencies. Always use `uv sync --prerelease=allow` for that package.
@@ -457,34 +447,7 @@ cd packages/strands && uv sync --upgrade
   ./strands-mcp-game.sh full gemini/gemini-3.5-flash 1 5
   ```
 
-### 3. Microsoft Agent Framework
-Optimized for goal-oriented tasks with broad provider support.
-
-```bash
-cd packages/ms_agent && uv sync --upgrade
-```
-
-- **OpenAI GPT-4o:**
-  ```bash
-  export OPENAI_API_KEY="your-api-key"
-  ./ms-agent-game.sh full gpt-4o-mini 1 25
-  ```
-- **Anthropic Claude:**
-  ```bash
-  export ANTHROPIC_API_KEY="your-api-key"
-  ./ms-agent-game.sh full claude-3-5-sonnet-20241022 1 25
-  ```
-- **Google Gemini:**
-  ```bash
-  export GEMINI_API_KEY="your-api-key"
-  ./ms-agent-game.sh full gemini-3.5-flash 1 25
-  ```
-- **Via MCP:**
-  ```bash
-  ./ms-agent-mcp-game.sh full gpt-4o-mini 1 5
-  ```
-
-### 4. Agno (formerly Phidata)
+### 3. Agno (formerly Phidata)
 Lightweight multimodal agent framework.
 
 ```bash
@@ -506,7 +469,7 @@ cd packages/agno && uv sync --upgrade
   ./agno-mcp-game.sh full gpt-4o-mini 1 5
   ```
 
-### 5. ADK (Google Agent Development Kit)
+### 4. ADK (Google Agent Development Kit)
 Google's Agent Development Kit with MCP toolset integration.
 
 ```bash
@@ -527,7 +490,7 @@ cd packages/adk && uv sync --upgrade
 
 ### Multi-Client Benchmark
 
-Run all 5 frameworks sequentially against a single model:
+Run all 4 frameworks sequentially against a single model:
 
 ```bash
 ./play-mcp-game.sh google:gemini-3.5-flash full 1 5
