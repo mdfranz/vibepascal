@@ -1,6 +1,6 @@
 # MCP Client Implementation Summary
 
-Each framework package (`packages/<fw>/`) contains an `*_mcp_client.py` that connects an AI agent to the Dustwood game server over MCP (Model Context Protocol). All five share the same CLI interface and high-level goal but differ in how the agentic loop is structured.
+Each framework package (`packages/<fw>/`) contains an `*_mcp_client.py` that connects an AI agent to the Dustwood game server over MCP (Model Context Protocol). Four clients are actively benchmarked (Pydantic AI, Agno, Strands, ADK); MS Agent is retained in the repo but no longer invoked by `play-mcp-game.sh`. All five share the same CLI interface and high-level goal but differ in how the agentic loop is structured.
 
 ## Common Patterns
 
@@ -151,7 +151,7 @@ flowchart TD
 
 ---
 
-## `ms_agent/ms_agent_mcp_client.py`
+## `ms_agent/ms_agent_mcp_client.py` _(deprecated — not in `play-mcp-game.sh`)_
 
 **Framework:** Microsoft Agent Framework (`agent_framework`)
 
