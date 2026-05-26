@@ -25,6 +25,9 @@ All clients rely on a shared utility module for structured telemetry:
 - `LOG_CONSOLE` (default `False`): duplicate structured logs to stderr.
 - `LOG_HTTP` (default `False`): enable low-level HTTP logging.
 - `LOG_MAX_CHARS` (default `20000`): payload truncation bound.
+- `AI_REASONING` (default `False`): enable extended thinking for Pydantic AI (Anthropic only — sets `Thinking()` capability and `anthropic_thinking` model settings).
+
+> **Note:** `play-mcp-game.sh` exports `AI_REASONING=1` and `LOG_CONSOLE=1` unconditionally, so all benchmark runs have thinking enabled for Pydantic AI and console log output mirrored to stderr.
 
 ## Canonical Token Event Schema
 
@@ -38,12 +41,16 @@ event="provider_call"  client=<fw>  model=<id>  latency_ms=<n>
   tool_calls=<n>                # when available
 ```
 
-Pydantic AI additionally emits a run-level summary:
+All active clients emit a `run_summary` event at session end:
 
 ```
-event="run_summary"  client="pydantic_ai"  token_scope="run_total"
+event="run_summary"  client=<fw>  model=<id>  token_scope="run_total"
   input_tokens=<n>  output_tokens=<n>  total_tokens=<n>
-  cache_read_tokens=<n>  requests=<n>
+  requests=<n>
+  latency_ms=<n>          # ADK, Agno, Strands only
+  stop_reason=<str>       # ADK, Agno, Strands only
+  cache_read_tokens=<n>   # ADK, Pydantic AI only
+  reasoning_tokens=<n>    # Agno only
 ```
 
 ## Instrumentation Pattern by Framework
@@ -129,6 +136,7 @@ The `model_call` event logs per-call latency and `stop_reason` but does not emit
 | Pydantic AI | Iterator delta loop | `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens` | ✅ | ✅ |
 | Strands | `AfterInvocationEvent` hook | `input_tokens`, `output_tokens`, `total_tokens` | ✅ | ✅ Resolved (camelCase fallbacks added) |
 | MS Agent | ~~`LoggingChatClient` wrapper~~ | ~~blob only~~ | — | **Deprecated** |
+
 ## Hooks Implementation Comparison
 
 The frameworks differ significantly in how they design and expose hooks for runtime observability, instrumentation, and execution interception:
