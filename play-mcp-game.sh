@@ -47,6 +47,8 @@ echo "================================================================"
 STRANDS_MODEL="$MODEL"
 if [[ "$MODEL" == google-gla:* ]]; then
     STRANDS_MODEL="gemini/${MODEL#google-gla:}"
+elif [[ "$MODEL" == google:* ]]; then
+    STRANDS_MODEL="gemini/${MODEL#google:}"
 elif [[ "$MODEL" == anthropic:* ]]; then
     STRANDS_MODEL="anthropic/${MODEL#anthropic:}"
 fi
