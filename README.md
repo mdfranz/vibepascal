@@ -31,21 +31,21 @@ The game features automatic word-wrapping for long descriptions and a custom inp
 Explore the detailed documentation for different areas of this project:
 
 - **Core & Engines:**
-  - [src/ARCHITECTURE.md](file:///home/mfranz/github/vibepascal/src/ARCHITECTURE.md) — Deep dive into the logic parity, dual Free Pascal and Go mirror-engine architecture.
-  - [CLAUDE.md](file:///home/mfranz/github/vibepascal/CLAUDE.md) — Reference guide for Claude Code command usage, testing, and debugging.
-  - [PKG.md](file:///home/mfranz/github/vibepascal/PKG.md) — System-wide dependency catalog and versioning strategy for Python and Go.
+  - [src/ARCHITECTURE.md](src/ARCHITECTURE.md) — Deep dive into the logic parity, dual Free Pascal and Go mirror-engine architecture.
+  - [CLAUDE.md](CLAUDE.md) — Reference guide for Claude Code command usage, testing, and debugging.
+  - [PKG.md](PKG.md) — System-wide dependency catalog and versioning strategy for Python and Go.
 - **AI Agent Frameworks & Clients:**
-  - [packages/README.md](file:///home/mfranz/github/vibepascal/packages/README.md) — Setup, dependency isolation, and configuration instructions for framework virtual environments.
-  - [packages/IMPL.md](file:///home/mfranz/github/vibepascal/packages/IMPL.md) — Comparative implementation analysis of the Pydantic AI, Agno, Strands, and ADK clients.
-  - [packages/FLOW.md](file:///home/mfranz/github/vibepascal/packages/FLOW.md) — Detailed comparison of control loops, execution flows, and logic boundaries across active clients.
-  - [packages/shared/OBSERVABILITY.md](file:///home/mfranz/github/vibepascal/packages/shared/OBSERVABILITY.md) — Logging conventions, hook architectures, and token metric schemas for telemetry standardization.
+  - [packages/README.md](packages/README.md) — Setup, dependency isolation, and configuration instructions for framework virtual environments.
+  - [packages/IMPL.md](packages/IMPL.md) — Comparative implementation analysis of the Pydantic AI, Agno, Strands, and ADK clients.
+  - [packages/FLOW.md](packages/FLOW.md) — Detailed comparison of control loops, execution flows, and logic boundaries across active clients.
+  - [packages/shared/OBSERVABILITY.md](packages/shared/OBSERVABILITY.md) — Logging conventions, hook architectures, and token metric schemas for telemetry standardization.
 - **AI Gameplay, Benchmarks, and Evaluation:**
-  - [AI-GAMEPLAY.md](file:///home/mfranz/github/vibepascal/AI-GAMEPLAY.md) — Mechanics of autonomous play: stdio vs MCP interaction, prompt formatting, loop detection, and override safety.
-  - [AGENT-NUANCES.md](file:///home/mfranz/github/vibepascal/AGENT-NUANCES.md) — Decision matrix and detailed observations of framework behaviors and model compatibility issues.
-  - [mcp-client-analysis.md](file:///home/mfranz/github/vibepascal/mcp-client-analysis.md) — Framework and model token efficiency, cost metrics, and performance evaluation summaries.
-  - [MEMORIAL-AGENTS-2026.md](file:///home/mfranz/github/vibepascal/MEMORIAL-AGENTS-2026.md) — Historical performance records, heatmaps, and variance reports for 10-turn benchmark runs (May 2026).
+  - [AI-GAMEPLAY.md](AI-GAMEPLAY.md) — Mechanics of autonomous play: stdio vs MCP interaction, prompt formatting, loop detection, and override safety.
+  - [AGENT-NUANCES.md](AGENT-NUANCES.md) — Decision matrix and detailed observations of framework behaviors and model compatibility issues.
+  - [mcp-client-analysis.md](mcp-client-analysis.md) — Framework and model token efficiency, cost metrics, and performance evaluation summaries.
+  - [MEMORIAL-AGENTS-2026.md](MEMORIAL-AGENTS-2026.md) — Historical performance records, heatmaps, and variance reports for 10-turn benchmark runs (May 2026).
 - **History & Narrative:**
-  - [STORY.md](file:///home/mfranz/github/vibepascal/STORY.md) — Chronological storytelling of the project's rapid multi-engine and agentic evolution.
+  - [STORY.md](STORY.md) — Chronological storytelling of the project's rapid multi-engine and agentic evolution.
 
 ## Architecture
 
