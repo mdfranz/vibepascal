@@ -112,7 +112,7 @@ Token data is extracted in `_after_invocation` from `event.result.metrics.accumu
 | Provider | LiteLLM field names | Emitted as |
 | :--- | :--- | :--- |
 | Gemini (via LiteLLM) | `prompt_tokens`, `completion_tokens` | `input_tokens`, `output_tokens` |
-| Anthropic (via LiteLLM) | `inputTokens`, `outputTokens`, `totalTokens` (camelCase) | **currently broken** — fallbacks not implemented |
+| Anthropic (via LiteLLM) | `inputTokens`, `outputTokens`, `totalTokens` (camelCase) | ✅ Resolved (fallbacks added) |
 
 > **Known bug**: Anthropic runs via Strands produce `input_tokens=None output_tokens=None` in the `provider_call` event because `accumulated_usage` uses camelCase keys (`inputTokens`/`outputTokens`) rather than the LiteLLM snake_case names the normalization code expects. The raw blob is still logged correctly. Fix: add camelCase fallbacks to the extraction in `_after_invocation`.
 
@@ -125,9 +125,9 @@ The `model_call` event logs per-call latency and `stop_reason` but does not emit
 | Framework | Hook/callback mechanism | Normalized token fields | Gemini | Anthropic |
 | :--- | :--- | :--- | :--- | :--- |
 | ADK | `after_model_callback` | `input_tokens`, `output_tokens`, `total_tokens`, `reasoning_tokens`, `cache_read_tokens` | ✅ | ✅ |
-| Agno | `post_hooks` | `input_tokens`, `output_tokens`, `total_tokens`, `reasoning_tokens`, `tool_calls` | ✅ | ⚠️ crashes (TaskGroup teardown) |
+| Agno | `post_hooks` | `input_tokens`, `output_tokens`, `total_tokens`, `reasoning_tokens`, `tool_calls` | ✅ | ✅ Resolved (closed manually to avoid anyio error) |
 | Pydantic AI | Iterator delta loop | `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens` | ✅ | ✅ |
-| Strands | `AfterInvocationEvent` hook | `input_tokens`, `output_tokens`, `total_tokens` | ✅ | ⚠️ token fields None (camelCase bug) |
+| Strands | `AfterInvocationEvent` hook | `input_tokens`, `output_tokens`, `total_tokens` | ✅ | ✅ Resolved (camelCase fallbacks added) |
 | MS Agent | ~~`LoggingChatClient` wrapper~~ | ~~blob only~~ | — | **Deprecated** |
 
 ## Observed Run Behaviour (claude-haiku-4-5, 25 turns)
@@ -143,31 +143,15 @@ Notable: Pydantic AI with Anthropic uses individual named MCP tools (`go`, `take
 
 ## Known Bugs / Fixes Needed
 
-### 1. Strands — camelCase token fields for Anthropic (priority: high)
+### 1. Strands — camelCase token fields for Anthropic (priority: high) — ✅ Fixed
 
-`accumulated_usage` from Anthropic via LiteLLM uses camelCase keys. The normalization in `_after_invocation` only checks snake_case names so all token fields log as `None`.
+`accumulated_usage` from Anthropic via LiteLLM uses camelCase keys. The normalization in `_after_invocation` has been extended to check both snake_case and camelCase fallback keys (`inputTokens`, `outputTokens`, `totalTokens`).
 
-Fix: extend the extraction in `strands_mcp_client.py`:
-```python
-input_tokens = (
-    getattr(usage, "prompt_tokens", None)
-    or getattr(usage, "input_tokens", None)
-    or getattr(usage, "inputTokens", None)   # Anthropic via LiteLLM
-)
-output_tokens = (
-    getattr(usage, "completion_tokens", None)
-    or getattr(usage, "output_tokens", None)
-    or getattr(usage, "outputTokens", None)  # Anthropic via LiteLLM
-)
-total_tokens = (
-    getattr(usage, "total_tokens", None)
-    or getattr(usage, "totalTokens", None)   # Anthropic via LiteLLM
-)
-```
+### 2. Agno — TaskGroup teardown crash on Anthropic (priority: medium) — ✅ Fixed
 
-### 2. Agno — TaskGroup teardown crash on Anthropic (priority: medium)
+Agno previously crashed with `unhandled errors in a TaskGroup (1 sub-exception)` during async teardown because the connection lifecycle was managed via a context manager that exited outside the task context. 
 
-Agno crashes with `unhandled errors in a TaskGroup (1 sub-exception)` during async teardown when using the Anthropic provider. The agent completes several tool calls successfully then dies during MCP session cleanup. This is an upstream Agno/Anthropic async compatibility issue. No workaround implemented yet; track the Agno issue tracker.
+This has been resolved by manually connecting the tool and calling `await mcp_tools.close()` within the `finally` block of the runner script, which safely catches and suppresses these teardown errors within the SDK's `close` method wrapper.
 
 ### 3. Pydantic AI — multi-tool MCP exposure (priority: low, investigate)
 

@@ -228,12 +228,17 @@ def run_strands_agent(
             input_tokens = (
                 getattr(usage, "prompt_tokens", None)
                 or getattr(usage, "input_tokens", None)
+                or getattr(usage, "inputTokens", None)
             )
             output_tokens = (
                 getattr(usage, "completion_tokens", None)
                 or getattr(usage, "output_tokens", None)
+                or getattr(usage, "outputTokens", None)
             )
-            total_tokens = getattr(usage, "total_tokens", None)
+            total_tokens = (
+                getattr(usage, "total_tokens", None)
+                or getattr(usage, "totalTokens", None)
+            )
 
         log_kv(
             logger,
