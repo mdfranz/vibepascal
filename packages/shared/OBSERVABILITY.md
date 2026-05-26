@@ -1,14 +1,13 @@
 # Observability in MCP Clients
 
-This document summarizes the current observability implementation across the framework clients in this repository:
+This document summarizes the current observability implementation across the active framework clients in this repository:
 
 - `packages/adk/adk_mcp_client.py`
 - `packages/agno/agno_mcp_client.py`
-- `packages/ms_agent/ms_agent_mcp_client.py`
 - `packages/pydantic/pydantic_mcp_client.py`
 - `packages/strands/strands_mcp_client.py`
 
-It also captures verified ADK capabilities from the installed package in `packages/adk/.venv`.
+> **MS Agent deprecated**: `packages/ms_agent/ms_agent_mcp_client.py` is no longer invoked by `play-mcp-game.sh`. It has no native hook API and token fields were not normalizable without significant wrapper work.
 
 ## Shared Foundation: `vibepascal_shared.llm_observability`
 
@@ -27,142 +26,112 @@ All clients rely on a shared utility module for structured telemetry:
 - `LOG_HTTP` (default `False`): enable low-level HTTP logging.
 - `LOG_MAX_CHARS` (default `20000`): payload truncation bound.
 
+## Canonical Token Event Schema
+
+All four active clients now emit a `provider_call` event with the following normalized top-level fields:
+
+```
+event="provider_call"  client=<fw>  model=<id>  latency_ms=<n>
+  input_tokens=<n>  output_tokens=<n>  total_tokens=<n>
+  reasoning_tokens=<n>          # when available
+  cache_read_tokens=<n>         # when available
+  tool_calls=<n>                # when available
+```
+
+Pydantic AI additionally emits a run-level summary:
+
+```
+event="run_summary"  client="pydantic_ai"  token_scope="run_total"
+  input_tokens=<n>  output_tokens=<n>  total_tokens=<n>
+  cache_read_tokens=<n>  requests=<n>
+```
+
 ## Instrumentation Pattern by Framework
+
+### ADK
+
+Pattern: `after_model_callback` on the `Agent` constructor.
+
+- `_make_after_model_callback(resolved_model_id)` returns a callback registered as `after_model_callback=`.
+- The callback receives `(callback_context, llm_response)` and reads `llm_response.usage_metadata`.
+- Returns `None` to leave the response unmodified.
+
+Token fields extracted from `usage_metadata`:
+
+| ADK field | Emitted as |
+| :--- | :--- |
+| `prompt_token_count` | `input_tokens` |
+| `candidates_token_count` | `output_tokens` |
+| `total_token_count` | `total_tokens` |
+| `thoughts_token_count` | `reasoning_tokens` |
+| `cached_content_token_count` | `cache_read_tokens` |
 
 ### Agno
 
-Pattern: inline/procedural logging.
+Pattern: `post_hooks=[_provider_post_hook]` on the `Agent` constructor.
 
-- Provider metrics logged after each `agent.arun(prompt)`.
-- Extracts numeric token fields directly from `run_output.metrics`.
-- Tool calls logged inline around `mcp_tools.session.call_tool`.
+- `_provider_post_hook(run_output)` is a closure registered at agent construction time.
+- Latency is tracked via a `_call_timer` list: `.clear()` + `.append(Timer.start_new())` before each `arun()` call; the hook reads `_call_timer[0].elapsed_ms()` since it fires inside `arun()` before it returns.
+- Token data comes from `run_output.metrics`.
 
-Current token fields in logs:
+Token fields:
 
-- `input_tokens`
-- `output_tokens`
-- `total_tokens`
-- `reasoning_tokens`
-- `tool_calls` (count of tool calls in run output, often `0` in current runs)
+- `input_tokens`, `output_tokens`, `total_tokens`, `reasoning_tokens`
+- `tool_calls` (count of `run_output.tools`)
 
 ### Pydantic AI
 
-Pattern: loop-based usage deltas plus final run usage line.
+Pattern: iterator-based usage deltas in the `agent.iter()` loop.
 
-- Uses cumulative `agent_run.usage`, logs deltas per provider step.
-- Logs `input_tokens`, `output_tokens`, `total_tokens` per step.
-- Emits a final `Total Usage: RunUsage(...)` line with richer aggregate usage.
+- Cumulative usage is read from `agent_run.usage` on each node iteration.
+- Per-step deltas are computed against `last_input_tokens`, `last_output_tokens`, `last_cache_read_tokens`.
+- A `run_summary` event with `token_scope="run_total"` is emitted after the loop using `agent_run.result.usage`.
 
-Current token coverage:
+Token fields per step (delta):
 
-- Per step: `input_tokens`, `output_tokens`, `total_tokens`
-- Run summary (string payload): includes `requests`, `tool_calls`, and in some runs `cache_read_tokens` and `reasoning_tokens` inside details.
+- `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens`
 
-### Microsoft Agent Framework
+Token fields in run summary:
 
-Pattern: wrapper/decorator + subclassed tool wrapper.
+- `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens`, `requests`
 
-- `LoggingChatClient` intercepts provider responses and logs latency.
-- Usage is available as `usage_details` and currently logged as a serialized blob (`usage=`), not normalized numeric fields.
-- Tool logging via `DelayedMCPStreamableHTTPTool`.
-
-Current token coverage:
-
-- Potentially available via `usage_details`
-- Not normalized into top-level `input_tokens`/`output_tokens`/`total_tokens` fields today
+> Note: Pydantic AI 2.0.0b3 does not expose a `hooks` module. The iterator approach is the correct pattern for this version.
 
 ### Strands
 
-Pattern: lifecycle hooks.
+Pattern: lifecycle hooks registered via `agent.add_hook(...)`.
 
-Registered hooks include:
+Registered hooks:
 
 - `BeforeInvocationEvent` / `AfterInvocationEvent`
 - `BeforeModelCallEvent` / `AfterModelCallEvent`
 - `BeforeToolCallEvent` / `AfterToolCallEvent`
 
-Current behavior:
+Token data is extracted in `_after_invocation` from `event.result.metrics.accumulated_usage`. Field names are resolved with LiteLLM fallbacks:
 
-- Provider telemetry is logged from hook callbacks.
-- Token usage comes from `event.result.metrics.accumulated_usage` and is logged as serialized `usage=` JSON blob (plus `metrics=` blob).
-- `model_call` logs latency/stop reason, but token counters are not emitted as normalized top-level numeric fields.
+| LiteLLM field | Fallback | Emitted as |
+| :--- | :--- | :--- |
+| `prompt_tokens` | `input_tokens` | `input_tokens` |
+| `completion_tokens` | `output_tokens` | `output_tokens` |
+| `total_tokens` | — | `total_tokens` |
 
-### ADK
+The raw `usage` and `metrics` blobs are still logged when `LOG_PAYLOADS` is enabled.
 
-Pattern: event-stream processing (`Runner.run_async(...)`), not lifecycle hooks.
-
-Current client behavior:
-
-- Logs `tool_intent`, `tool_call`, and `run_summary`.
-- Does not currently extract or log provider token metrics.
-
-Verified ADK package capability (`packages/adk/.venv`):
-
-- ADK `LlmResponse` includes `usage_metadata`.
-- `Event` inherits from `LlmResponse`, so emitted events can carry `usage_metadata`.
-- ADK LLM flow merges LLM response fields into events before yielding, so usage metadata is propagated to event stream.
-
-Available ADK usage fields:
-
-- `prompt_token_count`
-- `candidates_token_count`
-- `total_token_count`
-- `thoughts_token_count`
-- `cached_content_token_count`
-- optional extras such as `tool_use_prompt_token_count` and detail structs
-
-Implication: ADK can support normalized token logging now by reading `event.usage_metadata` inside the `run_async` loop.
-
-## Lifecycle Hooks vs Non-Hook Patterns
-
-Only Strands currently uses lifecycle hooks to capture metrics.
-
-Other frameworks use non-hook mechanisms:
-
-- Agno: inline loop/tool instrumentation
-- Pydantic AI: iterator/usage loop instrumentation
-- MS Agent: wrapper/decorator interception
-- ADK: event stream consumption
+The `model_call` event logs per-call latency and `stop_reason` but does not emit token fields (those are accumulated at invocation level).
 
 ## Token Telemetry Status Matrix
 
-| Framework | Native token info available | Currently logged as numeric fields | Notes |
+| Framework | Hook/callback mechanism | Normalized token fields | Notes |
 | :--- | :--- | :--- | :--- |
-| ADK | Yes (`event.usage_metadata`) | No | Client not extracting usage yet |
-| Agno | Yes (`run_output.metrics`) | Yes | Best current normalized per-call shape |
-| MS Agent | Yes (`usage_details`) | No | Usage logged as blob |
-| Pydantic AI | Yes (`agent_run.usage`) | Yes (per-step deltas) | Final total usage is currently plain text |
-| Strands | Yes (`accumulated_usage`) | Partial | Usage logged as blob, not normalized fields |
+| ADK | `after_model_callback` | `input_tokens`, `output_tokens`, `total_tokens`, `reasoning_tokens`, `cache_read_tokens` | Per LLM call |
+| Agno | `post_hooks` | `input_tokens`, `output_tokens`, `total_tokens`, `reasoning_tokens`, `tool_calls` | Per `arun()` call |
+| Pydantic AI | Iterator delta loop | `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens` | Per step (delta) + run total |
+| Strands | `AfterInvocationEvent` hook | `input_tokens`, `output_tokens`, `total_tokens` | Per invocation (accumulated) |
+| MS Agent | ~~`LoggingChatClient` wrapper~~ | ~~blob only~~ | **Deprecated** |
 
-## Current Gaps
+## Remaining Gaps
 
-- No single cross-framework token schema in emitted logs.
-- ADK and MS Agent are missing normalized top-level token counters in current output.
-- Strands usage is present but blob-shaped.
-- Pydantic final run usage is not emitted as structured `log_kv` fields.
-
-## Recommended Normalization Direction
-
-Adopt canonical top-level fields across all provider-call events:
-
-- `input_tokens`
-- `output_tokens`
-- `total_tokens`
-- `reasoning_tokens`
-- `cache_read_tokens`
-- `cache_write_tokens` (when available)
-- `tool_calls`
-- `requests` (for run-level summaries)
-
-Add two metadata fields:
-
-- `token_scope`: `delta`, `cumulative`, or `run_total`
-- `token_source`: `native`, `parsed_usage_blob`, or `unavailable`
-
-Practical rollout:
-
-1. Add token extraction in ADK from `event.usage_metadata`.
-2. Parse and normalize Strands `usage` into numeric fields while keeping raw blob.
-3. Parse and normalize MS Agent `usage_details` similarly.
-4. Emit Pydantic final usage as structured `event="usage_summary"` instead of plain string.
-5. Keep raw usage payloads for debugging, but treat normalized numeric fields as source of truth.
+- Strands does not emit per-model-call token deltas — only per-invocation accumulated totals. `AfterModelCallEvent` does not currently expose per-call usage.
+- Strands `cache_read_tokens` and `reasoning_tokens` are not extracted (not present in LiteLLM's `accumulated_usage`).
+- Pydantic AI hooks (`pydantic_ai.hooks.Hooks`) are not yet available in the installed version (2.0.0b3); revisit when upgrading.
+- No `token_scope` field on Agno or Strands events (ADK and Pydantic AI emit it implicitly via event type).
