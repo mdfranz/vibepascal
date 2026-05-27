@@ -13,10 +13,35 @@ from google.adk.agents.invocation_context import LlmCallsLimitExceededError
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.sessions import InMemorySessionService, DatabaseSessionService
 from google.adk.apps.app import App, EventsCompactionConfig
+from google.adk.apps.base_events_summarizer import BaseEventsSummarizer
+from google.adk.events.event import Event
+from google.adk.events.event_actions import EventActions, EventCompaction
 from google.adk.tools.mcp_tool import McpToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
 from google.genai import types
 from vibepascal_shared.guidance_loader import format_guidance_block, load_guidance
+
+class TruncatingEventSummarizer(BaseEventsSummarizer):
+    async def maybe_summarize_events(
+        self, *, events: list[Event]
+    ) -> Optional[Event]:
+        if not events:
+            return None
+        summary_content = types.Content(
+            role='model',
+            parts=[types.Part(text="[Older conversation history trimmed to save context window]")]
+        )
+        return Event(
+            author='user',
+            actions=EventActions(
+                compaction=EventCompaction(
+                    start_timestamp=events[0].timestamp,
+                    end_timestamp=events[-1].timestamp,
+                    compacted_content=summary_content,
+                )
+            ),
+            invocation_id=Event.new_id(),
+        )
 from vibepascal_shared.llm_observability import (
     Timer,
     format_payload,
@@ -150,6 +175,8 @@ def _extract_text(content: Any) -> str:
     parts = getattr(content, "parts", None) or []
     texts: list[str] = []
     for part in parts:
+        if getattr(part, "thought", False):
+            continue
         text = getattr(part, "text", None)
         if isinstance(text, str) and text.strip():
             texts.append(text.strip())
@@ -221,6 +248,8 @@ async def run_adk_mcp_agent(
     delay: int,
     max_turns: int,
     summarize: bool = False,
+    windowing: bool = False,
+    window_size: int = 6,
     session_id: Optional[str] = None,
 ):
     model, resolved_model_id = _resolve_model(model_name)
@@ -260,6 +289,11 @@ async def run_adk_mcp_agent(
             f"{guidance_block}"
         ),
         tools=[toolset],
+        generate_content_config=types.GenerateContentConfig(
+            thinking_config=types.ThinkingConfig(
+                include_thoughts=True
+            )
+        )
     )
 
     app_name = "dustwood_adk_mcp"
@@ -281,11 +315,18 @@ async def run_adk_mcp_agent(
             app_name=app_name, user_id=user_id, session_id=active_session_id
         )
 
-    if summarize:
-        compaction_config = EventsCompactionConfig(
-            compaction_interval=3,
-            overlap_size=1,
-        )
+    if summarize or windowing:
+        if summarize:
+            compaction_config = EventsCompactionConfig(
+                compaction_interval=window_size,
+                overlap_size=1,
+            )
+        else:
+            compaction_config = EventsCompactionConfig(
+                compaction_interval=window_size,
+                overlap_size=1,
+                summarizer=TruncatingEventSummarizer(),
+            )
         app = App(
             name=app_name,
             root_agent=agent,
@@ -333,7 +374,15 @@ async def run_adk_mcp_agent(
                 if getattr(event, "partial", False):
                     continue
 
-                event_text = _extract_text(getattr(event, "content", None))
+                content_obj = getattr(event, "content", None)
+                if content_obj and hasattr(content_obj, "parts"):
+                    for part in content_obj.parts:
+                        if getattr(part, "thought", False):
+                            thought_text = getattr(part, "text", None)
+                            if thought_text and thought_text.strip():
+                                logger.info(f"THINKING: {thought_text.strip()}")
+
+                event_text = _extract_text(content_obj)
                 if event_text:
                     logger.info(f"AI: {event_text}")
                     final_text = event_text
@@ -430,6 +479,8 @@ if __name__ == "__main__":
     parser.add_argument("delay", nargs="?", type=int, default=TURN_DELAY)
     parser.add_argument("max_turns", nargs="?", type=int, default=MAX_TURNS)
     parser.add_argument("--summarize", "-s", action="store_true", help="Enable summarization")
+    parser.add_argument("--windowing", "-w", action="store_true", help="Enable sliding window history (disabled by default)")
+    parser.add_argument("--window-size", "-n", type=int, default=6, help="Window size in game turns (default: 6)")
     parser.add_argument("--session-id", type=str, default=None, help="Session ID to restore or create")
 
     args = parser.parse_args()
@@ -441,6 +492,8 @@ if __name__ == "__main__":
             delay=args.delay,
             max_turns=args.max_turns,
             summarize=args.summarize,
+            windowing=args.windowing,
+            window_size=args.window_size,
             session_id=args.session_id,
         )
     )

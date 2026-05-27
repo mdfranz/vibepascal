@@ -20,7 +20,7 @@ from vibepascal_shared.llm_observability import (
 from pydantic_ai import Agent, ModelSettings
 from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
-from pydantic_ai.capabilities import Thinking
+from pydantic_ai.capabilities import Thinking, ProcessHistory
 from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.messages import (
     ModelResponse,
@@ -57,6 +57,8 @@ async def run_pydantic_agent(
     delay: int,
     max_turns: int,
     summarize: bool = False,
+    windowing: bool = False,
+    window_size: int = 6,
     session_id: Optional[str] = None,
 ):
     logger.info(f"--- Pydantic AI MCP Agent Starting (Model: {model_name}) ---")
@@ -71,11 +73,9 @@ async def run_pydantic_agent(
 
     server = MCPToolset(MCP_URL, max_retries=3)
 
-    history_processors = []
-
     # 1. Sliding Window History Processor
     def trim_history(messages: list[ModelMessage]) -> list[ModelMessage]:
-        limit = 10
+        limit = window_size * 4
         if len(messages) <= limit:
             return messages
 
@@ -98,16 +98,17 @@ async def run_pydantic_agent(
 
         return system_messages + messages[trim_index:]
 
-    history_processors.append(trim_history)
+    if windowing and not summarize:
+        capabilities.append(ProcessHistory(trim_history))
 
     # 2. History Summarizer Processor
     if summarize:
         async def summarize_history(messages: list[ModelMessage]) -> list[ModelMessage]:
-            threshold = 15
+            threshold = window_size * 4
             if len(messages) <= threshold:
                 return messages
 
-            split_index = len(messages) - 10
+            split_index = len(messages) - (window_size * 4)
             while split_index > 0:
                 msg = messages[split_index]
                 if isinstance(msg, ModelRequest):
@@ -165,7 +166,7 @@ async def run_pydantic_agent(
                 logger.warning(f"History summarization failed: {ex}")
                 return messages
 
-        history_processors.append(summarize_history)
+        capabilities.append(ProcessHistory(summarize_history))
 
     # 3. Session Persistence
     active_session_id = session_id if session_id else f"pydantic-session-{EPOCH}"
@@ -178,7 +179,8 @@ async def run_pydantic_agent(
                 with open(filepath, "r") as f:
                     json_data = f.read()
                 loaded_messages = ta.validate_json(json_data)
-                loaded_messages = trim_history(loaded_messages)
+                if windowing:
+                    loaded_messages = trim_history(loaded_messages)
                 logger.info(f"Loaded {len(loaded_messages)} messages from session {active_session_id}")
             except Exception as e:
                 logger.warning(f"Failed to load session snapshot: {e}")
@@ -370,6 +372,8 @@ if __name__ == "__main__":
     parser.add_argument("delay", nargs="?", type=int, default=TURN_DELAY)
     parser.add_argument("max_turns", nargs="?", type=int, default=MAX_TURNS)
     parser.add_argument("--summarize", "-s", action="store_true", help="Enable summarization")
+    parser.add_argument("--windowing", "-w", action="store_true", help="Enable sliding window history (disabled by default)")
+    parser.add_argument("--window-size", "-n", type=int, default=6, help="Window size in game turns (default: 6)")
     parser.add_argument("--session-id", type=str, default=None, help="Session ID to restore or create")
 
     args = parser.parse_args()
@@ -381,6 +385,8 @@ if __name__ == "__main__":
             delay=args.delay,
             max_turns=args.max_turns,
             summarize=args.summarize,
+            windowing=args.windowing,
+            window_size=args.window_size,
             session_id=args.session_id,
         )
     )

@@ -10,7 +10,8 @@ from mcp import StdioServerParameters, stdio_client
 
 # Strands Imports
 from strands import Agent
-from strands.agent.conversation_manager import SlidingWindowConversationManager, SummarizingConversationManager
+from strands.agent.conversation_manager import SlidingWindowConversationManager, SummarizingConversationManager, NullConversationManager
+from strands.types.exceptions import EventLoopException
 from strands.session.file_session_manager import FileSessionManager
 from strands.hooks import (
     AfterInvocationEvent,
@@ -46,6 +47,17 @@ MAX_TURNS = 25
 EPOCH = int(time.time())
 LOG_FILE = f"logs/strands_mcp_client-{EPOCH}.log"
 
+class _GameEndedError(EventLoopException):
+    """Raised from hooks to break the Strands agent loop when the game ends.
+
+    Subclasses EventLoopException so the event loop bypasses the "cycle failed"
+    log path and re-raises cleanly without printing a traceback.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(Exception(message))
+
+
 from vibepascal_shared.guidance_loader import format_guidance_block, load_guidance
 from vibepascal_shared.llm_observability import (
     Timer,
@@ -71,6 +83,8 @@ def run_strands_agent(
     max_turns: int,
     transport: str = "streamable-http",
     summarize: bool = False,
+    windowing: bool = False,
+    window_size: int = 6,
     session_id: Optional[str] = None,
 ):
     # Ensure gemini models use the correct prefix for Gemini API (Google AI Studio)
@@ -92,9 +106,27 @@ def run_strands_agent(
     # 1. Initialize the LLM
     if use_native_gemini:
         api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
-        llm_model = GeminiModel(model_id=model_id, client_args={"api_key": api_key})
+        params = {
+            "thinking_config": {
+                "include_thoughts": True
+            }
+        }
+        if "gemini-2.5" in model_id:
+            params["tool_config"] = {
+                "function_calling_config": {
+                    "mode": "ANY"
+                }
+            }
+        llm_model = GeminiModel(
+            model_id=model_id,
+            client_args={"api_key": api_key},
+            params=params
+        )
     else:
-        llm_model = LiteLLMModel(model_id=model_id, params={"max_tokens": 20000})
+        params = {"max_tokens": 20000}
+        if "gemini-2.5" in model_id:
+            params["tool_choice"] = "required"
+        llm_model = LiteLLMModel(model_id=model_id, params=params)
 
     # 2. Initialize the MCP Client
     if transport == "stdio":
@@ -117,16 +149,15 @@ def run_strands_agent(
     if summarize:
         conv_manager = SummarizingConversationManager(
             summary_ratio=0.3,
-            preserve_recent_messages=MESSAGE_HISTORY_LIMIT
+            preserve_recent_messages=window_size * 4
+        )
+    elif windowing:
+        conv_manager = SlidingWindowConversationManager(
+            window_size=window_size * 4,
+            per_turn=True,
         )
     else:
-        # Gemini requires conversations to start with a user turn — the sliding window's fallback
-        # of starting at a model(toolUse)+user(toolResult) pair is invalid for Gemini.
-        # Use a large window so trimming never triggers within a normal game run.
-        conv_manager = SlidingWindowConversationManager(
-            window_size=max(100, max_turns * 4),
-            per_turn=False,
-        )
+        conv_manager = NullConversationManager()
 
     active_session_id = session_id if session_id else f"strands-session-{EPOCH}"
     os.makedirs("sessions/strands_sessions", exist_ok=True)
@@ -144,6 +175,7 @@ def run_strands_agent(
 
     last_state_obj: SimpleNamespace | None = None
     last_output_text: str = ""
+    _game_over = False
 
     def _state_obj_from_dict(d: dict) -> SimpleNamespace:
         inv = d.get("inventory") or []
@@ -318,8 +350,23 @@ def run_strands_agent(
                 else None
             ),
         )
+        if event.stop_response and event.stop_response.message:
+            msg = event.stop_response.message
+            content_blocks = msg.get("content") or []
+            for block in content_blocks:
+                rc = block.get("reasoningContent")
+                if rc:
+                    rt = rc.get("reasoningText")
+                    if rt:
+                        text = rt.get("text")
+                        if text and text.strip():
+                            logger.info(f"THINKING: {text.strip()}")
 
     def _before_tool_call(event: BeforeToolCallEvent) -> None:
+        nonlocal _game_over
+        # Raise OUTSIDE the inner try/except so it propagates and stops the agent loop.
+        if _game_over:
+            raise _GameEndedError("Game ended — stopping agent loop")
         obs = event.invocation_state.setdefault("_obs", {})
         tool_starts: dict[str, float] = obs.setdefault("tool_starts", {})
         tool_use_id = (event.tool_use or {}).get(
@@ -329,15 +376,20 @@ def run_strands_agent(
         try:
             tool_name = (event.tool_use or {}).get("name")
             tool_input = (event.tool_use or {}).get("input") or {}
+            # Apply game-state checks to ALL MCP tools (go, take, drop, drink, command…),
+            # not just "command" — the agent uses named tools that also consume game turns
+            # and return structuredContent, so last_state_obj reflects the real turn count.
+            if last_state_obj is not None and not last_state_obj.is_playing:
+                _game_over = True
+                event.cancel_tool = "Game is over."
+                return
+            if last_state_obj is not None and int(
+                getattr(last_state_obj, "turns", 0)
+            ) >= int(max_turns):
+                _game_over = True
+                event.cancel_tool = "Turn limit reached."
+                return
             if tool_name == "command" and isinstance(tool_input, dict):
-                if last_state_obj is not None and not last_state_obj.is_playing:
-                    event.cancel_tool = "Game is over."
-                    return
-                if last_state_obj is not None and int(
-                    getattr(last_state_obj, "turns", 0)
-                ) >= int(max_turns):
-                    event.cancel_tool = "Turn limit reached."
-                    return
                 raw_cmd = sanitize_command(str(tool_input.get("command") or ""))
                 if last_state_obj is not None:
                     rewritten = policy.rewrite(
@@ -376,6 +428,7 @@ def run_strands_agent(
     def _after_tool_call(event: AfterToolCallEvent) -> None:
         nonlocal last_state_obj
         nonlocal last_output_text
+        nonlocal _game_over
         obs = event.invocation_state.get("_obs", {})
         tool_starts: dict[str, float] = obs.get("tool_starts") or {}
         tool_use_id = (event.tool_use or {}).get(
@@ -390,7 +443,9 @@ def run_strands_agent(
         if event.exception is None:
             try:
                 tool_name = (event.tool_use or {}).get("name")
-                if tool_name == "command" and isinstance(event.result, dict):
+                # Update game state from ALL tools that return structuredContent
+                # (go, take, drop, drink, command…), not just "command".
+                if isinstance(event.result, dict):
                     structured = event.result.get("structuredContent")
                     if isinstance(structured, dict):
                         output = structured.get("output") or ""
@@ -398,18 +453,19 @@ def run_strands_agent(
                         if isinstance(state, dict):
                             last_state_obj = _state_obj_from_dict(state)
                             last_output_text = str(output or "")
-                            tool_input = (event.tool_use or {}).get("input") or {}
-                            executed_cmd = (
-                                sanitize_command(str(tool_input.get("command") or ""))
-                                if isinstance(tool_input, dict)
-                                else ""
-                            )
-                            if executed_cmd and last_state_obj is not None:
-                                policy.observe(
-                                    command=executed_cmd,
-                                    state=last_state_obj,
-                                    output_text=last_output_text,
+                            if tool_name == "command":
+                                tool_input = (event.tool_use or {}).get("input") or {}
+                                executed_cmd = (
+                                    sanitize_command(str(tool_input.get("command") or ""))
+                                    if isinstance(tool_input, dict)
+                                    else ""
                                 )
+                                if executed_cmd and last_state_obj is not None:
+                                    policy.observe(
+                                        command=executed_cmd,
+                                        state=last_state_obj,
+                                        output_text=last_output_text,
+                                    )
                         if game_console_enabled():
                             if isinstance(state, dict):
                                 turns = state.get("turns")
@@ -423,6 +479,20 @@ def run_strands_agent(
                                 print_game(f"\n{header}\n{str(output).strip()}\n")
             except Exception:
                 pass
+        # Detect server-reported turn limit (error response with no structuredContent).
+        # Without this, last_state_obj.turns never reaches max_turns and the LLM
+        # spins calling QUIT repeatedly after the server rejects every command.
+        if (
+            event.exception is None
+            and not getattr(event, "cancel_message", None)
+            and isinstance(event.result, dict)
+            and event.result.get("status") == "error"
+        ):
+            for c in event.result.get("content") or []:
+                if isinstance(c, dict) and "Turn limit reached" in c.get("text", ""):
+                    _game_over = True
+                    log_kv(logger, event="game_over", client="strands", reason="server_turn_limit")
+                    break
         log_kv(
             logger,
             event="tool_call",
@@ -461,6 +531,8 @@ def run_strands_agent(
     try:
         result = agent(prompt)
         logger.info(f"\n[FINAL AGENT RESPONSE]\n{str(result).strip()}")
+    except _GameEndedError as e:
+        logger.info(f"Game ended: {e}")
     except Exception as e:
         logger.error(f"Error during agent execution: {e}")
     finally:
@@ -479,6 +551,8 @@ if __name__ == "__main__":
     parser.add_argument("max_turns", nargs="?", type=int, default=MAX_TURNS)
     parser.add_argument("transport", nargs="?", default="streamable-http")
     parser.add_argument("--summarize", "-s", action="store_true", help="Enable summarization")
+    parser.add_argument("--windowing", "-w", action="store_true", help="Enable sliding window history (disabled by default)")
+    parser.add_argument("--window-size", "-n", type=int, default=6, help="Window size in game turns (default: 6)")
     parser.add_argument("--session-id", type=str, default=None, help="Session ID to restore or create")
 
     args = parser.parse_args()
@@ -490,5 +564,7 @@ if __name__ == "__main__":
         max_turns=args.max_turns,
         transport=args.transport,
         summarize=args.summarize,
+        windowing=args.windowing,
+        window_size=args.window_size,
         session_id=args.session_id,
     )

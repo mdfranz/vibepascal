@@ -20,15 +20,17 @@ usage() {
     echo "Note: This script requires the Go MCP server to be running."
     echo "      You can start it with: ./bin/dustwood --mcp"
     echo ""
-    echo "Usage: ./pydantic-mcp-game.sh <model> <max_turns> [delay] [difficulty] [--summarize] [--session-id ID]"
+    echo "Usage: ./pydantic-mcp-game.sh <model> <max_turns> [delay] [difficulty] [--summarize] [--windowing] [--window-size SIZE] [--session-id ID]"
     echo ""
     echo "Arguments:"
-    echo "  model           Model name (e.g. google:gemini-3.5-flash, anthropic:claude-3-5-sonnet-20241022) (required)"
-    echo "  max_turns       Maximum turns before stopping (required)"
-    echo "  delay           Seconds to wait between turns (default: 1)"
-    echo "  difficulty      full, medium, minimal (default: full)"
-    echo "  --summarize     Enable history summarization to manage long context"
-    echo "  --session-id ID Resume or create a named session"
+    echo "  model             Model name (e.g. google:gemini-3.5-flash, anthropic:claude-3-5-sonnet-20241022) (required)"
+    echo "  max_turns         Maximum turns before stopping (required)"
+    echo "  delay             Seconds to wait between turns (default: 1)"
+    echo "  difficulty        full, medium, minimal (default: full)"
+    echo "  --summarize       Enable history summarization to manage long context"
+    echo "  --windowing, -w   Enable sliding window history (disabled by default)"
+    echo "  --window-size, -n Window size in game turns (default: 6)"
+    echo "  --session-id ID   Resume or create a named session"
     echo ""
     echo "Examples:"
     echo "  ./pydantic-mcp-game.sh google:gemini-3.5-flash 25 1 full"
@@ -53,6 +55,14 @@ while [[ $# -gt 0 ]]; do
         --summarize|-s)
             EXTRA_ARGS+=(--summarize)
             shift
+            ;;
+        --windowing|-w)
+            EXTRA_ARGS+=(--windowing)
+            shift
+            ;;
+        --window-size|-n)
+            EXTRA_ARGS+=(--window-size "$2")
+            shift 2
             ;;
         --session-id)
             EXTRA_ARGS+=(--session-id "$2")

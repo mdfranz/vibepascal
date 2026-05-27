@@ -111,6 +111,8 @@ async def run_agno_mcp_agent(
     delay: int,
     max_turns: int,
     summarize: bool = False,
+    windowing: bool = False,
+    window_size: int = 6,
     session_id: Optional[str] = None,
 ):
     logger.info(f"--- Agno MCP Client Starting (Model: {model_name}) ---")
@@ -132,6 +134,8 @@ async def run_agno_mcp_agent(
     global_delay = delay
 
     policy = CommandPolicy.from_env()
+    policy.history_limit = window_size
+    policy.loop_breaker.history_limit = window_size
     max_llm_calls = max(1, int(max_turns) * int(policy.max_llm_calls_multiplier))
     llm_calls = 0
     history: list[str] = []
@@ -235,7 +239,10 @@ async def run_agno_mcp_agent(
             for prefix in ["gemini:", "gemini/", "google:", "google/", "google-gla:", "google-gla/"]:
                 if clean_model.lower().startswith(prefix):
                     clean_model = clean_model[len(prefix):]
-            model = Gemini(id=clean_model)
+            model = Gemini(
+                id=clean_model,
+                include_thoughts=True,
+            )
         elif "ollama" in model_name.lower():
             clean_model = model_name
             for prefix in ["ollama:", "ollama/"]:
@@ -327,7 +334,8 @@ async def run_agno_mcp_agent(
             db=agent_db,
             session_id=active_session_id,
             memory_manager=memory,
-            add_history_to_context=True,
+            add_history_to_context=not windowing,
+            num_history_runs=1000 if not windowing else None,
         )
 
         # Restore past history if session is resumed
@@ -359,21 +367,32 @@ async def run_agno_mcp_agent(
                 logger.info("\n[GAME OVER]")
                 break
 
-            recent_history = (
-                "\n".join(history[-policy.history_limit :]) if history else "(none)"
-            )
-            prompt = (
-                f"RECENT HISTORY (most recent last):\n{recent_history}\n\n"
-                f"CURRENT STATE:\n{current_summary}\n\n"
-                f"Remaining game turns: {remaining_turns}\n"
-                f"Output exactly one next game command (one line).\n"
-                f"Rules: LOOK does not consume a game turn; do not repeat LOOK if turns did not change. "
-                f"Exits may not be listed; try NORTH/EAST/SOUTH/WEST to explore when unsure."
-            )
+            if windowing:
+                recent_history = (
+                    "\n".join(history[-policy.history_limit :]) if history else "(none)"
+                )
+                prompt = (
+                    f"RECENT HISTORY (most recent last):\n{recent_history}\n\n"
+                    f"CURRENT STATE:\n{current_summary}\n\n"
+                    f"Remaining game turns: {remaining_turns}\n"
+                    f"Output exactly one next game command (one line).\n"
+                    f"Rules: LOOK does not consume a game turn; do not repeat LOOK if turns did not change. "
+                    f"Exits may not be listed; try NORTH/EAST/SOUTH/WEST to explore when unsure."
+                )
+            else:
+                prompt = (
+                    f"CURRENT STATE:\n{current_summary}\n\n"
+                    f"Remaining game turns: {remaining_turns}\n"
+                    f"Output exactly one next game command (one line).\n"
+                    f"Rules: LOOK does not consume a game turn; do not repeat LOOK if turns did not change. "
+                    f"Exits may not be listed; try NORTH/EAST/SOUTH/WEST to explore when unsure."
+                )
             _call_timer.clear()
             _call_timer.append(Timer.start_new())
             run_output = await agent.arun(prompt)
             llm_calls += 1
+            if getattr(run_output, "reasoning_content", None):
+                logger.info(f"THINKING: {run_output.reasoning_content.strip()}")
             raw_cmd = (run_output.content or "").strip()
             if raw_cmd.startswith("```"):
                 lines = raw_cmd.splitlines()
@@ -443,6 +462,8 @@ if __name__ == "__main__":
     parser.add_argument("delay", nargs="?", type=int, default=TURN_DELAY)
     parser.add_argument("max_turns", nargs="?", type=int, default=MAX_TURNS)
     parser.add_argument("--summarize", "-s", action="store_true", help="Enable summarization")
+    parser.add_argument("--windowing", "-w", action="store_true", help="Enable sliding window history (disabled by default)")
+    parser.add_argument("--window-size", "-n", type=int, default=6, help="Window size in game turns (default: 6)")
     parser.add_argument("--session-id", type=str, default=None, help="Session ID to restore or create")
 
     args = parser.parse_args()
@@ -454,6 +475,8 @@ if __name__ == "__main__":
             delay=args.delay,
             max_turns=args.max_turns,
             summarize=args.summarize,
+            windowing=args.windowing,
+            window_size=args.window_size,
             session_id=args.session_id,
         )
     )

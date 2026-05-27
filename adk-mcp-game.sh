@@ -20,16 +20,21 @@ usage() {
     echo "Note: This script requires the Go MCP server to be running."
     echo "      You can start it with: ./bin/dustwood-go --mcp-http --mcp-addr 127.0.0.1:8765 --mcp-json-response"
     echo ""
-    echo "Usage: ./adk-mcp-game.sh <model> <max_turns> [delay] [difficulty]"
+    echo "Usage: ./adk-mcp-game.sh <model> <max_turns> [delay] [difficulty] [--summarize] [--windowing] [--window-size SIZE] [--session-id ID]"
     echo ""
     echo "Arguments:"
-    echo "  model         ADK model name (required)"
-    echo "  max_turns     Maximum turns before stopping (required)"
-    echo "  delay         Seconds to wait between turns (default: 1)"
-    echo "  difficulty    full, medium, minimal (default: full)"
+    echo "  model             ADK model name (required)"
+    echo "  max_turns         Maximum turns before stopping (required)"
+    echo "  delay             Seconds to wait between turns (default: 1)"
+    echo "  difficulty        full, medium, minimal (default: full)"
+    echo "  --summarize       Enable summarization to manage long context"
+    echo "  --windowing, -w   Enable sliding window history (disabled by default)"
+    echo "  --window-size, -n Window size in game turns (default: 6)"
+    echo "  --session-id ID   Resume or create a named session"
     echo ""
     echo "Examples:"
     echo "  ./adk-mcp-game.sh gemini-3.5-flash 25 1 full"
+    echo "  ./adk-mcp-game.sh gemini-3.5-flash 25 1 full --windowing"
     exit 1
 }
 
@@ -42,8 +47,35 @@ MAX_TURNS=$2
 DELAY=${3:-1}
 LEVEL=${4:-full}
 
+EXTRA_ARGS=()
+shift 4 2>/dev/null || shift $# 2>/dev/null || true
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --summarize|-s)
+            EXTRA_ARGS+=(--summarize)
+            shift
+            ;;
+        --windowing|-w)
+            EXTRA_ARGS+=(--windowing)
+            shift
+            ;;
+        --window-size|-n)
+            EXTRA_ARGS+=(--window-size "$2")
+            shift 2
+            ;;
+        --session-id)
+            EXTRA_ARGS+=(--session-id "$2")
+            shift 2
+            ;;
+        *)
+            echo "Unknown argument: $1"
+            usage
+            ;;
+    esac
+done
+
 echo "--- Starting ADK MCP Agent (Level: $LEVEL, Model: $MODEL, Delay: ${DELAY}s, Max Turns: $MAX_TURNS) ---"
 echo "--- Ensure MCP Server is running at http://127.0.0.1:8765/mcp ---"
-uv run --project packages/adk python3 packages/adk/adk_mcp_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
+uv run --project packages/adk python3 packages/adk/adk_mcp_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"
 
 echo "--- Session Complete ---"
