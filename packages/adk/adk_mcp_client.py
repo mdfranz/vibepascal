@@ -11,7 +11,8 @@ from google.adk import Agent, Runner
 from google.adk.agents.run_config import RunConfig
 from google.adk.agents.invocation_context import LlmCallsLimitExceededError
 from google.adk.models.lite_llm import LiteLlm
-from google.adk.sessions import InMemorySessionService
+from google.adk.sessions import InMemorySessionService, DatabaseSessionService
+from google.adk.apps.app import App, EventsCompactionConfig
 from google.adk.tools.mcp_tool import McpToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
 from google.genai import types
@@ -214,7 +215,14 @@ def _make_after_model_callback(resolved_model_id: str, token_accumulator: dict):
     return _after_model_callback
 
 
-async def run_adk_mcp_agent(level: str, model_name: str, delay: int, max_turns: int):
+async def run_adk_mcp_agent(
+    level: str,
+    model_name: str,
+    delay: int,
+    max_turns: int,
+    summarize: bool = False,
+    session_id: Optional[str] = None,
+):
     model, resolved_model_id = _resolve_model(model_name)
     logger.info(f"--- ADK MCP Client Starting (Model: {resolved_model_id}) ---")
 
@@ -256,19 +264,50 @@ async def run_adk_mcp_agent(level: str, model_name: str, delay: int, max_turns: 
 
     app_name = "dustwood_adk_mcp"
     user_id = "adk_user"
-    session_id = f"adk-session-{EPOCH}"
-    session_service = InMemorySessionService()
-    await session_service.create_session(
-        app_name=app_name, user_id=user_id, session_id=session_id
-    )
-    runner = Runner(agent=agent, app_name=app_name, session_service=session_service)
+    active_session_id = session_id if session_id else f"adk-session-{EPOCH}"
 
-    prompt = (
-        "Play Echoes of Dustwood now.\n"
-        "First call the command tool with command='LOOK' and reset=True.\n"
-        f"Then keep playing to maximize score for up to {max_turns} turns.\n"
-        "If turns reach the limit, provide a short final summary."
+    if session_id:
+        os.makedirs("sessions", exist_ok=True)
+        session_service = DatabaseSessionService(db_url="sqlite+aiosqlite:///sessions/adk_sessions.db")
+    else:
+        session_service = InMemorySessionService()
+
+    existing = await session_service.get_session(
+        app_name=app_name, user_id=user_id, session_id=active_session_id
     )
+    is_resume = existing is not None
+    if not is_resume:
+        await session_service.create_session(
+            app_name=app_name, user_id=user_id, session_id=active_session_id
+        )
+
+    if summarize:
+        compaction_config = EventsCompactionConfig(
+            compaction_interval=3,
+            overlap_size=1,
+        )
+        app = App(
+            name=app_name,
+            root_agent=agent,
+            events_compaction_config=compaction_config,
+        )
+        runner = Runner(app=app, session_service=session_service)
+    else:
+        runner = Runner(agent=agent, app_name=app_name, session_service=session_service)
+
+    if is_resume:
+        prompt = (
+            "Continue playing Echoes of Dustwood now to maximize score.\n"
+            f"Keep playing to maximize score for up to {max_turns} turns.\n"
+            "Do not reset the game."
+        )
+    else:
+        prompt = (
+            "Play Echoes of Dustwood now.\n"
+            "First call the command tool with command='LOOK' and reset=True.\n"
+            f"Then keep playing to maximize score for up to {max_turns} turns.\n"
+            "If turns reach the limit, provide a short final summary."
+        )
     content = types.Content(role="user", parts=[types.Part(text=prompt)])
 
     processed_event_ids: set[str] = set()
@@ -281,7 +320,7 @@ async def run_adk_mcp_agent(level: str, model_name: str, delay: int, max_turns: 
         try:
             async for event in runner.run_async(
                 user_id=user_id,
-                session_id=session_id,
+                session_id=active_session_id,
                 new_message=content,
                 run_config=RunConfig(max_llm_calls=max(8, max_turns * 4)),
             ):
@@ -384,9 +423,24 @@ async def run_adk_mcp_agent(level: str, model_name: str, delay: int, max_turns: 
 
 
 if __name__ == "__main__":
-    level = sys.argv[1] if len(sys.argv) > 1 else "full"
-    model = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_MODEL
-    delay = int(sys.argv[3]) if len(sys.argv) > 3 else TURN_DELAY
-    max_turns = int(sys.argv[4]) if len(sys.argv) > 4 else MAX_TURNS
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("level", nargs="?", default="full")
+    parser.add_argument("model", nargs="?", default=DEFAULT_MODEL)
+    parser.add_argument("delay", nargs="?", type=int, default=TURN_DELAY)
+    parser.add_argument("max_turns", nargs="?", type=int, default=MAX_TURNS)
+    parser.add_argument("--summarize", "-s", action="store_true", help="Enable summarization")
+    parser.add_argument("--session-id", type=str, default=None, help="Session ID to restore or create")
 
-    asyncio.run(run_adk_mcp_agent(level, model, delay, max_turns))
+    args = parser.parse_args()
+
+    asyncio.run(
+        run_adk_mcp_agent(
+            level=args.level,
+            model_name=args.model,
+            delay=args.delay,
+            max_turns=args.max_turns,
+            summarize=args.summarize,
+            session_id=args.session_id,
+        )
+    )

@@ -20,16 +20,20 @@ usage() {
     echo "Note: This script requires the Go MCP server to be running."
     echo "      You can start it with: ./bin/dustwood --mcp"
     echo ""
-    echo "Usage: ./strands-mcp-game.sh <model> <max_turns> [delay] [difficulty]"
+    echo "Usage: ./strands-mcp-game.sh <model> <max_turns> [delay] [difficulty] [--summarize] [--session-id ID]"
     echo ""
     echo "Arguments:"
-    echo "  model         LiteLLM model name (required)"
-    echo "  max_turns     Maximum turns before stopping (required)"
-    echo "  delay         Seconds to wait between turns (default: 1)"
-    echo "  difficulty    full, medium, minimal (default: full)"
+    echo "  model           Model name (e.g. google:gemini-3.5-flash, anthropic:claude-3-5-sonnet-20241022) (required)"
+    echo "  max_turns       Maximum turns before stopping (required)"
+    echo "  delay           Seconds to wait between turns (default: 1)"
+    echo "  difficulty      full, medium, minimal (default: full)"
+    echo "  --summarize     Enable summarizing conversation manager for long runs"
+    echo "  --session-id ID Resume or create a named session"
     echo ""
     echo "Examples:"
-    echo "  ./strands-mcp-game.sh gemini/gemini-3-flash-preview 25 1 full"
+    echo "  ./strands-mcp-game.sh google:gemini-3.5-flash 25 1 full"
+    echo "  ./strands-mcp-game.sh anthropic:claude-3-5-sonnet-20241022 25 1 full --summarize"
+    echo "  ./strands-mcp-game.sh google:gemini-3.5-flash 25 1 full --session-id mysave"
     exit 1
 }
 
@@ -42,8 +46,27 @@ MAX_TURNS=$2
 DELAY=${3:-1}
 LEVEL=${4:-full}
 
+EXTRA_ARGS=()
+shift 4 2>/dev/null || shift $# 2>/dev/null || true
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --summarize|-s)
+            EXTRA_ARGS+=(--summarize)
+            shift
+            ;;
+        --session-id)
+            EXTRA_ARGS+=(--session-id "$2")
+            shift 2
+            ;;
+        *)
+            echo "Unknown argument: $1"
+            usage
+            ;;
+    esac
+done
+
 echo "--- Starting Strands MCP Agent (Level: $LEVEL, Model: $MODEL, Delay: ${DELAY}s, Max Turns: $MAX_TURNS) ---"
 echo "--- Ensure MCP Server is running at http://127.0.0.1:8765/mcp ---"
-uv run --project packages/strands python3 packages/strands/strands_mcp_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS"
+uv run --project packages/strands python3 packages/strands/strands_mcp_client.py "$LEVEL" "$MODEL" "$DELAY" "$MAX_TURNS" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"
 
 echo "--- Session Complete ---"

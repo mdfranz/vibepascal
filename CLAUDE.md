@@ -67,7 +67,7 @@ The Go port (`bin/dustwood-go`) handles HTTP MCP better (async I/O, signal handl
 ### Test One Framework
 ```bash
 ./bin/dustwood-go --mcp-http --mcp-addr 127.0.0.1:8765 --mcp-json-response &
-./pydantic-mcp-game.sh full google:gemini-3.5-flash 1 5
+./pydantic-mcp-game.sh google-gla:gemini-3.5-flash 25 1 full
 ```
 
 ### Upgrade Agno to Latest
@@ -79,7 +79,7 @@ uv sync --upgrade
 ### Benchmark All 4 Frameworks
 ```bash
 ./bin/dustwood-go --mcp-http --mcp-addr 127.0.0.1:8765 --mcp-json-response &
-./play-mcp-game.sh google:gemini-3.5-flash full 1 5
+./play-mcp-game.sh google-gla:gemini-3.5-flash 25 1 full
 ```
 
 ### Add a New Game Command

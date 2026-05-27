@@ -6,6 +6,8 @@ import time
 from typing import List, Optional
 
 from agno.agent import Agent
+from agno.db.sqlite import SqliteDb
+from agno.memory.manager import MemoryManager
 from agno.models.anthropic import Claude
 from agno.models.google import Gemini
 from agno.models.ollama import Ollama
@@ -28,9 +30,11 @@ from pydantic import BaseModel
 # Load environment variables
 load_dotenv()
 
-# Support GOOGLE_API_KEY for LiteLLM/Gemini
+# Normalize Gemini API key — agno uses GOOGLE_API_KEY, google-genai SDK also accepts GEMINI_API_KEY
 if "GOOGLE_API_KEY" in os.environ and "GEMINI_API_KEY" not in os.environ:
     os.environ["GEMINI_API_KEY"] = os.environ["GOOGLE_API_KEY"]
+if "GEMINI_API_KEY" in os.environ and "GOOGLE_API_KEY" not in os.environ:
+    os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
 
 # --- Configuration ---
 MCP_URL = os.environ.get("MCP_URL", "http://127.0.0.1:8765/mcp")
@@ -101,7 +105,14 @@ def _format_command_result(*, structured_content: dict) -> str:
     )
 
 
-async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns: int):
+async def run_agno_mcp_agent(
+    level: str,
+    model_name: str,
+    delay: int,
+    max_turns: int,
+    summarize: bool = False,
+    session_id: Optional[str] = None,
+):
     logger.info(f"--- Agno MCP Client Starting (Model: {model_name}) ---")
 
     run_timer = Timer.start_new()
@@ -284,6 +295,20 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
                 ),
             )
 
+        # Database persistence
+        os.makedirs("sessions", exist_ok=True)
+        agent_db = SqliteDb(db_file="sessions/agno_sessions.db", session_table="dustwood_agno_sessions")
+
+        # Memory configuration (RAG/memory manager with compaction)
+        memory = None
+        if summarize:
+            memory_db = SqliteDb(db_file="sessions/agno_sessions.db", memory_table="dustwood_agno_memories")
+            memory = MemoryManager(
+                db=memory_db,
+                add_memories=True,
+                update_memories=True,
+            )
+
         agent = Agent(
             model=model,
             name="DustwoodAgnoMCPAdventurer",
@@ -297,7 +322,25 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
             ),
             markdown=True,
             post_hooks=[_provider_post_hook],
+            db=agent_db,
+            session_id=session_id,
+            memory_manager=memory,
+            add_history_to_context=True,
         )
+
+        # Restore past history if session is resumed
+        if session_id:
+            try:
+                past_messages = agent.get_chat_history()
+                if past_messages:
+                    for msg in past_messages:
+                        if msg.role == "assistant":
+                            cmd = (msg.content or "").strip()
+                            if cmd:
+                                history.append(f"cmd={cmd}")
+                    logger.info(f"Resumed past session with {len(history)} past commands")
+            except Exception as e:
+                logger.warning(f"Could not load past chat history: {e}")
 
         # Bounded interaction loop
         current_summary = initial_summary
@@ -391,9 +434,24 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
 
 
 if __name__ == "__main__":
-    level = sys.argv[1] if len(sys.argv) > 1 else "full"
-    model = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_MODEL
-    delay = int(sys.argv[3]) if len(sys.argv) > 3 else TURN_DELAY
-    max_turns = int(sys.argv[4]) if len(sys.argv) > 4 else MAX_TURNS
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("level", nargs="?", default="full")
+    parser.add_argument("model", nargs="?", default=DEFAULT_MODEL)
+    parser.add_argument("delay", nargs="?", type=int, default=TURN_DELAY)
+    parser.add_argument("max_turns", nargs="?", type=int, default=MAX_TURNS)
+    parser.add_argument("--summarize", "-s", action="store_true", help="Enable summarization")
+    parser.add_argument("--session-id", type=str, default=None, help="Session ID to restore or create")
 
-    asyncio.run(run_agno_mcp_agent(level, model, delay, max_turns))
+    args = parser.parse_args()
+
+    asyncio.run(
+        run_agno_mcp_agent(
+            level=args.level,
+            model_name=args.model,
+            delay=args.delay,
+            max_turns=args.max_turns,
+            summarize=args.summarize,
+            session_id=args.session_id,
+        )
+    )

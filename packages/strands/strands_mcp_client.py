@@ -10,7 +10,8 @@ from mcp import StdioServerParameters, stdio_client
 
 # Strands Imports
 from strands import Agent
-from strands.agent.conversation_manager import SlidingWindowConversationManager
+from strands.agent.conversation_manager import SlidingWindowConversationManager, SummarizingConversationManager
+from strands.session.file_session_manager import FileSessionManager
 from strands.hooks import (
     AfterInvocationEvent,
     AfterModelCallEvent,
@@ -20,6 +21,7 @@ from strands.hooks import (
     BeforeToolCallEvent,
 )
 from strands.models.litellm import LiteLLMModel
+from strands.models.gemini import GeminiModel
 from strands.tools.mcp import MCPClient
 
 # Load environment variables
@@ -68,19 +70,31 @@ def run_strands_agent(
     delay: int,
     max_turns: int,
     transport: str = "streamable-http",
+    summarize: bool = False,
+    session_id: Optional[str] = None,
 ):
     # Ensure gemini models use the correct prefix for Gemini API (Google AI Studio)
     # instead of defaulting to Vertex AI if passed without prefix.
-    if model_id.startswith("gemini-") and "/" not in model_id:
-        logger.info(f"Auto-prepending 'gemini/' to model ID: {model_id}")
-        model_id = f"gemini/{model_id}"
+    use_native_gemini = False
+    if model_id.startswith("google:"):
+        model_id = model_id.removeprefix("google:")
+        use_native_gemini = True
+    elif model_id.startswith("gemini-") and "/" not in model_id:
+        use_native_gemini = True
+    elif model_id.startswith("gemini/"):
+        model_id = model_id.removeprefix("gemini/")
+        use_native_gemini = True
     elif model_id.startswith("openai:"):
         model_id = model_id.removeprefix("openai:")
     elif model_id.startswith("anthropic:"):
         model_id = model_id.replace("anthropic:", "anthropic/")
 
     # 1. Initialize the LLM
-    llm_model = LiteLLMModel(model_id=model_id, params={"max_tokens": 20000})
+    if use_native_gemini:
+        api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+        llm_model = GeminiModel(model_id=model_id, client_args={"api_key": api_key})
+    else:
+        llm_model = LiteLLMModel(model_id=model_id, params={"max_tokens": 20000})
 
     # 2. Initialize the MCP Client
     if transport == "stdio":
@@ -99,8 +113,28 @@ def run_strands_agent(
 
             mcp_client = MCPClient(lambda: streamablehttp_client(MCP_URL))
 
-    # 3. Setup Conversation Manager
-    conv_manager = SlidingWindowConversationManager(window_size=MESSAGE_HISTORY_LIMIT)
+    # 3. Setup Conversation Manager and Session Manager
+    if summarize:
+        conv_manager = SummarizingConversationManager(
+            summary_ratio=0.3,
+            preserve_recent_messages=MESSAGE_HISTORY_LIMIT
+        )
+    else:
+        # Gemini requires conversations to start with a user turn — the sliding window's fallback
+        # of starting at a model(toolUse)+user(toolResult) pair is invalid for Gemini.
+        # Use a large window so trimming never triggers within a normal game run.
+        conv_manager = SlidingWindowConversationManager(
+            window_size=max(100, max_turns * 4),
+            per_turn=False,
+        )
+
+    session_manager = None
+    if session_id:
+        os.makedirs("sessions/strands_sessions", exist_ok=True)
+        session_manager = FileSessionManager(
+            session_id=session_id,
+            storage_dir="sessions/strands_sessions"
+        )
 
     # 4. Initialize Agent with MCP Tools
     guidance_cfg = load_guidance(level)
@@ -151,6 +185,7 @@ def run_strands_agent(
         ),
         tools=[mcp_client],
         conversation_manager=conv_manager,
+        session_manager=session_manager,
     )
 
     # --- Observability hooks (provider calls + tool calls + latency) ---
@@ -437,10 +472,24 @@ def run_strands_agent(
 
 
 if __name__ == "__main__":
-    level = sys.argv[1] if len(sys.argv) > 1 else "full"
-    model = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_MODEL_ID
-    delay = int(sys.argv[3]) if len(sys.argv) > 3 else TURN_DELAY
-    max_turns = int(sys.argv[4]) if len(sys.argv) > 4 else MAX_TURNS
-    transport = sys.argv[5] if len(sys.argv) > 5 else "streamable-http"
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("level", nargs="?", default="full")
+    parser.add_argument("model", nargs="?", default=DEFAULT_MODEL_ID)
+    parser.add_argument("delay", nargs="?", type=int, default=TURN_DELAY)
+    parser.add_argument("max_turns", nargs="?", type=int, default=MAX_TURNS)
+    parser.add_argument("transport", nargs="?", default="streamable-http")
+    parser.add_argument("--summarize", "-s", action="store_true", help="Enable summarization")
+    parser.add_argument("--session-id", type=str, default=None, help="Session ID to restore or create")
 
-    run_strands_agent(level, model, delay, max_turns, transport)
+    args = parser.parse_args()
+
+    run_strands_agent(
+        level=args.level,
+        model_id=args.model,
+        delay=args.delay,
+        max_turns=args.max_turns,
+        transport=args.transport,
+        summarize=args.summarize,
+        session_id=args.session_id,
+    )

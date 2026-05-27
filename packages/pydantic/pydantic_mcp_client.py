@@ -26,7 +26,10 @@ from pydantic_ai.messages import (
     TextPart, 
     ThinkingPart, 
     ToolCallPart, 
-    ToolReturnPart
+    ToolReturnPart,
+    ModelMessage,
+    UserPromptPart,
+    SystemPromptPart
 )
 from pydantic_ai.models import KnownModelName
 
@@ -46,7 +49,14 @@ LOG_FILE = f"logs/pydantic_mcp_client-{EPOCH}.log"
 logger = setup_logger(__name__, LOG_FILE)
 
 
-async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns: int):
+async def run_pydantic_agent(
+    level: str,
+    model_name: str,
+    delay: int,
+    max_turns: int,
+    summarize: bool = False,
+    session_id: Optional[str] = None,
+):
     logger.info(f"--- Pydantic AI MCP Agent Starting (Model: {model_name}) ---")
 
     guidance_cfg = load_guidance(level)
@@ -59,11 +69,127 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
 
     server = MCPToolset(MCP_URL, max_retries=3)
 
+    history_processors = []
+
+    # 1. Sliding Window History Processor
+    def trim_history(messages: list[ModelMessage]) -> list[ModelMessage]:
+        limit = 10
+        if len(messages) <= limit:
+            return messages
+
+        trim_index = len(messages) - limit
+        while trim_index < len(messages):
+            msg = messages[trim_index]
+            if isinstance(msg, ModelRequest):
+                if any(isinstance(part, ToolReturnPart) for part in msg.parts):
+                    trim_index -= 1
+                    continue
+            break
+
+        trim_index = max(0, trim_index)
+
+        system_messages = []
+        if messages and isinstance(messages[0], ModelRequest):
+            sys_parts = [part for part in messages[0].parts if isinstance(part, SystemPromptPart)]
+            if sys_parts:
+                system_messages.append(ModelRequest(parts=sys_parts))
+
+        return system_messages + messages[trim_index:]
+
+    history_processors.append(trim_history)
+
+    # 2. History Summarizer Processor
+    if summarize:
+        async def summarize_history(messages: list[ModelMessage]) -> list[ModelMessage]:
+            threshold = 15
+            if len(messages) <= threshold:
+                return messages
+
+            split_index = len(messages) - 10
+            while split_index > 0:
+                msg = messages[split_index]
+                if isinstance(msg, ModelRequest):
+                    if any(isinstance(part, ToolReturnPart) for part in msg.parts):
+                        split_index -= 1
+                        continue
+                break
+
+            split_index = max(1, split_index)
+            messages_to_summarize = messages[:split_index]
+            recent_messages = messages[split_index:]
+
+            text_parts = []
+            for msg in messages_to_summarize:
+                if isinstance(msg, ModelRequest):
+                    for part in msg.parts:
+                        if isinstance(part, UserPromptPart) and part.content:
+                            text_parts.append(f"User: {part.content}")
+                        elif isinstance(part, ToolReturnPart) and part.content:
+                            text_parts.append(f"Tool Result: {part.content}")
+                elif isinstance(msg, ModelResponse):
+                    for part in msg.parts:
+                        if isinstance(part, TextPart) and part.content:
+                            text_parts.append(f"Agent: {part.content}")
+                        elif isinstance(part, ToolCallPart) and part.args:
+                            text_parts.append(f"Agent Tool Call: {part.name} args={part.args}")
+
+            history_text = "\n".join(text_parts)
+            if not history_text.strip():
+                return messages
+
+            try:
+                logger.info(f"Summarizing {len(messages_to_summarize)} historical messages...")
+                summarizer_agent = Agent(
+                    model=model_name,
+                    system_prompt=(
+                        "You are a memory compression assistant. "
+                        "Summarize the conversation history concisely in bullet points, "
+                        "retaining all inventory items, room names, and game turn count."
+                    )
+                )
+                res = await summarizer_agent.run(f"Summarize this game history:\n\n{history_text}")
+                summary = res.data
+
+                summary_msg = ModelRequest(parts=[UserPromptPart(f"Summary of past game turns:\n{summary}")])
+
+                system_messages = []
+                if messages and isinstance(messages[0], ModelRequest):
+                    sys_parts = [part for part in messages[0].parts if isinstance(part, SystemPromptPart)]
+                    if sys_parts:
+                        system_messages.append(ModelRequest(parts=sys_parts))
+
+                return system_messages + [summary_msg] + recent_messages
+            except Exception as ex:
+                logger.warning(f"History summarization failed: {ex}")
+                return messages
+
+        history_processors.append(summarize_history)
+
+    # 3. Session Persistence
+    loaded_messages = None
+    if session_id:
+        import json
+        from pydantic import TypeAdapter
+        filepath = f"sessions/pydantic_sessions/{session_id}.json"
+        if os.path.exists(filepath):
+            try:
+                ta = TypeAdapter(list[ModelMessage])
+                with open(filepath, "r") as f:
+                    json_data = f.read()
+                loaded_messages = ta.validate_json(json_data)
+                loaded_messages = trim_history(loaded_messages)
+                logger.info(f"Loaded {len(loaded_messages)} messages from session {session_id}")
+            except Exception as e:
+                logger.warning(f"Failed to load session snapshot: {e}")
+
     agent = Agent(
         model=model_name,
         toolsets=[server],
         capabilities=capabilities,
-        model_settings=ModelSettings(max_tokens=4096, anthropic_thinking={"type": "enabled", "budget_tokens": 2048}),
+        model_settings=ModelSettings(
+            max_tokens=4096,
+            **({"anthropic_thinking": {"type": "enabled", "budget_tokens": 2048}} if model_name.startswith("anthropic:") else {}),
+        ),
         system_prompt=(
             "You are an expert adventurer playing 'Echoes of Dustwood' via an MCP interface.\n"
             "Use the available MCP tools to play the game.\n"
@@ -93,7 +219,11 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
     
     agent_run = None
     try:
-        async with agent.iter(prompt, usage_limits=UsageLimits(request_limit=max_turns * 4)) as run_iter:
+        async with agent.iter(
+            prompt,
+            message_history=loaded_messages,
+            usage_limits=UsageLimits(request_limit=max_turns * 4)
+        ) as run_iter:
             agent_run = run_iter
             async for node in agent_run:
                 # 1. Capture incremental usage and log provider call for this turn
@@ -190,6 +320,16 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
                                         logger.info(f"Turn limit ({max_turns}) reached. Stopping agent.")
                                         raise UsageLimitExceeded(f"Turn limit {max_turns} reached.")
 
+                if session_id:
+                    try:
+                        os.makedirs("sessions/pydantic_sessions", exist_ok=True)
+                        ta = TypeAdapter(list[ModelMessage])
+                        serialized = ta.dump_json(agent_run.all_messages())
+                        with open(f"sessions/pydantic_sessions/{session_id}.json", "wb") as f:
+                            f.write(serialized)
+                    except Exception as e:
+                        logger.warning(f"Failed to save session snapshot: {e}")
+
     except (UnexpectedModelBehavior, UsageLimitExceeded) as e:
         logger.info(f"[GAME ENDED] {e}")
 
@@ -222,9 +362,24 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
 
 
 if __name__ == "__main__":
-    level = sys.argv[1] if len(sys.argv) > 1 else "full"
-    model = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_MODEL
-    delay = int(sys.argv[3]) if len(sys.argv) > 3 else TURN_DELAY
-    max_turns = int(sys.argv[4]) if len(sys.argv) > 4 else MAX_TURNS
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("level", nargs="?", default="full")
+    parser.add_argument("model", nargs="?", default=DEFAULT_MODEL)
+    parser.add_argument("delay", nargs="?", type=int, default=TURN_DELAY)
+    parser.add_argument("max_turns", nargs="?", type=int, default=MAX_TURNS)
+    parser.add_argument("--summarize", "-s", action="store_true", help="Enable summarization")
+    parser.add_argument("--session-id", type=str, default=None, help="Session ID to restore or create")
 
-    asyncio.run(run_pydantic_agent(level, model, delay, max_turns))
+    args = parser.parse_args()
+
+    asyncio.run(
+        run_pydantic_agent(
+            level=args.level,
+            model_name=args.model,
+            delay=args.delay,
+            max_turns=args.max_turns,
+            summarize=args.summarize,
+            session_id=args.session_id,
+        )
+    )

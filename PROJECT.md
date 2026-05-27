@@ -152,6 +152,19 @@ With four active frameworks playing the game over MCP, the focus shifted to benc
     *   `9aa3d10` / `1e99a86`: Consolidated legacy python files and shell scripts into `junk/` to keep the root directory clean.
     *   `2e79908`: Created [packages/IMPL.md](file:///home/mfranz/github/vibepascal/packages/IMPL.md) to document the details of each client's loop execution style and hook architecture.
 
+## Phase 13: Memory Management and Session Persistence
+**Timeline:** May 26 - 27, 2026
+
+To prevent context window bloat, reduce API costs, and enable cross-session resume capabilities, all four benchmark clients were upgraded with memory compaction and session persistence.
+
+*   **Key Milestones:** Implementation of sliding window history trimming, conversation summarization, and database/file persistence across Strands, Agno, Pydantic AI, and Google ADK.
+*   **Key Code Changes & Improvements:**
+    *   **Strands**: Configured `SlidingWindowConversationManager` (with proactive `per_turn=True` trimming) and toggleable `SummarizingConversationManager` for context summarization. Added `FileSessionManager` targeting `sessions/strands_sessions/`.
+    *   **Agno**: Configured `MemoryManager` with `SummarizeStrategy` compaction, and registered the `SqliteDb` provider targeting `sessions/agno_sessions.db` to handle native SQLite state serialization.
+    *   **Pydantic AI**: Implemented custom `trim_history` (ensuring tool call/result boundary pairs remain unbroken) and async summarization `HistoryProcessor` callbacks, saving/restoring session snapshots to `sessions/pydantic_sessions/`.
+    *   **Google ADK**: Integrated `DatabaseSessionService(db_url="sqlite+aiosqlite:///sessions/adk_sessions.db")` and app-level `EventsCompactionConfig` compaction. Updated prompt handling to enable safe resuming from existing session histories without game resets.
+    *   **CLI & Runner Standardization**: Updated all four client entry points and top-level runner shell scripts to support standard positional arguments alongside `--summarize` (`-s`) and `--session-id` flags.
+
 ## Learnings & The "Broken" Path
 Building a game for AI agents revealed fundamental differences between human and machine play. Each "broken" behavior led to a more robust architecture.
 
