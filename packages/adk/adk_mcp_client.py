@@ -266,16 +266,16 @@ async def run_adk_mcp_agent(
     user_id = "adk_user"
     active_session_id = session_id if session_id else f"adk-session-{EPOCH}"
 
-    if session_id:
-        os.makedirs("sessions", exist_ok=True)
-        session_service = DatabaseSessionService(db_url="sqlite+aiosqlite:///sessions/adk_sessions.db")
-    else:
-        session_service = InMemorySessionService()
+    os.makedirs("sessions", exist_ok=True)
+    session_service = DatabaseSessionService(db_url="sqlite+aiosqlite:///sessions/adk_sessions.db")
 
-    existing = await session_service.get_session(
-        app_name=app_name, user_id=user_id, session_id=active_session_id
-    )
-    is_resume = existing is not None
+    is_resume = False
+    if session_id:
+        existing = await session_service.get_session(
+            app_name=app_name, user_id=user_id, session_id=active_session_id
+        )
+        is_resume = existing is not None
+
     if not is_resume:
         await session_service.create_session(
             app_name=app_name, user_id=user_id, session_id=active_session_id

@@ -3,6 +3,8 @@ import logging
 import os
 import sys
 import time
+import json
+from pydantic import TypeAdapter
 
 from dotenv import load_dotenv
 from vibepascal_shared.guidance_loader import format_guidance_block, load_guidance
@@ -166,11 +168,10 @@ async def run_pydantic_agent(
         history_processors.append(summarize_history)
 
     # 3. Session Persistence
+    active_session_id = session_id if session_id else f"pydantic-session-{EPOCH}"
     loaded_messages = None
     if session_id:
-        import json
-        from pydantic import TypeAdapter
-        filepath = f"sessions/pydantic_sessions/{session_id}.json"
+        filepath = f"sessions/pydantic_sessions/{active_session_id}.json"
         if os.path.exists(filepath):
             try:
                 ta = TypeAdapter(list[ModelMessage])
@@ -178,7 +179,7 @@ async def run_pydantic_agent(
                     json_data = f.read()
                 loaded_messages = ta.validate_json(json_data)
                 loaded_messages = trim_history(loaded_messages)
-                logger.info(f"Loaded {len(loaded_messages)} messages from session {session_id}")
+                logger.info(f"Loaded {len(loaded_messages)} messages from session {active_session_id}")
             except Exception as e:
                 logger.warning(f"Failed to load session snapshot: {e}")
 
@@ -320,15 +321,15 @@ async def run_pydantic_agent(
                                         logger.info(f"Turn limit ({max_turns}) reached. Stopping agent.")
                                         raise UsageLimitExceeded(f"Turn limit {max_turns} reached.")
 
-                if session_id:
-                    try:
-                        os.makedirs("sessions/pydantic_sessions", exist_ok=True)
-                        ta = TypeAdapter(list[ModelMessage])
-                        serialized = ta.dump_json(agent_run.all_messages())
-                        with open(f"sessions/pydantic_sessions/{session_id}.json", "wb") as f:
-                            f.write(serialized)
-                    except Exception as e:
-                        logger.warning(f"Failed to save session snapshot: {e}")
+                # Always save session snapshots for each run
+                try:
+                    os.makedirs("sessions/pydantic_sessions", exist_ok=True)
+                    ta = TypeAdapter(list[ModelMessage])
+                    serialized = ta.dump_json(agent_run.all_messages())
+                    with open(f"sessions/pydantic_sessions/{active_session_id}.json", "wb") as f:
+                        f.write(serialized)
+                except Exception as e:
+                    logger.warning(f"Failed to save session snapshot: {e}")
 
     except (UnexpectedModelBehavior, UsageLimitExceeded) as e:
         logger.info(f"[GAME ENDED] {e}")

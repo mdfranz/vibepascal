@@ -232,7 +232,7 @@ async def run_agno_mcp_agent(
             model = Claude(id=clean_model)
         elif "gemini" in model_name.lower():
             clean_model = model_name
-            for prefix in ["gemini:", "gemini/", "google:", "google/"]:
+            for prefix in ["gemini:", "gemini/", "google:", "google/", "google-gla:", "google-gla/"]:
                 if clean_model.lower().startswith(prefix):
                     clean_model = clean_model[len(prefix):]
             model = Gemini(id=clean_model)
@@ -295,6 +295,8 @@ async def run_agno_mcp_agent(
                 ),
             )
 
+        active_session_id = session_id if session_id else f"agno-session-{EPOCH}"
+
         # Database persistence
         os.makedirs("sessions", exist_ok=True)
         agent_db = SqliteDb(db_file="sessions/agno_sessions.db", session_table="dustwood_agno_sessions")
@@ -323,7 +325,7 @@ async def run_agno_mcp_agent(
             markdown=True,
             post_hooks=[_provider_post_hook],
             db=agent_db,
-            session_id=session_id,
+            session_id=active_session_id,
             memory_manager=memory,
             add_history_to_context=True,
         )

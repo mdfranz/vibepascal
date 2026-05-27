@@ -128,13 +128,12 @@ def run_strands_agent(
             per_turn=False,
         )
 
-    session_manager = None
-    if session_id:
-        os.makedirs("sessions/strands_sessions", exist_ok=True)
-        session_manager = FileSessionManager(
-            session_id=session_id,
-            storage_dir="sessions/strands_sessions"
-        )
+    active_session_id = session_id if session_id else f"strands-session-{EPOCH}"
+    os.makedirs("sessions/strands_sessions", exist_ok=True)
+    session_manager = FileSessionManager(
+        session_id=active_session_id,
+        storage_dir="sessions/strands_sessions"
+    )
 
     # 4. Initialize Agent with MCP Tools
     guidance_cfg = load_guidance(level)
