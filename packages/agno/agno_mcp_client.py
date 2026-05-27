@@ -12,17 +12,15 @@ from agno.models.ollama import Ollama
 from agno.models.openai import OpenAIChat
 from agno.tools.mcp import MCPTools
 from dotenv import load_dotenv
-from vibepascal_shared.guidance_loader import load_guidance
+from vibepascal_shared.guidance_loader import format_guidance_block, load_guidance
 from vibepascal_shared.llm_observability import (
     Timer,
-    console_logging_enabled,
-    enable_http_debug_logging,
     format_payload,
     game_console_enabled,
-    http_debug_logging_enabled,
     log_kv,
     print_game,
     provider_payload_logging_enabled,
+    setup_logger,
 )
 from vibepascal_shared.mcp_command_policy import CommandPolicy, sanitize_command
 from pydantic import BaseModel
@@ -45,32 +43,8 @@ MAX_TURNS = 25
 EPOCH = int(time.time())
 LOG_FILE = f"logs/agno_mcp_client-{EPOCH}.log"
 
-# --- Setup Logging ---
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-os.makedirs("logs", exist_ok=True)
-
-file_handler = logging.FileHandler(LOG_FILE)
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-logger.addHandler(file_handler)
-
-if console_logging_enabled():
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(logging.Formatter("%(message)s"))
-    logger.addHandler(console_handler)
-
-# Silence verbose loggers
-if http_debug_logging_enabled():
-    handlers = [file_handler]
-    if console_logging_enabled():
-        handlers.append(console_handler)
-    enable_http_debug_logging(handlers=handlers)
-else:
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("anyio").setLevel(logging.WARNING)
+logger = setup_logger(__name__, LOG_FILE)
+logging.getLogger("anyio").setLevel(logging.WARNING)
 logging.getLogger("mcp").setLevel(logging.WARNING)
 
 # Global variables for delay
@@ -139,13 +113,7 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
         "requests": 0,
     }
 
-    guidance_map = {
-        "full": "data/guidance_full.txt",
-        "medium": "data/guidance_medium.txt",
-        "minimal": "data/guidance_minimal.txt",
-    }
-    guidance_file = guidance_map.get(level, "data/guidance_full.txt")
-    guidance_cfg = load_guidance(guidance_file)
+    guidance_cfg = load_guidance(level)
     if guidance_cfg.path:
         logger.info(f"Guidance: {guidance_cfg.path}")
 
@@ -274,11 +242,7 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
             model = OpenAIChat(id=clean_model)
 
         # Instantiate the agent
-        guidance_block = (
-            f"\n\nGUIDANCE (follow this):\n{guidance_cfg.text}"
-            if guidance_cfg.text
-            else ""
-        )
+        guidance_block = format_guidance_block(guidance_cfg)
 
         _call_timer: list[Timer] = []
 

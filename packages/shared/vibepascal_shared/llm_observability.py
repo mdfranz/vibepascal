@@ -195,6 +195,34 @@ class Timer:
         return int((time.perf_counter() - self.start) * 1000)
 
 
+def setup_logger(name: str, log_file: str) -> logging.Logger:
+    """Create a file-backed logger with optional console and HTTP debug handlers."""
+    os.makedirs("logs", exist_ok=True)
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    logger.addHandler(file_handler)
+
+    active_handlers: list[logging.Handler] = [file_handler]
+    if console_logging_enabled():
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(console_handler)
+        active_handlers.append(console_handler)
+
+    if http_debug_logging_enabled():
+        enable_http_debug_logging(handlers=active_handlers)
+    else:
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
+
+    return logger
+
+
 def provider_payload_logging_enabled() -> bool:
     return _env_bool("LOG_PAYLOADS", True)
 

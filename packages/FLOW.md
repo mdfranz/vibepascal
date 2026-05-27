@@ -15,8 +15,6 @@ The MCP clients cluster into two practical patterns for managing LLM-to-game int
    - **Center of gravity**: Framework lifecycle hooks or async event/node streams.
    - **Logic shape**: No explicit Python game `while` loop. The framework drives tool calls; policy and state transitions are injected via iterator nodes (Pydantic AI), lifecycle hooks (Strands), or a callback + event stream (ADK).
 
-> **MS Agent** (`ms_agent_mcp_client.py`) was a hybrid loop + tool-boundary client but is no longer invoked by `play-mcp-game.sh` and is considered deprecated. It is retained in the repo but excluded from this analysis.
-
 ## Purpose and Scope
 
 This analysis compares how each active client:

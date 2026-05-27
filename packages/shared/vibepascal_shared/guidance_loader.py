@@ -36,6 +36,10 @@ def resolve_guidance_path(value: Optional[str]) -> Optional[Path]:
     return p
 
 
+def format_guidance_block(cfg: GuidanceConfig) -> str:
+    return f"\n\nGUIDANCE (follow this):\n{cfg.text}" if cfg.text else ""
+
+
 def load_guidance(value: Optional[str]) -> GuidanceConfig:
     path = resolve_guidance_path(value)
     if path is None:

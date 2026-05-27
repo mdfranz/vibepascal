@@ -7,12 +7,12 @@ This document summarizes the current observability implementation across the act
 - `packages/pydantic/pydantic_mcp_client.py`
 - `packages/strands/strands_mcp_client.py`
 
-> **MS Agent deprecated**: `packages/ms_agent/ms_agent_mcp_client.py` is no longer invoked by `play-mcp-game.sh`. It has no native hook API and token fields were not normalizable without significant wrapper work.
 
 ## Shared Foundation: `vibepascal_shared.llm_observability`
 
 All clients rely on a shared utility module for structured telemetry:
 
+- `setup_logger(name, log_file)`: creates the file + optional console handler; wires HTTP debug logging. Called once per client at module level — replaces ~20 lines of duplicated setup.
 - `log_kv`: emits one-line `key=value` logs with JSON-safe value encoding.
 - `Timer`: latency timing in milliseconds.
 - `format_payload`: serialization + redaction + truncation.
@@ -135,7 +135,6 @@ The `model_call` event logs per-call latency and `stop_reason` but does not emit
 | Agno | `post_hooks` | `input_tokens`, `output_tokens`, `total_tokens`, `reasoning_tokens`, `tool_calls` | ✅ | ✅ Resolved (closed manually to avoid anyio error) |
 | Pydantic AI | Iterator delta loop | `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens` | ✅ | ✅ |
 | Strands | `AfterInvocationEvent` hook | `input_tokens`, `output_tokens`, `total_tokens` | ✅ | ✅ Resolved (camelCase fallbacks added) |
-| MS Agent | ~~`LoggingChatClient` wrapper~~ | ~~blob only~~ | — | **Deprecated** |
 
 ## Hooks Implementation Comparison
 

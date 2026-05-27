@@ -115,7 +115,6 @@ To provide reliable state tracking for long-running sessions, the Go engine was 
     *   `f6c8e19`: Implemented an automatic game state autosave mechanism.
     *   `af5117a`: Updated the Go MCP stdio server transport to support `modelcontextprotocol/go-sdk` v1.4.0 API.
     *   `0e1cb92`: Consolidated tool, resource, and prompt registration in the Go server into a single `createMCPServer` utility.
-    *   `e8850c6` / `4569a1d`: Attempted Gemini compatibility patches in MS Agent client before ultimately deprecating MS Agent support for Gemini.
 
 ## Phase 10: Streamable HTTP and Autonomous Iteration
 **Timeline:** March 22 - 31, 2026
@@ -136,8 +135,7 @@ As the number of agent frameworks grew, dependency conflicts between packages be
 
 *   **Key Milestones:** Restructuring of the repository into isolated packages, deprecation of legacy frameworks, and the introduction of a new Google ADK client.
 *   **Key Code Changes & Improvements:**
-    *   `2dd6af0`: Restructured the monolithic `scripts/` directory into isolated packages under `packages/` (`adk`, `agno`, `pydantic`, `strands`, `ms_agent`, `shared`), each containing its own `pyproject.toml` and `uv` virtual environment.
-    *   `a3dc918`: Deprecated the Microsoft Agent (`ms_agent`) framework due to dependency resolution issues and lack of standardized observability hooks.
+    *   `2dd6af0`: Restructured the monolithic `scripts/` directory into isolated packages under `packages/` (`adk`, `agno`, `pydantic`, `strands`, `shared`), each containing its own `pyproject.toml` and `uv` virtual environment.
     *   `8a5510c`: Created the Google ADK MCP client (`packages/adk/adk_mcp_client.py`) utilizing `google-adk[extensions,mcp]`, providing native Gemini model support and LiteLLM fallback routing.
     *   `1cfc162`: Synced, tested, and resolved dependency overrides across all active framework packages using `uv`.
 

@@ -1,9 +1,9 @@
 # AI Gameplay: How the Agent Plays Dustwood
 
 This document explains the technical implementation and reasoning logic behind the autonomous AI agents that play *Echoes of Dustwood*.
-## Orchestration: `ai-game.sh`, `strands-ai-game.sh`, and `ms-agent-game.sh`
+## Orchestration: `ai-game.sh`, `strands-ai-game.sh`, and `agno-game.sh`
 
-The `scripts/ai-game.sh`, `scripts/strands-ai-game.sh`, and `scripts/ms-agent-game.sh` scripts act as entry points and environment managers. Their primary responsibilities are:
+The `scripts/ai-game.sh`, `scripts/strands-ai-game.sh`, and `scripts/agno-game.sh` scripts act as entry points and environment managers. Their primary responsibilities are:
 1.  **Binary Integrity**: Ensures the Pascal engine (`bin/dustwood`) is compiled and up-to-date.
 2.  **Environment Setup**: Cleans up previous save states and ensures logging directories exist.
 3.  **Parameter Passing**: Translates high-level arguments (difficulty, model, delay, or goal) into the specific configuration needed by the AI client.
@@ -14,7 +14,6 @@ The scripts accept the following positional arguments:
 ```
 ./scripts/ai-game.sh         [difficulty] [model] [delay] [max_turns]
 ./scripts/strands-ai-game.sh [difficulty] [model] [delay] [max_turns]
-./scripts/ms-agent-game.sh   [model] [goal]
 ./scripts/agno-game.sh       [model] [goal]
 ```
 
@@ -26,11 +25,11 @@ The scripts accept the following positional arguments:
 | `max_turns` | Max turns before stopping | `25` |
 | `goal` | Mission for the Agent | `Find the general store and get some water.` |
 
-Model naming differs: `ai-game.sh` uses Pydantic AI colons; `strands-ai-game.sh` uses LiteLLM slashes; `ms-agent-game.sh` and `agno-game.sh` use direct provider model IDs.
+Model naming differs: `ai-game.sh` uses Pydantic AI colons; `strands-ai-game.sh` uses LiteLLM slashes; `agno-game.sh` uses direct provider model IDs.
 
 ## The "Brains": Implementation Backends
 
-The system supports four distinct implementation backends, each offering a different approach to autonomous gameplay:
+The system supports three distinct implementation backends, each offering a different approach to autonomous gameplay:
 
 ### 1. Pydantic AI Backend (`ai_client.py`)
 The most efficient implementation. It uses `pydantic-ai` to manage model interactions and structured output validation. Optimized for high-speed survival runs.
@@ -38,10 +37,7 @@ The most efficient implementation. It uses `pydantic-ai` to manage model interac
 ### 2. Strands SDK Backend (`strands_ai_client.py`)
 A modern port using the **Strands Agents SDK**. It features a custom "Reverse-Search JSON Extractor" to support reasoning models (like `deepseek-r1`) that output raw text before their final command.
 
-### 3. Microsoft Agent Framework Backend (`ms_agent_client.py`)
-A high-performance orchestration layer. It treats game commands as native model tools, allowing for surgical goal completion with minimal turn wastage.
-
-### 4. Agno Backend (`agno_client.py`)
+### 3. Agno Backend (`agno_client.py`)
 A lightweight framework (formerly Phidata) that provides the best support for the latest multimodal models. It is the only framework in the project currently capable of running Gemini 3.1 models via their native SDK.
 
 ## Interaction Methods: Stdio vs. MCP
@@ -113,11 +109,7 @@ Utilizes the Strands SDK's dynamic tool discovery.
 - **Dynamic Ingestion**: Uses `strands.tools.mcp.MCPClient` to automatically "suck in" tool definitions from the server at runtime.
 - **Agentic Autonomy**: Relies on the SDK's internal loop to manage the tool-calling lifecycle.
 
-#### 3. Microsoft Agent MCP Client (`ms_agent_mcp_client.py`)
-- **Session Persistence**: Implements the `Mcp-Session-Id` protocol to maintain stateful connections with the Go MCP server.
-- **Native Tasking**: Uses the framework's `Agent.run` to handle the mission objective and tool execution.
-
-#### 4. Agno MCP Client (`agno_mcp_client.py`)
+#### 3. Agno MCP Client (`agno_mcp_client.py`)
 - **Stateful Async**: Uses Agno's `Agent.arun` for asynchronous tool execution and session-aware MCP interaction.
 - **Flexible Models**: Supports the same broad range of models as the standard Agno client via the Go MCP server.
 

@@ -17,8 +17,6 @@ Third-party packages used across the Echoes of Dustwood project, organized by pu
 | `pydantic-ai` | Pydantic AI agent framework | pydantic package |
 | `agno` | Agno agent framework | agno package |
 | `strands-agents` | Strands Agents framework | strands package |
-| `agent-framework` | Microsoft Agent Framework | ms_agent package |
-| `agent-framework-anthropic` | Anthropic integration for Microsoft Agent Framework | ms_agent package |
 | `google-adk` | Google AI Development Kit with MCP extensions | adk package |
 
 ### LLM Provider SDKs
@@ -77,12 +75,11 @@ Third-party packages used across the Echoes of Dustwood project, organized by pu
 Multiple provider SDKs (Anthropic, OpenAI, Google, Ollama) are included to support the framework comparison. Each framework can be configured to use different providers via environment variables.
 
 ### Why Both Pydantic AI and Alternative Frameworks?
-The project compares 5 different AI agent frameworks:
+The project compares 4 different AI agent frameworks:
 1. **Pydantic AI** — Modern, Python-native, Pydantic integration
 2. **Agno** — Feature-rich with built-in multi-provider support
 3. **Strands** — LiteLLM-based for flexible model routing
-4. **Microsoft Agent Framework** — Enterprise-focused, structured tools
-5. **Google ADK** — Google-native with integrated MCP tooling
+4. **Google ADK** — Google-native with integrated MCP tooling
 
 ### Why MCP?
 MCP (Model Context Protocol) allows frameworks to call game commands via structured tool definitions rather than text parsing, enabling:

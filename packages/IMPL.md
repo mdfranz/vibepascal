@@ -1,6 +1,6 @@
 # MCP Client Implementation Summary
 
-Each framework package (`packages/<fw>/`) contains an `*_mcp_client.py` that connects an AI agent to the Dustwood game server over MCP (Model Context Protocol). Four clients are actively benchmarked (Pydantic AI, Agno, Strands, ADK); MS Agent is retained in the repo but no longer invoked by `play-mcp-game.sh`. All five share the same CLI interface and high-level goal but differ in how the agentic loop is structured.
+Each framework package (`packages/<fw>/`) contains an `*_mcp_client.py` that connects an AI agent to the Dustwood game server over MCP (Model Context Protocol). Four clients are actively benchmarked (Pydantic AI, Agno, Strands, ADK). All four share the same CLI interface and high-level goal but differ in how the agentic loop is structured.
 
 ## Common Patterns
 
@@ -8,9 +8,9 @@ Every client:
 
 - Accepts four positional args: `level` (full/medium/minimal), `model_name`, `delay` (seconds between tool calls), `max_turns`
 - Reads `MCP_URL` from env (default `http://127.0.0.1:8765/mcp`)
-- Writes structured logs to `logs/<fw>_mcp_client-{epoch}.log`
+- Writes structured logs to `logs/<fw>_mcp_client-{epoch}.log` via `setup_logger(__name__, LOG_FILE)`
 - Emits `provider_call`, `tool_call`, and `run_summary` events via `log_kv()`
-- Loads gameplay hints from `data/guidance_{level}.txt`
+- Loads gameplay hints via `load_guidance(level)` + `format_guidance_block()` from `vibepascal_shared`
 - Syncs `GOOGLE_API_KEY` ↔ `GEMINI_API_KEY`
 
 The game server exposes a single `command` MCP tool. Each call returns `structuredContent` with `{ output: str, state: { roomName, turns, score, thirst, isPlaying, ... } }`.
@@ -34,33 +34,6 @@ The game server exposes a single `command` MCP tool. Each call returns `structur
 
 **Model support:** Native Pydantic AI `KnownModelName` strings — e.g., `google-gla:gemini-3-flash-preview`, `anthropic:claude-3-5-sonnet-20241022`.
 
-### Flow Diagram
-
-```mermaid
-flowchart TD
-    A([CLI Entry]) --> B[Load guidance file]
-    B --> C[MCPToolset\nStreamable HTTP to MCP_URL]
-    C --> D[Create Agent\nmodel + toolset + system_prompt]
-    D --> E["agent.iter(prompt, UsageLimits)"]
-    E --> F{Node yielded?}
-    F -->|Yes| G[Diff usage counters\nlog provider_call delta]
-    G --> H[Scan all_messages for new parts]
-    H --> I{Part type}
-    I -->|ThinkingPart| J[log THINKING]
-    I -->|TextPart| K[log AI text]
-    I -->|ToolCallPart| L[apply delay\nlog tool intent]
-    I -->|ToolReturnPart| M[parse structuredContent\nlog tool_call]
-    M --> N{"turns >= max_turns?"}
-    N -->|Yes| O[raise UsageLimitExceeded]
-    N -->|No| F
-    J --> F
-    K --> F
-    L --> F
-    O --> P[log run_summary]
-    F -->|StopIteration| P
-    P([End])
-```
-
 ---
 
 ## `agno/agno_mcp_client.py`
@@ -78,28 +51,6 @@ flowchart TD
 5. History is windowed to `policy.history_limit` entries; the loop exits when `is_playing=False`, turns reach `max_turns`, or LLM call budget is exhausted.
 
 **Model support:** Agno native model objects — `Claude`, `Gemini`, `OpenAIChat`, `Ollama` — selected by prefix-stripping the input model name.
-
-### Flow Diagram
-
-```mermaid
-flowchart TD
-    A([CLI Entry]) --> B[Load guidance\nCreate CommandPolicy]
-    B --> C[MCPTools async context\nStreamable HTTP]
-    C --> D["LOOK reset=True\n→ initial game state"]
-    D --> E[Create Agent\nmodel + system_prompt]
-    E --> F{"is_playing AND turns < max_turns\nAND llm_calls < budget?"}
-    F -->|No| G[log run_summary]
-    F -->|Yes| H[Build prompt\nrecent history + current state]
-    H --> I["agent.arun(prompt)"]
-    I --> J[_provider_post_hook\naccumulate + log tokens]
-    J --> K[Extract command text\nsanitize_command]
-    K --> L[CommandPolicy.rewrite\nloop-break if needed]
-    L --> M["mcp_tools.session.call_tool\n(command, args)"]
-    M --> N[Parse CommandOutput\nupdate last_state + history]
-    N --> O[log tool_call]
-    O --> F
-    G([End])
-```
 
 ---
 
@@ -121,84 +72,6 @@ flowchart TD
 
 **Model support:** Any LiteLLM-supported model string (`gemini/...`, `anthropic/...`, `openai/...`, `ollama/...`, etc.).
 
-### Flow Diagram
-
-```mermaid
-flowchart TD
-    A([CLI Entry]) --> B[Normalize model_id\nadd gemini/ prefix if bare]
-    B --> C[LiteLLMModel]
-    C --> D[MCPClient\nhttp / sse / stdio]
-    D --> E[SlidingWindowConversationManager\nwindow = 10]
-    E --> F[Create Agent\nmodel + mcp_client + system_prompt]
-    F --> G[Register 6 hooks\nBefore/After × Invocation/Model/Tool]
-    G --> H["agent(prompt) — single blocking call"]
-
-    H --> I{BeforeToolCall hook}
-    I -->|game over OR turn limit| J[set event.cancel_tool]
-    I -->|normal| K[CommandPolicy.rewrite\nrewrite tool_input in-place]
-    K --> L[MCP command dispatched to server]
-    L --> M{AfterToolCall hook}
-    M --> N[Parse structuredContent\nupdate last_state_obj]
-    N --> O[log tool_call]
-    O --> H
-
-    J --> H
-    H -->|agent complete| P{AfterInvocation hook}
-    P --> Q[Read accumulated_usage\nlog provider_call + run_summary]
-    Q --> R[mcp_client.stop]
-    R([End])
-```
-
----
-
-## `ms_agent/ms_agent_mcp_client.py` _(deprecated — not in `play-mcp-game.sh`)_
-
-**Framework:** Microsoft Agent Framework (`agent_framework`)
-
-**Loop style:** Hybrid replanning — outer Python while loop, each iteration calls `agent.run()` for a small chunk of turns.
-
-**How it works:**
-
-1. `PolicyMCPTool(url=MCP_URL, ...)` is a custom subclass of `MCPStreamableHTTPTool`:
-   - Overrides `call_tool()` to sanitize/rewrite commands via `CommandPolicy` and enforce the turn limit.
-   - Passes `parse_tool_results=self._parse_tool_results` to the base class to decode `structuredContent` and update `last_state`.
-2. `LoggingChatClient` wraps the underlying provider client (Anthropic/OpenAI/Ollama) to log latency and usage for every LLM call.
-3. The outer loop computes `chunk_calls = min(6, remaining_turns + 2)` and injects it into `inner.function_invocation_configuration` to cap tool calls per replan.
-4. If a replan iteration produces no turn advancement (`last_state.turns == last_turns_seen`), a forced exploratory move is dispatched directly via `mcp_tool.call_tool()`.
-5. Gemini is accessed via the OpenAI-compatible endpoint (`generativelanguage.googleapis.com/v1beta/openai/`) using `OpenAIChatCompletionClient`.
-6. A monkey-patch at import time fixes a `model_id` vs `model` kwarg mismatch in `ChatResponse.__init__`.
-
-**Model support:** Anthropic (`AnthropicClient`), OpenAI (`OpenAIChatClient`), Gemini via OpenAI compat, Ollama (`OllamaChatClient`).
-
-### Flow Diagram
-
-```mermaid
-flowchart TD
-    A([CLI Entry]) --> B[Build LLM client\nAnthropic / OpenAI / Gemini compat / Ollama]
-    B --> C[Wrap in LoggingChatClient\nlatency + usage on every call]
-    C --> D[PolicyMCPTool async context\nStreamable HTTP]
-    D --> E[Create Agent\nclient + PolicyMCPTool + system_prompt]
-    E --> F["LOOK reset=True via mcp_tool.call_tool"]
-    F --> G{"is_playing AND turns < max_turns\nAND llm_calls < budget?"}
-    G -->|No| H[log final state]
-    G -->|Yes| I["chunk_calls = min(6, remaining + 2)\ninject into function_invocation_configuration"]
-    I --> J[Build prompt\nhistory + state block]
-    J --> K["agent.run(prompt) — chunk of tool calls"]
-
-    K --> L{PolicyMCPTool.call_tool}
-    L --> M[sanitize + CommandPolicy.rewrite\ncheck turn limit]
-    M --> N[super.call_tool → MCP server]
-    N --> O[_parse_tool_results\nupdate last_state]
-    O --> P[_on_step callback\nappend to history]
-    P --> K
-
-    K --> Q{"turns advanced?"}
-    Q -->|No — stall detected| R[force exploratory move\nmcp_tool.call_tool directly]
-    R --> G
-    Q -->|Yes| G
-    H([End])
-```
-
 ---
 
 ## `adk/adk_mcp_client.py`
@@ -219,51 +92,13 @@ flowchart TD
 
 **Model support:** Native Gemini IDs (e.g. `gemini-3.5-flash`) and any LiteLLM provider string (e.g. `openai/gpt-5-mini`, `anthropic/claude-3-5-sonnet-20241022`).
 
-### Flow Diagram
-
-```mermaid
-flowchart TD
-    A([CLI Entry]) --> B["_resolve_model\nnative Gemini str OR LiteLlm object"]
-    B --> C[McpToolset\nStreamableHTTPConnectionParams\ntool_filter = command]
-    C --> D[Create Agent\nmodel + toolset + after_model_callback]
-    D --> E[InMemorySessionService + Runner]
-    E --> F["runner.run_async\nnew_message, RunConfig max_llm_calls"]
-
-    F --> G{Event from stream}
-    G -->|partial OR duplicate| G
-    G -->|text content| H[log AI text]
-    G -->|function_call| I[log tool_intent]
-    G -->|function_response| J[_extract_state_and_output\nparse structuredContent]
-
-    H --> G
-    I --> G
-
-    J --> K{"is_playing == false?"}
-    K -->|Yes| L[stop_reason = Game ended]
-    K -->|No| M{"turns >= max_turns?"}
-    M -->|Yes| N[stop_reason = Turn limit]
-    M -->|No| G
-
-    subgraph per_model_call ["after_model_callback — fires each LLM call"]
-        CB[Read usage_metadata\naccumulate tokens\nlog provider_call]
-    end
-
-    D -.registers.-> per_model_call
-
-    L --> O[runner.close\ntoolset.close]
-    N --> O
-    G -->|stream exhausted| O
-    F -->|LlmCallsLimitExceededError| O
-    O --> P[log run_summary]
-    P([End])
-```
-
 ---
 
 ## Shared Library (`packages/shared/vibepascal_shared/`)
 
 ### `llm_observability.py`
 
+- `setup_logger(name, log_file)` — creates a `DEBUG`-level file handler logger; conditionally adds a console handler (`LOG_CONSOLE`) and enables HTTP debug logging (`LOG_HTTP`). Returns the configured logger. Used by all four clients to replace ~20 lines of identical setup.
 - `Timer` — perf_counter-based elapsed time helper.
 - `log_kv(logger, **fields)` — emits a single `key=json_value ...` log line; all values JSON-encoded, newlines escaped.
 - `redact_secrets(text)` — strips API keys and Bearer tokens from log output.
@@ -280,6 +115,7 @@ flowchart TD
 ### `guidance_loader.py`
 
 - `load_guidance(value)` — resolves `"full"`, `"medium"`, or `"minimal"` to `data/guidance_{level}.txt` under the repo root, or accepts a path directly. Returns a `GuidanceConfig(path, text)` dataclass.
+- `format_guidance_block(cfg)` — formats a `GuidanceConfig` into the `"\n\nGUIDANCE (follow this):\n..."` string injected into each client's system prompt, or `""` if no guidance is loaded.
 
 ### CommandPolicy Flow
 
