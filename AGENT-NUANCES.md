@@ -1,6 +1,6 @@
-# Agent Nuances: Pydantic AI vs. Strands vs. MS Agent vs. Agno
+# Agent Nuances: Pydantic AI vs. Strands vs. Agno
 
-This document provides a technical comparison of the four AI agent frameworks implemented in *Echoes of Dustwood*. While all frameworks achieve autonomous gameplay, they represent different architectural philosophies and performance profiles.
+This document provides a technical comparison of the three AI agent frameworks implemented in *Echoes of Dustwood*. While all frameworks achieve autonomous gameplay, they represent different architectural philosophies and performance profiles.
 
 ## 1. Orchestration Philosophy
 
@@ -8,7 +8,6 @@ This document provides a technical comparison of the four AI agent frameworks im
 | :--- | :--- | :--- | :--- |
 | **Pydantic AI** | Functional/Direct | Speed & Type Safety | Production-grade survival runs. |
 | **Strands SDK** | Agent-Centric | Robustness & Multi-Model | Local reasoning models (DeepSeek/Ollama). |
-| **MS Agent** | High-Level Tasking | Surgical Efficiency | Rapid, goal-oriented missions. |
 | **Agno** | Multimodal/Proactive | Native Feature Support | Latest Gemini models & narrative depth. |
 
 ## 2. Framework Comparisons
@@ -22,13 +21,6 @@ This document provides a technical comparison of the four AI agent frameworks im
 *   **Robustness**: Uses a "Reverse-Search JSON Extractor" to handle models that output messy reasoning before their command.
 *   **Connectivity**: Best-in-class handling of LiteLLM/Ollama edge cases. Integrates with LiteLLM's Google Gemini API handler to correctly forward `thought_signature` metadata.
 *   **Limitation**: Currently struggles with the Go server's specific SSE implementation.
-
-### Microsoft Agent Framework (`ms_agent_client.py`)
-*   **Efficiency**: Extremely surgical behavior. Reaches goals with the minimum number of turns.
-*   **Limitation**: The standard OpenAI client is incompatible with Gemini 3 models.
-    *   `OpenAIChatClient` fails with `404` because Gemini does not support OpenAI's Responses API (`/responses`).
-    *   `OpenAIChatCompletionClient` successfully calls the standard `/chat/completions` API but fails on the second turn with a `400 Bad Request` because the client does not preserve and forward Gemini 3's required `thought_signature` metadata.
-*   **Tested Models**: Excellent performance with `gpt-5-mini` and `ollama/gpt-oss:20b`.
 
 ### Agno (formerly Phidata) (`agno_client.py`)
 *   **Native SDKs**: Uses native Google/Anthropic SDKs rather than generic wrappers.
@@ -46,10 +38,9 @@ Testing reveals a significant performance gap between interaction methods:
 
 *   **gemini-3.1-pro-preview**: High-tier logic. Successfully handled complex puzzles via Agno.
 *   **gemini-3.5-flash**: Excellent, high-performing model. Successfully verified across Pydantic AI (v2.0.0b3), Agno, and Strands SDK.
-*   **gpt-5-mini**: The "Utility Player." Works reliably across all four frameworks with high efficiency.
+*   **gpt-5-mini**: The "Utility Player." Works reliably across the frameworks with high efficiency.
 *   **claude-opus-4-6**: The planning expert. Best at long-term inventory management.
 *   **claude-haiku-4-5**: High-speed, highly capable logic, but sensitive to framework orchestration constraints. Successfully achieved a peak score of **60 points** (in 15 turns) via Strands SDK and **57 points** via ADK by managing inventory capacity, repairing the water pump (+20), and saddling the horse. However, it can get stuck by inventory limitations (Agno) or random hazards (Pydantic AI) if the orchestration does not enforce item dropping or hazard bypasses.
-*   **gpt-oss:20b (Ollama)**: Strong performance via MS Agent. Navigated to goals with zero typos or logic loops.
 *   **granite4:3b (Ollama)**: Struggles with "common sense." Requires frameworks with strong retry logic to recover from typos like `TAKE SPPOOL`.
 
 ## 5. Token Efficiency & Context Management
@@ -67,7 +58,6 @@ The frameworks differ significantly in how they manage conversation context, whi
 | **Maximum Speed** | Pydantic AI (via MCP) |
 | **Gemini 3.1 Support** | Agno |
 | **Local LLM Robustness** | Strands SDK |
-| **Surgical Goal Completion** | MS Agent Framework |
 | **Pascal Engine Testing** | Any "Original" (non-mcp) client |
 
 ## 7. Environment Variables Reference

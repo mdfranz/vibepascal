@@ -3,24 +3,24 @@ import logging
 import os
 import sys
 import time
+import json
+from pydantic import TypeAdapter
 
 from dotenv import load_dotenv
-from vibepascal_shared.guidance_loader import load_guidance
+from vibepascal_shared.guidance_loader import format_guidance_block, load_guidance
 from vibepascal_shared.llm_observability import (
     Timer,
-    console_logging_enabled,
-    enable_http_debug_logging,
     format_payload,
     game_console_enabled,
-    http_debug_logging_enabled,
     log_kv,
     print_game,
     provider_payload_logging_enabled,
+    setup_logger,
 )
 from pydantic_ai import Agent, ModelSettings
 from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
-from pydantic_ai.capabilities import Thinking
+from pydantic_ai.capabilities import Thinking, ProcessHistory
 from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.messages import (
     ModelResponse,
@@ -28,7 +28,10 @@ from pydantic_ai.messages import (
     TextPart, 
     ThinkingPart, 
     ToolCallPart, 
-    ToolReturnPart
+    ToolReturnPart,
+    ModelMessage,
+    UserPromptPart,
+    SystemPromptPart
 )
 from pydantic_ai.models import KnownModelName
 
@@ -45,61 +48,151 @@ MAX_TURNS = 25
 EPOCH = int(time.time())
 LOG_FILE = f"logs/pydantic_mcp_client-{EPOCH}.log"
 
-# --- Setup Logging ---
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-os.makedirs("logs", exist_ok=True)
-
-file_handler = logging.FileHandler(LOG_FILE)
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-logger.addHandler(file_handler)
-
-if console_logging_enabled():
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(logging.Formatter("%(message)s"))
-    logger.addHandler(console_handler)
-
-if http_debug_logging_enabled():
-    handlers = [file_handler]
-    if console_logging_enabled():
-        handlers.append(console_handler)
-    enable_http_debug_logging(handlers=handlers)
-else:
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
+logger = setup_logger(__name__, LOG_FILE)
 
 
-async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns: int):
+async def run_pydantic_agent(
+    level: str,
+    model_name: str,
+    delay: int,
+    max_turns: int,
+    summarize: bool = False,
+    windowing: bool = False,
+    window_size: int = 6,
+    session_id: Optional[str] = None,
+):
     logger.info(f"--- Pydantic AI MCP Agent Starting (Model: {model_name}) ---")
 
-    guidance_map = {
-        "full": "data/guidance_full.txt",
-        "medium": "data/guidance_medium.txt",
-        "minimal": "data/guidance_minimal.txt",
-    }
-    guidance_file = guidance_map.get(level, "data/guidance_full.txt")
-    guidance_cfg = load_guidance(guidance_file)
+    guidance_cfg = load_guidance(level)
     if guidance_cfg.path:
         logger.info(f"Guidance: {guidance_cfg.path}")
-
-    guidance_block = (
-        f"\n\nGUIDANCE (follow this):\n{guidance_cfg.text}"
-        if guidance_cfg.text
-        else ""
-    )
+    guidance_block = format_guidance_block(guidance_cfg)
 
     reasoning_enabled = os.environ.get("AI_REASONING", "0") not in {"0", "false", "False"}
     capabilities = [Thinking()] if reasoning_enabled else []
 
     server = MCPToolset(MCP_URL, max_retries=3)
 
+    # 1. Sliding Window History Processor
+    def trim_history(messages: list[ModelMessage]) -> list[ModelMessage]:
+        limit = window_size * 4
+        if len(messages) <= limit:
+            return messages
+
+        trim_index = len(messages) - limit
+        while trim_index < len(messages):
+            msg = messages[trim_index]
+            if isinstance(msg, ModelRequest):
+                if any(isinstance(part, ToolReturnPart) for part in msg.parts):
+                    trim_index -= 1
+                    continue
+            break
+
+        trim_index = max(0, trim_index)
+
+        system_messages = []
+        if messages and isinstance(messages[0], ModelRequest):
+            sys_parts = [part for part in messages[0].parts if isinstance(part, SystemPromptPart)]
+            if sys_parts:
+                system_messages.append(ModelRequest(parts=sys_parts))
+
+        return system_messages + messages[trim_index:]
+
+    if windowing and not summarize:
+        capabilities.append(ProcessHistory(trim_history))
+
+    # 2. History Summarizer Processor
+    if summarize:
+        async def summarize_history(messages: list[ModelMessage]) -> list[ModelMessage]:
+            threshold = window_size * 4
+            if len(messages) <= threshold:
+                return messages
+
+            split_index = len(messages) - (window_size * 4)
+            while split_index > 0:
+                msg = messages[split_index]
+                if isinstance(msg, ModelRequest):
+                    if any(isinstance(part, ToolReturnPart) for part in msg.parts):
+                        split_index -= 1
+                        continue
+                break
+
+            split_index = max(1, split_index)
+            messages_to_summarize = messages[:split_index]
+            recent_messages = messages[split_index:]
+
+            text_parts = []
+            for msg in messages_to_summarize:
+                if isinstance(msg, ModelRequest):
+                    for part in msg.parts:
+                        if isinstance(part, UserPromptPart) and part.content:
+                            text_parts.append(f"User: {part.content}")
+                        elif isinstance(part, ToolReturnPart) and part.content:
+                            text_parts.append(f"Tool Result: {part.content}")
+                elif isinstance(msg, ModelResponse):
+                    for part in msg.parts:
+                        if isinstance(part, TextPart) and part.content:
+                            text_parts.append(f"Agent: {part.content}")
+                        elif isinstance(part, ToolCallPart) and part.args:
+                            text_parts.append(f"Agent Tool Call: {part.name} args={part.args}")
+
+            history_text = "\n".join(text_parts)
+            if not history_text.strip():
+                return messages
+
+            try:
+                logger.info(f"Summarizing {len(messages_to_summarize)} historical messages...")
+                summarizer_agent = Agent(
+                    model=model_name,
+                    system_prompt=(
+                        "You are a memory compression assistant. "
+                        "Summarize the conversation history concisely in bullet points, "
+                        "retaining all inventory items, room names, and game turn count."
+                    )
+                )
+                res = await summarizer_agent.run(f"Summarize this game history:\n\n{history_text}")
+                summary = res.data
+
+                summary_msg = ModelRequest(parts=[UserPromptPart(f"Summary of past game turns:\n{summary}")])
+
+                system_messages = []
+                if messages and isinstance(messages[0], ModelRequest):
+                    sys_parts = [part for part in messages[0].parts if isinstance(part, SystemPromptPart)]
+                    if sys_parts:
+                        system_messages.append(ModelRequest(parts=sys_parts))
+
+                return system_messages + [summary_msg] + recent_messages
+            except Exception as ex:
+                logger.warning(f"History summarization failed: {ex}")
+                return messages
+
+        capabilities.append(ProcessHistory(summarize_history))
+
+    # 3. Session Persistence
+    active_session_id = session_id if session_id else f"pydantic-session-{EPOCH}"
+    loaded_messages = None
+    if session_id:
+        filepath = f"sessions/pydantic_sessions/{active_session_id}.json"
+        if os.path.exists(filepath):
+            try:
+                ta = TypeAdapter(list[ModelMessage])
+                with open(filepath, "r") as f:
+                    json_data = f.read()
+                loaded_messages = ta.validate_json(json_data)
+                if windowing:
+                    loaded_messages = trim_history(loaded_messages)
+                logger.info(f"Loaded {len(loaded_messages)} messages from session {active_session_id}")
+            except Exception as e:
+                logger.warning(f"Failed to load session snapshot: {e}")
+
     agent = Agent(
         model=model_name,
         toolsets=[server],
         capabilities=capabilities,
-        model_settings=ModelSettings(max_tokens=4096, anthropic_thinking={"type": "enabled", "budget_tokens": 2048}),
+        model_settings=ModelSettings(
+            max_tokens=4096,
+            **({"anthropic_thinking": {"type": "enabled", "budget_tokens": 2048}} if model_name.startswith("anthropic:") else {}),
+        ),
         system_prompt=(
             "You are an expert adventurer playing 'Echoes of Dustwood' via an MCP interface.\n"
             "Use the available MCP tools to play the game.\n"
@@ -129,7 +222,11 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
     
     agent_run = None
     try:
-        async with agent.iter(prompt, usage_limits=UsageLimits(request_limit=max_turns * 4)) as run_iter:
+        async with agent.iter(
+            prompt,
+            message_history=loaded_messages,
+            usage_limits=UsageLimits(request_limit=max_turns * 4)
+        ) as run_iter:
             agent_run = run_iter
             async for node in agent_run:
                 # 1. Capture incremental usage and log provider call for this turn
@@ -226,6 +323,16 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
                                         logger.info(f"Turn limit ({max_turns}) reached. Stopping agent.")
                                         raise UsageLimitExceeded(f"Turn limit {max_turns} reached.")
 
+                # Always save session snapshots for each run
+                try:
+                    os.makedirs("sessions/pydantic_sessions", exist_ok=True)
+                    ta = TypeAdapter(list[ModelMessage])
+                    serialized = ta.dump_json(agent_run.all_messages())
+                    with open(f"sessions/pydantic_sessions/{active_session_id}.json", "wb") as f:
+                        f.write(serialized)
+                except Exception as e:
+                    logger.warning(f"Failed to save session snapshot: {e}")
+
     except (UnexpectedModelBehavior, UsageLimitExceeded) as e:
         logger.info(f"[GAME ENDED] {e}")
 
@@ -258,9 +365,28 @@ async def run_pydantic_agent(level: str, model_name: str, delay: int, max_turns:
 
 
 if __name__ == "__main__":
-    level = sys.argv[1] if len(sys.argv) > 1 else "full"
-    model = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_MODEL
-    delay = int(sys.argv[3]) if len(sys.argv) > 3 else TURN_DELAY
-    max_turns = int(sys.argv[4]) if len(sys.argv) > 4 else MAX_TURNS
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("level", nargs="?", default="full")
+    parser.add_argument("model", nargs="?", default=DEFAULT_MODEL)
+    parser.add_argument("delay", nargs="?", type=int, default=TURN_DELAY)
+    parser.add_argument("max_turns", nargs="?", type=int, default=MAX_TURNS)
+    parser.add_argument("--summarize", "-s", action="store_true", help="Enable summarization")
+    parser.add_argument("--windowing", "-w", action="store_true", help="Enable sliding window history (disabled by default)")
+    parser.add_argument("--window-size", "-n", type=int, default=6, help="Window size in game turns (default: 6)")
+    parser.add_argument("--session-id", type=str, default=None, help="Session ID to restore or create")
 
-    asyncio.run(run_pydantic_agent(level, model, delay, max_turns))
+    args = parser.parse_args()
+
+    asyncio.run(
+        run_pydantic_agent(
+            level=args.level,
+            model_name=args.model,
+            delay=args.delay,
+            max_turns=args.max_turns,
+            summarize=args.summarize,
+            windowing=args.windowing,
+            window_size=args.window_size,
+            session_id=args.session_id,
+        )
+    )

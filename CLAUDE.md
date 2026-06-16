@@ -2,7 +2,7 @@
 
 ## Overview
 
-Echoes of Dustwood is a Free Pascal/Go text adventure game with AI agent integration via the Model Context Protocol (MCP). The repo compares 5 AI frameworks (Pydantic AI, Agno, Strands, Microsoft Agent Framework, ADK) on autonomous gameplay.
+Echoes of Dustwood is a Free Pascal/Go text adventure game with AI agent integration via the Model Context Protocol (MCP). The repo compares 4 AI frameworks (Pydantic AI, Agno, Strands, ADK) on autonomous gameplay.
 
 ## Key Files
 
@@ -34,12 +34,6 @@ Each lives in `packages/<framework>/` with its own venv:
 - **Setup:** `cd packages/strands && uv sync --upgrade`
 - **Framework:** LiteLLM for broad model support
 
-#### Microsoft Agent Framework (`packages/ms_agent/`)
-- `ms_agent_client.py` — Direct stdio gameplay
-- `ms_agent_mcp_client.py` — MCP-based gameplay
-- **Setup:** `cd packages/ms_agent && uv sync --upgrade`
-- **Framework:** Built-in MCP tool integration
-
 #### ADK (`packages/adk/`)
 - `adk_mcp_client.py` — MCP-based gameplay
 - **Setup:** `cd packages/adk && uv sync --upgrade`
@@ -52,7 +46,7 @@ Each lives in `packages/<framework>/` with its own venv:
 
 ### Orchestrators
 - Root-level `*-game.sh` scripts (e.g., `pydantic-mcp-game.sh`) — Wrapper scripts that invoke `uv run --project packages/<fw>` with the right arguments.
-- `play-mcp-game.sh` — Runs all 5 frameworks sequentially for benchmarking.
+- `play-mcp-game.sh` — Runs all 4 frameworks sequentially for benchmarking.
 
 ## Architecture Decisions
 
@@ -73,7 +67,7 @@ The Go port (`bin/dustwood-go`) handles HTTP MCP better (async I/O, signal handl
 ### Test One Framework
 ```bash
 ./bin/dustwood-go --mcp-http --mcp-addr 127.0.0.1:8765 --mcp-json-response &
-./pydantic-mcp-game.sh full google:gemini-3.5-flash 1 5
+./pydantic-mcp-game.sh google-gla:gemini-3.5-flash 25 1 full
 ```
 
 ### Upgrade Agno to Latest
@@ -82,10 +76,10 @@ cd packages/agno
 uv sync --upgrade
 ```
 
-### Benchmark All 5 Frameworks
+### Benchmark All 4 Frameworks
 ```bash
 ./bin/dustwood-go --mcp-http --mcp-addr 127.0.0.1:8765 --mcp-json-response &
-./play-mcp-game.sh google:gemini-3.5-flash full 1 5
+./play-mcp-game.sh google-gla:gemini-3.5-flash 25 1 full
 ```
 
 ### Add a New Game Command
@@ -122,4 +116,3 @@ No automated test suite currently. Manual testing via the MCP clients (see "Comm
   - Pydantic AI: https://docs.pydantic.dev/latest/concepts/agents/
   - Agno: https://docs.phidata.com/
   - Strands: https://github.com/strands-ai/strands-agents-api
-  - Microsoft Agent: https://github.com/microsoft/autogen

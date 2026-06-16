@@ -6,23 +6,23 @@ import time
 from typing import List, Optional
 
 from agno.agent import Agent
+from agno.db.sqlite import SqliteDb
+from agno.memory.manager import MemoryManager
 from agno.models.anthropic import Claude
 from agno.models.google import Gemini
 from agno.models.ollama import Ollama
 from agno.models.openai import OpenAIChat
 from agno.tools.mcp import MCPTools
 from dotenv import load_dotenv
-from vibepascal_shared.guidance_loader import load_guidance
+from vibepascal_shared.guidance_loader import format_guidance_block, load_guidance
 from vibepascal_shared.llm_observability import (
     Timer,
-    console_logging_enabled,
-    enable_http_debug_logging,
     format_payload,
     game_console_enabled,
-    http_debug_logging_enabled,
     log_kv,
     print_game,
     provider_payload_logging_enabled,
+    setup_logger,
 )
 from vibepascal_shared.mcp_command_policy import CommandPolicy, sanitize_command
 from pydantic import BaseModel
@@ -30,9 +30,11 @@ from pydantic import BaseModel
 # Load environment variables
 load_dotenv()
 
-# Support GOOGLE_API_KEY for LiteLLM/Gemini
+# Normalize Gemini API key — agno uses GOOGLE_API_KEY, google-genai SDK also accepts GEMINI_API_KEY
 if "GOOGLE_API_KEY" in os.environ and "GEMINI_API_KEY" not in os.environ:
     os.environ["GEMINI_API_KEY"] = os.environ["GOOGLE_API_KEY"]
+if "GEMINI_API_KEY" in os.environ and "GOOGLE_API_KEY" not in os.environ:
+    os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
 
 # --- Configuration ---
 MCP_URL = os.environ.get("MCP_URL", "http://127.0.0.1:8765/mcp")
@@ -45,32 +47,8 @@ MAX_TURNS = 25
 EPOCH = int(time.time())
 LOG_FILE = f"logs/agno_mcp_client-{EPOCH}.log"
 
-# --- Setup Logging ---
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-os.makedirs("logs", exist_ok=True)
-
-file_handler = logging.FileHandler(LOG_FILE)
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-logger.addHandler(file_handler)
-
-if console_logging_enabled():
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(logging.Formatter("%(message)s"))
-    logger.addHandler(console_handler)
-
-# Silence verbose loggers
-if http_debug_logging_enabled():
-    handlers = [file_handler]
-    if console_logging_enabled():
-        handlers.append(console_handler)
-    enable_http_debug_logging(handlers=handlers)
-else:
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("anyio").setLevel(logging.WARNING)
+logger = setup_logger(__name__, LOG_FILE)
+logging.getLogger("anyio").setLevel(logging.WARNING)
 logging.getLogger("mcp").setLevel(logging.WARNING)
 
 # Global variables for delay
@@ -127,7 +105,16 @@ def _format_command_result(*, structured_content: dict) -> str:
     )
 
 
-async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns: int):
+async def run_agno_mcp_agent(
+    level: str,
+    model_name: str,
+    delay: int,
+    max_turns: int,
+    summarize: bool = False,
+    windowing: bool = False,
+    window_size: int = 6,
+    session_id: Optional[str] = None,
+):
     logger.info(f"--- Agno MCP Client Starting (Model: {model_name}) ---")
 
     run_timer = Timer.start_new()
@@ -139,13 +126,7 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
         "requests": 0,
     }
 
-    guidance_map = {
-        "full": "data/guidance_full.txt",
-        "medium": "data/guidance_medium.txt",
-        "minimal": "data/guidance_minimal.txt",
-    }
-    guidance_file = guidance_map.get(level, "data/guidance_full.txt")
-    guidance_cfg = load_guidance(guidance_file)
+    guidance_cfg = load_guidance(level)
     if guidance_cfg.path:
         logger.info(f"Guidance: {guidance_cfg.path}")
 
@@ -153,6 +134,8 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
     global_delay = delay
 
     policy = CommandPolicy.from_env()
+    policy.history_limit = window_size
+    policy.loop_breaker.history_limit = window_size
     max_llm_calls = max(1, int(max_turns) * int(policy.max_llm_calls_multiplier))
     llm_calls = 0
     history: list[str] = []
@@ -253,10 +236,13 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
             model = Claude(id=clean_model)
         elif "gemini" in model_name.lower():
             clean_model = model_name
-            for prefix in ["gemini:", "gemini/", "google:", "google/"]:
+            for prefix in ["gemini:", "gemini/", "google:", "google/", "google-gla:", "google-gla/"]:
                 if clean_model.lower().startswith(prefix):
                     clean_model = clean_model[len(prefix):]
-            model = Gemini(id=clean_model)
+            model = Gemini(
+                id=clean_model,
+                include_thoughts=True,
+            )
         elif "ollama" in model_name.lower():
             clean_model = model_name
             for prefix in ["ollama:", "ollama/"]:
@@ -274,11 +260,7 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
             model = OpenAIChat(id=clean_model)
 
         # Instantiate the agent
-        guidance_block = (
-            f"\n\nGUIDANCE (follow this):\n{guidance_cfg.text}"
-            if guidance_cfg.text
-            else ""
-        )
+        guidance_block = format_guidance_block(guidance_cfg)
 
         _call_timer: list[Timer] = []
 
@@ -320,6 +302,22 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
                 ),
             )
 
+        active_session_id = session_id if session_id else f"agno-session-{EPOCH}"
+
+        # Database persistence
+        os.makedirs("sessions", exist_ok=True)
+        agent_db = SqliteDb(db_file="sessions/agno_sessions.db", session_table="dustwood_agno_sessions")
+
+        # Memory configuration (RAG/memory manager with compaction)
+        memory = None
+        if summarize:
+            memory_db = SqliteDb(db_file="sessions/agno_sessions.db", memory_table="dustwood_agno_memories")
+            memory = MemoryManager(
+                db=memory_db,
+                add_memories=True,
+                update_memories=True,
+            )
+
         agent = Agent(
             model=model,
             name="DustwoodAgnoMCPAdventurer",
@@ -333,7 +331,26 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
             ),
             markdown=True,
             post_hooks=[_provider_post_hook],
+            db=agent_db,
+            session_id=active_session_id,
+            memory_manager=memory,
+            add_history_to_context=not windowing,
+            num_history_runs=1000 if not windowing else None,
         )
+
+        # Restore past history if session is resumed
+        if session_id:
+            try:
+                past_messages = agent.get_chat_history()
+                if past_messages:
+                    for msg in past_messages:
+                        if msg.role == "assistant":
+                            cmd = (msg.content or "").strip()
+                            if cmd:
+                                history.append(f"cmd={cmd}")
+                    logger.info(f"Resumed past session with {len(history)} past commands")
+            except Exception as e:
+                logger.warning(f"Could not load past chat history: {e}")
 
         # Bounded interaction loop
         current_summary = initial_summary
@@ -350,21 +367,32 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
                 logger.info("\n[GAME OVER]")
                 break
 
-            recent_history = (
-                "\n".join(history[-policy.history_limit :]) if history else "(none)"
-            )
-            prompt = (
-                f"RECENT HISTORY (most recent last):\n{recent_history}\n\n"
-                f"CURRENT STATE:\n{current_summary}\n\n"
-                f"Remaining game turns: {remaining_turns}\n"
-                f"Output exactly one next game command (one line).\n"
-                f"Rules: LOOK does not consume a game turn; do not repeat LOOK if turns did not change. "
-                f"Exits may not be listed; try NORTH/EAST/SOUTH/WEST to explore when unsure."
-            )
+            if windowing:
+                recent_history = (
+                    "\n".join(history[-policy.history_limit :]) if history else "(none)"
+                )
+                prompt = (
+                    f"RECENT HISTORY (most recent last):\n{recent_history}\n\n"
+                    f"CURRENT STATE:\n{current_summary}\n\n"
+                    f"Remaining game turns: {remaining_turns}\n"
+                    f"Output exactly one next game command (one line).\n"
+                    f"Rules: LOOK does not consume a game turn; do not repeat LOOK if turns did not change. "
+                    f"Exits may not be listed; try NORTH/EAST/SOUTH/WEST to explore when unsure."
+                )
+            else:
+                prompt = (
+                    f"CURRENT STATE:\n{current_summary}\n\n"
+                    f"Remaining game turns: {remaining_turns}\n"
+                    f"Output exactly one next game command (one line).\n"
+                    f"Rules: LOOK does not consume a game turn; do not repeat LOOK if turns did not change. "
+                    f"Exits may not be listed; try NORTH/EAST/SOUTH/WEST to explore when unsure."
+                )
             _call_timer.clear()
             _call_timer.append(Timer.start_new())
             run_output = await agent.arun(prompt)
             llm_calls += 1
+            if getattr(run_output, "reasoning_content", None):
+                logger.info(f"THINKING: {run_output.reasoning_content.strip()}")
             raw_cmd = (run_output.content or "").strip()
             if raw_cmd.startswith("```"):
                 lines = raw_cmd.splitlines()
@@ -427,9 +455,28 @@ async def run_agno_mcp_agent(level: str, model_name: str, delay: int, max_turns:
 
 
 if __name__ == "__main__":
-    level = sys.argv[1] if len(sys.argv) > 1 else "full"
-    model = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_MODEL
-    delay = int(sys.argv[3]) if len(sys.argv) > 3 else TURN_DELAY
-    max_turns = int(sys.argv[4]) if len(sys.argv) > 4 else MAX_TURNS
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("level", nargs="?", default="full")
+    parser.add_argument("model", nargs="?", default=DEFAULT_MODEL)
+    parser.add_argument("delay", nargs="?", type=int, default=TURN_DELAY)
+    parser.add_argument("max_turns", nargs="?", type=int, default=MAX_TURNS)
+    parser.add_argument("--summarize", "-s", action="store_true", help="Enable summarization")
+    parser.add_argument("--windowing", "-w", action="store_true", help="Enable sliding window history (disabled by default)")
+    parser.add_argument("--window-size", "-n", type=int, default=6, help="Window size in game turns (default: 6)")
+    parser.add_argument("--session-id", type=str, default=None, help="Session ID to restore or create")
 
-    asyncio.run(run_agno_mcp_agent(level, model, delay, max_turns))
+    args = parser.parse_args()
+
+    asyncio.run(
+        run_agno_mcp_agent(
+            level=args.level,
+            model_name=args.model,
+            delay=args.delay,
+            max_turns=args.max_turns,
+            summarize=args.summarize,
+            windowing=args.windowing,
+            window_size=args.window_size,
+            session_id=args.session_id,
+        )
+    )

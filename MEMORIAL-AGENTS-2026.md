@@ -24,7 +24,6 @@ This document commemorates the behavior and compatibility of the Python agent fr
 | **Strands AI** | **✅ Success** (55) | **✅ Success** (35) | **✅ Success** (60) | **Haiku Champion.** Best peak score under Haiku by correctly dropping the book. Wasted turns on exploring West end under GPT-5. |
 | **ADK (Google)** | **✅ Success** (73) | **✅ Success** (32) | **✅ Success** (57) | **Gemini Champion.** Highest overall score (73) by combining telegraph fix + pump repair. Suffered navigation loops under GPT-5. |
 
-*Note: Microsoft Agent Framework was not included in this benchmark run suite.*
 
 ### 2.1 Multi-Axis Framework Comparison & Reliability
 Below is the normalized multi-axis profile of the frameworks, followed by the run reliability matrix.
@@ -151,7 +150,6 @@ Below is the normalized multi-axis profile of the frameworks, followed by the ru
 *   `pydantic-ai` = `2.0.0b3`
 *   `agno` = `2.6.9`
 *   `strands-agents` = `1.41.0`
-*   `agent-framework` = `1.6.0`
 *   `litellm` = `1.87.0rc1`
 
 ## Related Documentation

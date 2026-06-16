@@ -11,21 +11,45 @@ from google.adk import Agent, Runner
 from google.adk.agents.run_config import RunConfig
 from google.adk.agents.invocation_context import LlmCallsLimitExceededError
 from google.adk.models.lite_llm import LiteLlm
-from google.adk.sessions import InMemorySessionService
+from google.adk.sessions import InMemorySessionService, DatabaseSessionService
+from google.adk.apps.app import App, EventsCompactionConfig
+from google.adk.apps.base_events_summarizer import BaseEventsSummarizer
+from google.adk.events.event import Event
+from google.adk.events.event_actions import EventActions, EventCompaction
 from google.adk.tools.mcp_tool import McpToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
 from google.genai import types
-from vibepascal_shared.guidance_loader import load_guidance
+from vibepascal_shared.guidance_loader import format_guidance_block, load_guidance
+
+class TruncatingEventSummarizer(BaseEventsSummarizer):
+    async def maybe_summarize_events(
+        self, *, events: list[Event]
+    ) -> Optional[Event]:
+        if not events:
+            return None
+        summary_content = types.Content(
+            role='model',
+            parts=[types.Part(text="[Older conversation history trimmed to save context window]")]
+        )
+        return Event(
+            author='user',
+            actions=EventActions(
+                compaction=EventCompaction(
+                    start_timestamp=events[0].timestamp,
+                    end_timestamp=events[-1].timestamp,
+                    compacted_content=summary_content,
+                )
+            ),
+            invocation_id=Event.new_id(),
+        )
 from vibepascal_shared.llm_observability import (
     Timer,
-    console_logging_enabled,
-    enable_http_debug_logging,
     format_payload,
     game_console_enabled,
-    http_debug_logging_enabled,
     log_kv,
     print_game,
     provider_payload_logging_enabled,
+    setup_logger,
 )
 
 # Load environment variables
@@ -71,30 +95,7 @@ class GameState:
         )
 
 
-# --- Setup Logging ---
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-os.makedirs("logs", exist_ok=True)
-
-file_handler = logging.FileHandler(LOG_FILE)
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-logger.addHandler(file_handler)
-
-if console_logging_enabled():
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(logging.Formatter("%(message)s"))
-    logger.addHandler(console_handler)
-
-if http_debug_logging_enabled():
-    handlers = [file_handler]
-    if console_logging_enabled():
-        handlers.append(console_handler)
-    enable_http_debug_logging(handlers=handlers)
-else:
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
+logger = setup_logger(__name__, LOG_FILE)
 
 
 def _to_plain(value: Any) -> Any:
@@ -174,6 +175,8 @@ def _extract_text(content: Any) -> str:
     parts = getattr(content, "parts", None) or []
     texts: list[str] = []
     for part in parts:
+        if getattr(part, "thought", False):
+            continue
         text = getattr(part, "text", None)
         if isinstance(text, str) and text.strip():
             texts.append(text.strip())
@@ -239,7 +242,16 @@ def _make_after_model_callback(resolved_model_id: str, token_accumulator: dict):
     return _after_model_callback
 
 
-async def run_adk_mcp_agent(level: str, model_name: str, delay: int, max_turns: int):
+async def run_adk_mcp_agent(
+    level: str,
+    model_name: str,
+    delay: int,
+    max_turns: int,
+    summarize: bool = False,
+    windowing: bool = False,
+    window_size: int = 6,
+    session_id: Optional[str] = None,
+):
     model, resolved_model_id = _resolve_model(model_name)
     logger.info(f"--- ADK MCP Client Starting (Model: {resolved_model_id}) ---")
 
@@ -251,19 +263,10 @@ async def run_adk_mcp_agent(level: str, model_name: str, delay: int, max_turns: 
         "requests": 0,
     }
 
-    guidance_map = {
-        "full": "data/guidance_full.txt",
-        "medium": "data/guidance_medium.txt",
-        "minimal": "data/guidance_minimal.txt",
-    }
-    guidance_file = guidance_map.get(level, "data/guidance_full.txt")
-    guidance_cfg = load_guidance(guidance_file)
+    guidance_cfg = load_guidance(level)
     if guidance_cfg.path:
         logger.info(f"Guidance: {guidance_cfg.path}")
-
-    guidance_block = (
-        f"\n\nGUIDANCE (follow this):\n{guidance_cfg.text}" if guidance_cfg.text else ""
-    )
+    guidance_block = format_guidance_block(guidance_cfg)
 
     connection_params = StreamableHTTPConnectionParams(
         url=MCP_URL,
@@ -286,23 +289,66 @@ async def run_adk_mcp_agent(level: str, model_name: str, delay: int, max_turns: 
             f"{guidance_block}"
         ),
         tools=[toolset],
+        generate_content_config=types.GenerateContentConfig(
+            thinking_config=types.ThinkingConfig(
+                include_thoughts=True
+            )
+        )
     )
 
     app_name = "dustwood_adk_mcp"
     user_id = "adk_user"
-    session_id = f"adk-session-{EPOCH}"
-    session_service = InMemorySessionService()
-    await session_service.create_session(
-        app_name=app_name, user_id=user_id, session_id=session_id
-    )
-    runner = Runner(agent=agent, app_name=app_name, session_service=session_service)
+    active_session_id = session_id if session_id else f"adk-session-{EPOCH}"
 
-    prompt = (
-        "Play Echoes of Dustwood now.\n"
-        "First call the command tool with command='LOOK' and reset=True.\n"
-        f"Then keep playing to maximize score for up to {max_turns} turns.\n"
-        "If turns reach the limit, provide a short final summary."
-    )
+    os.makedirs("sessions", exist_ok=True)
+    session_service = DatabaseSessionService(db_url="sqlite+aiosqlite:///sessions/adk_sessions.db")
+
+    is_resume = False
+    if session_id:
+        existing = await session_service.get_session(
+            app_name=app_name, user_id=user_id, session_id=active_session_id
+        )
+        is_resume = existing is not None
+
+    if not is_resume:
+        await session_service.create_session(
+            app_name=app_name, user_id=user_id, session_id=active_session_id
+        )
+
+    if summarize or windowing:
+        if summarize:
+            compaction_config = EventsCompactionConfig(
+                compaction_interval=window_size,
+                overlap_size=1,
+            )
+        else:
+            compaction_config = EventsCompactionConfig(
+                compaction_interval=window_size,
+                overlap_size=1,
+                summarizer=TruncatingEventSummarizer(),
+            )
+        app = App(
+            name=app_name,
+            root_agent=agent,
+            events_compaction_config=compaction_config,
+        )
+        runner = Runner(app=app, session_service=session_service)
+    else:
+        runner = Runner(agent=agent, app_name=app_name, session_service=session_service)
+
+    if is_resume:
+        prompt = (
+            "Continue playing Echoes of Dustwood now to maximize score.\n"
+            f"Keep playing to maximize score for up to {max_turns} turns.\n"
+            "Do not reset the game."
+        )
+    else:
+        prompt = (
+            "Play Echoes of Dustwood now.\n"
+            "First call the command tool with command='LOOK' and reset=True.\n"
+            f"Then keep playing to maximize score for up to {max_turns} turns.\n"
+            "If turns reach the limit, provide a short final summary."
+        )
     content = types.Content(role="user", parts=[types.Part(text=prompt)])
 
     processed_event_ids: set[str] = set()
@@ -315,7 +361,7 @@ async def run_adk_mcp_agent(level: str, model_name: str, delay: int, max_turns: 
         try:
             async for event in runner.run_async(
                 user_id=user_id,
-                session_id=session_id,
+                session_id=active_session_id,
                 new_message=content,
                 run_config=RunConfig(max_llm_calls=max(8, max_turns * 4)),
             ):
@@ -328,7 +374,15 @@ async def run_adk_mcp_agent(level: str, model_name: str, delay: int, max_turns: 
                 if getattr(event, "partial", False):
                     continue
 
-                event_text = _extract_text(getattr(event, "content", None))
+                content_obj = getattr(event, "content", None)
+                if content_obj and hasattr(content_obj, "parts"):
+                    for part in content_obj.parts:
+                        if getattr(part, "thought", False):
+                            thought_text = getattr(part, "text", None)
+                            if thought_text and thought_text.strip():
+                                logger.info(f"THINKING: {thought_text.strip()}")
+
+                event_text = _extract_text(content_obj)
                 if event_text:
                     logger.info(f"AI: {event_text}")
                     final_text = event_text
@@ -418,9 +472,28 @@ async def run_adk_mcp_agent(level: str, model_name: str, delay: int, max_turns: 
 
 
 if __name__ == "__main__":
-    level = sys.argv[1] if len(sys.argv) > 1 else "full"
-    model = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_MODEL
-    delay = int(sys.argv[3]) if len(sys.argv) > 3 else TURN_DELAY
-    max_turns = int(sys.argv[4]) if len(sys.argv) > 4 else MAX_TURNS
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("level", nargs="?", default="full")
+    parser.add_argument("model", nargs="?", default=DEFAULT_MODEL)
+    parser.add_argument("delay", nargs="?", type=int, default=TURN_DELAY)
+    parser.add_argument("max_turns", nargs="?", type=int, default=MAX_TURNS)
+    parser.add_argument("--summarize", "-s", action="store_true", help="Enable summarization")
+    parser.add_argument("--windowing", "-w", action="store_true", help="Enable sliding window history (disabled by default)")
+    parser.add_argument("--window-size", "-n", type=int, default=6, help="Window size in game turns (default: 6)")
+    parser.add_argument("--session-id", type=str, default=None, help="Session ID to restore or create")
 
-    asyncio.run(run_adk_mcp_agent(level, model, delay, max_turns))
+    args = parser.parse_args()
+
+    asyncio.run(
+        run_adk_mcp_agent(
+            level=args.level,
+            model_name=args.model,
+            delay=args.delay,
+            max_turns=args.max_turns,
+            summarize=args.summarize,
+            windowing=args.windowing,
+            window_size=args.window_size,
+            session_id=args.session_id,
+        )
+    )

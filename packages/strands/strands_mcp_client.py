@@ -10,7 +10,9 @@ from mcp import StdioServerParameters, stdio_client
 
 # Strands Imports
 from strands import Agent
-from strands.agent.conversation_manager import SlidingWindowConversationManager
+from strands.agent.conversation_manager import SlidingWindowConversationManager, SummarizingConversationManager, NullConversationManager
+from strands.types.exceptions import EventLoopException
+from strands.session.file_session_manager import FileSessionManager
 from strands.hooks import (
     AfterInvocationEvent,
     AfterModelCallEvent,
@@ -20,6 +22,7 @@ from strands.hooks import (
     BeforeToolCallEvent,
 )
 from strands.models.litellm import LiteLLMModel
+from strands.models.gemini import GeminiModel
 from strands.tools.mcp import MCPClient
 
 # Load environment variables
@@ -44,41 +47,30 @@ MAX_TURNS = 25
 EPOCH = int(time.time())
 LOG_FILE = f"logs/strands_mcp_client-{EPOCH}.log"
 
-from vibepascal_shared.guidance_loader import load_guidance
+class _GameEndedError(EventLoopException):
+    """Raised from hooks to break the Strands agent loop when the game ends.
+
+    Subclasses EventLoopException so the event loop bypasses the "cycle failed"
+    log path and re-raises cleanly without printing a traceback.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(Exception(message))
+
+
+from vibepascal_shared.guidance_loader import format_guidance_block, load_guidance
 from vibepascal_shared.llm_observability import (
     Timer,
-    console_logging_enabled,
-    enable_http_debug_logging,
     format_payload,
     game_console_enabled,
-    http_debug_logging_enabled,
     log_kv,
     print_game,
     provider_payload_logging_enabled,
+    setup_logger,
 )
 from vibepascal_shared.mcp_command_policy import CommandPolicy, sanitize_command
 
-# --- Setup Logging ---
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-os.makedirs("logs", exist_ok=True)
-
-file_handler = logging.FileHandler(LOG_FILE)
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-logger.addHandler(file_handler)
-
-if console_logging_enabled():
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(logging.Formatter("%(message)s"))
-    logger.addHandler(console_handler)
-
-if http_debug_logging_enabled():
-    handlers = [file_handler]
-    if console_logging_enabled():
-        handlers.append(console_handler)
-    enable_http_debug_logging(handlers=handlers)
+logger = setup_logger(__name__, LOG_FILE)
 
 # Global variable for delay
 global_delay = TURN_DELAY
@@ -90,19 +82,51 @@ def run_strands_agent(
     delay: int,
     max_turns: int,
     transport: str = "streamable-http",
+    summarize: bool = False,
+    windowing: bool = False,
+    window_size: int = 6,
+    session_id: Optional[str] = None,
 ):
     # Ensure gemini models use the correct prefix for Gemini API (Google AI Studio)
     # instead of defaulting to Vertex AI if passed without prefix.
-    if model_id.startswith("gemini-") and "/" not in model_id:
-        logger.info(f"Auto-prepending 'gemini/' to model ID: {model_id}")
-        model_id = f"gemini/{model_id}"
+    use_native_gemini = False
+    if model_id.startswith("google:"):
+        model_id = model_id.removeprefix("google:")
+        use_native_gemini = True
+    elif model_id.startswith("gemini-") and "/" not in model_id:
+        use_native_gemini = True
+    elif model_id.startswith("gemini/"):
+        model_id = model_id.removeprefix("gemini/")
+        use_native_gemini = True
     elif model_id.startswith("openai:"):
         model_id = model_id.removeprefix("openai:")
     elif model_id.startswith("anthropic:"):
         model_id = model_id.replace("anthropic:", "anthropic/")
 
     # 1. Initialize the LLM
-    llm_model = LiteLLMModel(model_id=model_id, params={"max_tokens": 20000})
+    if use_native_gemini:
+        api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+        params = {
+            "thinking_config": {
+                "include_thoughts": True
+            }
+        }
+        if "gemini-2.5" in model_id:
+            params["tool_config"] = {
+                "function_calling_config": {
+                    "mode": "ANY"
+                }
+            }
+        llm_model = GeminiModel(
+            model_id=model_id,
+            client_args={"api_key": api_key},
+            params=params
+        )
+    else:
+        params = {"max_tokens": 20000}
+        if "gemini-2.5" in model_id:
+            params["tool_choice"] = "required"
+        llm_model = LiteLLMModel(model_id=model_id, params=params)
 
     # 2. Initialize the MCP Client
     if transport == "stdio":
@@ -121,27 +145,37 @@ def run_strands_agent(
 
             mcp_client = MCPClient(lambda: streamablehttp_client(MCP_URL))
 
-    # 3. Setup Conversation Manager
-    conv_manager = SlidingWindowConversationManager(window_size=MESSAGE_HISTORY_LIMIT)
+    # 3. Setup Conversation Manager and Session Manager
+    if summarize:
+        conv_manager = SummarizingConversationManager(
+            summary_ratio=0.3,
+            preserve_recent_messages=window_size * 4
+        )
+    elif windowing:
+        conv_manager = SlidingWindowConversationManager(
+            window_size=window_size * 4,
+            per_turn=True,
+        )
+    else:
+        conv_manager = NullConversationManager()
+
+    active_session_id = session_id if session_id else f"strands-session-{EPOCH}"
+    os.makedirs("sessions/strands_sessions", exist_ok=True)
+    session_manager = FileSessionManager(
+        session_id=active_session_id,
+        storage_dir="sessions/strands_sessions"
+    )
 
     # 4. Initialize Agent with MCP Tools
-    guidance_map = {
-        "full": "data/guidance_full.txt",
-        "medium": "data/guidance_medium.txt",
-        "minimal": "data/guidance_minimal.txt",
-    }
-    guidance_file = guidance_map.get(level, "data/guidance_full.txt")
-    guidance_cfg = load_guidance(guidance_file)
+    guidance_cfg = load_guidance(level)
     if guidance_cfg.path:
         logger.info(f"Guidance: {guidance_cfg.path}")
-
-    guidance_block = (
-        f"\n\nGUIDANCE (follow this):\n{guidance_cfg.text}" if guidance_cfg.text else ""
-    )
+    guidance_block = format_guidance_block(guidance_cfg)
     policy = CommandPolicy.from_env()
 
     last_state_obj: SimpleNamespace | None = None
     last_output_text: str = ""
+    _game_over = False
 
     def _state_obj_from_dict(d: dict) -> SimpleNamespace:
         inv = d.get("inventory") or []
@@ -182,6 +216,7 @@ def run_strands_agent(
         ),
         tools=[mcp_client],
         conversation_manager=conv_manager,
+        session_manager=session_manager,
     )
 
     # --- Observability hooks (provider calls + tool calls + latency) ---
@@ -315,8 +350,23 @@ def run_strands_agent(
                 else None
             ),
         )
+        if event.stop_response and event.stop_response.message:
+            msg = event.stop_response.message
+            content_blocks = msg.get("content") or []
+            for block in content_blocks:
+                rc = block.get("reasoningContent")
+                if rc:
+                    rt = rc.get("reasoningText")
+                    if rt:
+                        text = rt.get("text")
+                        if text and text.strip():
+                            logger.info(f"THINKING: {text.strip()}")
 
     def _before_tool_call(event: BeforeToolCallEvent) -> None:
+        nonlocal _game_over
+        # Raise OUTSIDE the inner try/except so it propagates and stops the agent loop.
+        if _game_over:
+            raise _GameEndedError("Game ended — stopping agent loop")
         obs = event.invocation_state.setdefault("_obs", {})
         tool_starts: dict[str, float] = obs.setdefault("tool_starts", {})
         tool_use_id = (event.tool_use or {}).get(
@@ -326,15 +376,20 @@ def run_strands_agent(
         try:
             tool_name = (event.tool_use or {}).get("name")
             tool_input = (event.tool_use or {}).get("input") or {}
+            # Apply game-state checks to ALL MCP tools (go, take, drop, drink, command…),
+            # not just "command" — the agent uses named tools that also consume game turns
+            # and return structuredContent, so last_state_obj reflects the real turn count.
+            if last_state_obj is not None and not last_state_obj.is_playing:
+                _game_over = True
+                event.cancel_tool = "Game is over."
+                return
+            if last_state_obj is not None and int(
+                getattr(last_state_obj, "turns", 0)
+            ) >= int(max_turns):
+                _game_over = True
+                event.cancel_tool = "Turn limit reached."
+                return
             if tool_name == "command" and isinstance(tool_input, dict):
-                if last_state_obj is not None and not last_state_obj.is_playing:
-                    event.cancel_tool = "Game is over."
-                    return
-                if last_state_obj is not None and int(
-                    getattr(last_state_obj, "turns", 0)
-                ) >= int(max_turns):
-                    event.cancel_tool = "Turn limit reached."
-                    return
                 raw_cmd = sanitize_command(str(tool_input.get("command") or ""))
                 if last_state_obj is not None:
                     rewritten = policy.rewrite(
@@ -373,6 +428,7 @@ def run_strands_agent(
     def _after_tool_call(event: AfterToolCallEvent) -> None:
         nonlocal last_state_obj
         nonlocal last_output_text
+        nonlocal _game_over
         obs = event.invocation_state.get("_obs", {})
         tool_starts: dict[str, float] = obs.get("tool_starts") or {}
         tool_use_id = (event.tool_use or {}).get(
@@ -387,7 +443,9 @@ def run_strands_agent(
         if event.exception is None:
             try:
                 tool_name = (event.tool_use or {}).get("name")
-                if tool_name == "command" and isinstance(event.result, dict):
+                # Update game state from ALL tools that return structuredContent
+                # (go, take, drop, drink, command…), not just "command".
+                if isinstance(event.result, dict):
                     structured = event.result.get("structuredContent")
                     if isinstance(structured, dict):
                         output = structured.get("output") or ""
@@ -395,18 +453,19 @@ def run_strands_agent(
                         if isinstance(state, dict):
                             last_state_obj = _state_obj_from_dict(state)
                             last_output_text = str(output or "")
-                            tool_input = (event.tool_use or {}).get("input") or {}
-                            executed_cmd = (
-                                sanitize_command(str(tool_input.get("command") or ""))
-                                if isinstance(tool_input, dict)
-                                else ""
-                            )
-                            if executed_cmd and last_state_obj is not None:
-                                policy.observe(
-                                    command=executed_cmd,
-                                    state=last_state_obj,
-                                    output_text=last_output_text,
+                            if tool_name == "command":
+                                tool_input = (event.tool_use or {}).get("input") or {}
+                                executed_cmd = (
+                                    sanitize_command(str(tool_input.get("command") or ""))
+                                    if isinstance(tool_input, dict)
+                                    else ""
                                 )
+                                if executed_cmd and last_state_obj is not None:
+                                    policy.observe(
+                                        command=executed_cmd,
+                                        state=last_state_obj,
+                                        output_text=last_output_text,
+                                    )
                         if game_console_enabled():
                             if isinstance(state, dict):
                                 turns = state.get("turns")
@@ -420,6 +479,20 @@ def run_strands_agent(
                                 print_game(f"\n{header}\n{str(output).strip()}\n")
             except Exception:
                 pass
+        # Detect server-reported turn limit (error response with no structuredContent).
+        # Without this, last_state_obj.turns never reaches max_turns and the LLM
+        # spins calling QUIT repeatedly after the server rejects every command.
+        if (
+            event.exception is None
+            and not getattr(event, "cancel_message", None)
+            and isinstance(event.result, dict)
+            and event.result.get("status") == "error"
+        ):
+            for c in event.result.get("content") or []:
+                if isinstance(c, dict) and "Turn limit reached" in c.get("text", ""):
+                    _game_over = True
+                    log_kv(logger, event="game_over", client="strands", reason="server_turn_limit")
+                    break
         log_kv(
             logger,
             event="tool_call",
@@ -458,6 +531,8 @@ def run_strands_agent(
     try:
         result = agent(prompt)
         logger.info(f"\n[FINAL AGENT RESPONSE]\n{str(result).strip()}")
+    except _GameEndedError as e:
+        logger.info(f"Game ended: {e}")
     except Exception as e:
         logger.error(f"Error during agent execution: {e}")
     finally:
@@ -468,10 +543,28 @@ def run_strands_agent(
 
 
 if __name__ == "__main__":
-    level = sys.argv[1] if len(sys.argv) > 1 else "full"
-    model = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_MODEL_ID
-    delay = int(sys.argv[3]) if len(sys.argv) > 3 else TURN_DELAY
-    max_turns = int(sys.argv[4]) if len(sys.argv) > 4 else MAX_TURNS
-    transport = sys.argv[5] if len(sys.argv) > 5 else "streamable-http"
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("level", nargs="?", default="full")
+    parser.add_argument("model", nargs="?", default=DEFAULT_MODEL_ID)
+    parser.add_argument("delay", nargs="?", type=int, default=TURN_DELAY)
+    parser.add_argument("max_turns", nargs="?", type=int, default=MAX_TURNS)
+    parser.add_argument("transport", nargs="?", default="streamable-http")
+    parser.add_argument("--summarize", "-s", action="store_true", help="Enable summarization")
+    parser.add_argument("--windowing", "-w", action="store_true", help="Enable sliding window history (disabled by default)")
+    parser.add_argument("--window-size", "-n", type=int, default=6, help="Window size in game turns (default: 6)")
+    parser.add_argument("--session-id", type=str, default=None, help="Session ID to restore or create")
 
-    run_strands_agent(level, model, delay, max_turns, transport)
+    args = parser.parse_args()
+
+    run_strands_agent(
+        level=args.level,
+        model_id=args.model,
+        delay=args.delay,
+        max_turns=args.max_turns,
+        transport=args.transport,
+        summarize=args.summarize,
+        windowing=args.windowing,
+        window_size=args.window_size,
+        session_id=args.session_id,
+    )
