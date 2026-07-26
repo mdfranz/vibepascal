@@ -49,3 +49,8 @@ node_modules/
 
 # Sessions / DB persistence
 sessions/
+
+# .NET / C#
+[Bb]in/
+[Oo]bj/
+

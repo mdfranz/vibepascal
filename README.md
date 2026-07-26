@@ -114,21 +114,36 @@ Echoes of Dustwood uses a **Persistent Sidecar** architecture to bridge a legacy
 - **`types.go`**: Centralized constants and struct types (e.g., `Room`, `Item`) used across the engine.
 - **`world.go`**: World data loader. Reads rooms and items from `data/world.ini` and handles initial randomization.
 
+## .NET Source Reference (`src/dotnet/`)
+
+- **`Program.cs`**: Main program entry point. CLI flags parsing and mode launcher (CLI / Headless / MCP HTTP).
+- **`Commands.cs`**: Game command parser and state transition logic.
+- **`Game.cs`**: Game session manager and command execution wrapper.
+- **`MCPServer.cs`**: ASP.NET Core Minimal API MCP server implementation over JSON-RPC 2.0 / HTTP.
+- **`Summary.cs`**: `GameSummary` structured JSON state builder.
+- **`World.cs`**: INI world loader (`data/world.ini`) and seed-based map location randomizer.
+- **`Persistence.cs`**: Game state save/load and autosave logic.
+
 ## Build
 
 ### Dependencies
 
 - **Pascal:** `fpc` (Free Pascal Compiler)
 - **Go:** `go` (1.18+)
+- **.NET:** `dotnet` (10.0+)
 - **Python:** `python3`, `fastapi`, `uvicorn`, `httpx`, `pytest`, `pydantic-ai`
 
 ### Compile
 
 From the project root:
 
-- To build the Pascal version:
+- To build all engines:
   ```bash
   make build
+  ```
+- To build the .NET version:
+  ```bash
+  make build-dotnet
   ```
 - To build the Go version:
   ```bash
@@ -137,16 +152,20 @@ From the project root:
 
 ## Run
 
-- Pascal version:
+- .NET version:
   ```bash
-  ./bin/dustwood [options]
+  make run-dotnet
+  # or
+  dotnet bin/dustwood-dotnet.dll [options]
   ```
 - Go version:
   ```bash
+  make run
+  # or
   ./bin/dustwood-go [options]
   ```
 
-### MCP (Go Engine)
+### MCP (.NET / Go Engine)
 
 Run the Go engine as an MCP Streamable HTTP server (localhost-only by default):
 

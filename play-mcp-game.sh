@@ -118,6 +118,11 @@ echo "--- Running Client 4: ADK (MCP) ---"
 ./adk-mcp-game.sh "$ADK_MODEL" "$MAX_TURNS" "$DELAY" "$LEVEL" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"
 
 echo ""
+echo "--- Running Client 5: Microsoft Agent Framework (.NET) (MCP) ---"
+./maf-mcp-game.sh "$MODEL" "$MAX_TURNS" "$DELAY" "$LEVEL" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"
+
+echo ""
 echo "================================================================"
 echo "ALL MCP CLIENT SESSIONS COMPLETE"
 echo "================================================================"
+
