@@ -1,6 +1,18 @@
 # MCP Client Implementation Summary
 
-Each framework package (`packages/<fw>/`) contains an `*_mcp_client.py` that connects an AI agent to the Dustwood game server over MCP (Model Context Protocol). Four clients are actively benchmarked (Pydantic AI, Agno, Strands, ADK). All four share the same CLI interface and high-level goal but differ in how the agentic loop is structured.
+Each framework package (`packages/<fw>/`) contains an MCP client that connects an AI agent to the Dustwood game server over MCP (Model Context Protocol). The Python clients (Pydantic AI, Agno, Strands, ADK) share the same CLI interface and high-level goal but differ in how the agentic loop is structured. `maf` provides the equivalent client using the Microsoft Agent Framework and .NET.
+
+## Key Differentiators
+
+| Client | Runtime | Loop owner | MCP integration | Model routing | Primary turn/budget control |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| Pydantic AI | Python | Framework-managed `agent.iter()` | `MCPToolset` | Pydantic AI model names | `UsageLimits` plus state checks |
+| Agno | Python | Explicit client `while` loop | `MCPTools`, with direct session dispatch | Native provider model objects | Manual history, LLM-call, and turn limits |
+| Strands | Python | Framework-managed `agent(prompt)` | `MCPClient` with HTTP, SSE, or stdio transport | LiteLLM provider strings | `BeforeToolCall` hook rewrites or cancels calls |
+| Google ADK | Python | Framework-managed `Runner.run_async()` stream | `McpToolset` | Native Gemini or LiteLLM | `RunConfig(max_llm_calls=...)` plus state checks |
+| MAF | .NET 10 | Framework-managed `ChatClientAgent.RunStreamingAsync()` stream | MCP .NET `HttpClientTransport` and discovered `AITool`s | OpenRouter model IDs via `IChatClient` | Cancellation token driven by game state, plus a tool-call safety cap |
+
+MAF is the only .NET implementation, the only client that routes through OpenRouter directly, and the only one that exports its built-in telemetry through OpenTelemetry/OTLP. It also recovers OpenRouter reasoning deltas from the raw SSE stream, because those provider-specific fields are not represented by the standard OpenAI .NET response types.
 
 ## Common Patterns
 
@@ -94,6 +106,26 @@ The game server exposes a single `command` MCP tool. Each call returns `structur
 
 ---
 
+## `maf/Program.cs`
+
+**Framework:** Microsoft Agent Framework (`Microsoft.Agents.AI`) on .NET 10, using `Microsoft.Extensions.AI` and the official MCP .NET client.
+
+**Loop style:** Fully autonomous and streamed — one `ChatClientAgent.RunStreamingAsync()` invocation drives model completions and MCP tool calls until the game ends or the client cancels at the turn limit.
+
+**How it works:**
+
+1. `HttpClientTransport` connects to `MCP_URL`, then `McpClient.ListToolsAsync()` discovers the available MCP tools. Those tools are cast to `AITool` and supplied to `ChatClientAgent` through `ChatOptions.Tools`.
+2. `CreateOpenRouterChatClient()` creates an `IChatClient` backed by the OpenAI .NET SDK against `OPENROUTER_BASE_URL` (default `https://openrouter.ai/api/v1`). It reads `OPENROUTER_API_KEY`, falling back to `OPENAI_API_KEY` or an interactive prompt.
+3. The client streams `TextContent`, `TextReasoningContent`, `FunctionCallContent`, `FunctionResultContent`, and `UsageContent` from the agent. Function results are parsed for `structuredContent.output` and `structuredContent.state` to update game state.
+4. A cancellation token stops the autonomous run when `state.isPlaying` is false or `state.turns >= maxTurns`; a `maxTurns * 3` tool-call guard provides a secondary safety limit. Non-`LOOK` commands wait for the requested delay.
+5. `ReasoningSniffingPolicy` wraps the HTTP response stream to capture OpenRouter's non-standard SSE `reasoning` deltas, which the standard OpenAI .NET response types otherwise discard.
+6. The client writes `client_start`, `provider_call`, `tool_call`, assistant-content, and `run_summary` records to `logs/maf_mcp_client-{epoch}.log`. OpenTelemetry traces and logs are exported through OTLP, with spans for the session, model calls, and tool calls.
+7. Session snapshots are written to `sessions/maf_sessions/<session-id>.json`; `--session-id <id>` selects a prior snapshot path for inspection. The client also accepts `--summarize`, `--windowing`, and `--window-size` flags.
+
+**Model support:** OpenRouter model IDs, defaulting to `google/gemini-3.5-flash`.
+
+---
+
 ## Shared Library (`packages/shared/vibepascal_shared/`)
 
 ### `llm_observability.py`
@@ -143,7 +175,7 @@ flowchart TD
 
 ## Related Documentation
 
-- **Framework Setup & Overview:** [packages/README.md](file:///home/mfranz/github/vibepascal/packages/README.md)
-- **Detailed Control Flow:** [packages/FLOW.md](file:///home/mfranz/github/vibepascal/packages/FLOW.md) — Comparison of execution loops and logical boundaries.
-- **Observability Configuration:** [packages/shared/OBSERVABILITY.md](file:///home/mfranz/github/vibepascal/packages/shared/OBSERVABILITY.md) — Telemetry logging setup.
-- **Main Overview Index:** [README.md](file:///home/mfranz/github/vibepascal/README.md)
+- **Framework Setup & Overview:** [packages/README.md](README.md)
+- **Detailed Control Flow:** [packages/FLOW.md](FLOW.md) — Comparison of execution loops and logical boundaries.
+- **Observability Configuration:** [packages/shared/OBSERVABILITY.md](shared/OBSERVABILITY.md) — Telemetry logging setup.
+- **Main Overview Index:** [README.md](../README.md)

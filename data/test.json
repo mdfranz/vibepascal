@@ -1,0 +1,191 @@
+{
+  "current_room": 2,
+  "is_pump_fixed": false,
+  "is_lamp_lit": false,
+  "has_water": false,
+  "is_horse_saddled": false,
+  "is_riding": false,
+  "is_telegraph_fixed": false,
+  "is_box_open": false,
+  "temp_light_turns": 0,
+  "canteen_drinks": 0,
+  "thirst": 2,
+  "horse_thirst": 0,
+  "turns": 2,
+  "score": 8,
+  "room_burning": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "items": [
+    {
+      "location": -1,
+      "description": "a worn leather book"
+    },
+    {
+      "location": 5,
+      "description": "an old army canteen"
+    },
+    {
+      "location": 3,
+      "description": "a rusted iron water pump"
+    },
+    {
+      "location": -1,
+      "description": "a spool of copper wire"
+    },
+    {
+      "location": 5,
+      "description": "a scrap of tough leather"
+    },
+    {
+      "location": 5,
+      "description": "a box of matches"
+    },
+    {
+      "location": 7,
+      "description": "a locked gun box"
+    },
+    {
+      "location": 0,
+      "description": "a loaded .44 revolver"
+    },
+    {
+      "location": 3,
+      "description": "a sturdy chestnut mare"
+    },
+    {
+      "location": 5,
+      "description": "a heavy leather saddle"
+    },
+    {
+      "location": 2,
+      "description": "a faded hand-drawn map"
+    },
+    {
+      "location": 13,
+      "description": "a flat mossy rock"
+    },
+    {
+      "location": 0,
+      "description": "a small brass key"
+    },
+    {
+      "location": 4,
+      "description": "a torn ledger page"
+    },
+    {
+      "location": 0,
+      "description": "a small folded note"
+    },
+    {
+      "location": 0,
+      "description": ""
+    },
+    {
+      "location": 0,
+      "description": ""
+    },
+    {
+      "location": 0,
+      "description": ""
+    },
+    {
+      "location": 0,
+      "description": ""
+    },
+    {
+      "location": 0,
+      "description": ""
+    },
+    {
+      "location": 0,
+      "description": ""
+    },
+    {
+      "location": 0,
+      "description": ""
+    },
+    {
+      "location": 0,
+      "description": ""
+    },
+    {
+      "location": 0,
+      "description": ""
+    }
+  ],
+  "room_visited": [
+    false,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+  ],
+  "item_scored": [
+    false,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+  ],
+  "scored_pump_fix": false,
+  "scored_first_fill": false,
+  "scored_lamp_light": false,
+  "scored_box_open": false,
+  "scored_telegraph_fix": false,
+  "scored_outlaw_kill": false,
+  "scored_note_found": false
+}

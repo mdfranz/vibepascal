@@ -4,8 +4,10 @@ import os
 import sys
 import time
 import json
+from dataclasses import replace
 from pydantic import TypeAdapter
 
+import logfire
 from dotenv import load_dotenv
 from vibepascal_shared.guidance_loader import format_guidance_block, load_guidance
 from vibepascal_shared.llm_observability import (
@@ -34,6 +36,7 @@ from pydantic_ai.messages import (
     SystemPromptPart
 )
 from pydantic_ai.models import KnownModelName
+from mcp.shared.exceptions import McpError
 
 # Load environment variables
 load_dotenv()
@@ -49,6 +52,15 @@ EPOCH = int(time.time())
 LOG_FILE = f"logs/pydantic_mcp_client-{EPOCH}.log"
 
 logger = setup_logger(__name__, LOG_FILE)
+
+# Logfire is opt-in via LOGFIRE_TOKEN, matching this codebase's other env-gated observability
+# knobs (LOG_HTTP, LOG_PAYLOADS). instrument_pydantic_ai() covers agent/model-call spans
+# (including prompt/response content and reasoning); instrument_mcp() covers the MCP
+# tool-call spans that pydantic-ai's own instrumentation doesn't reach.
+if os.environ.get("LOGFIRE_TOKEN"):
+    logfire.configure(service_name="pydantic-dustwood-client")
+    logfire.instrument_pydantic_ai()
+    logfire.instrument_mcp()
 
 
 async def run_pydantic_agent(
@@ -71,7 +83,36 @@ async def run_pydantic_agent(
     reasoning_enabled = os.environ.get("AI_REASONING", "0") not in {"0", "false", "False"}
     capabilities = [Thinking()] if reasoning_enabled else []
 
-    server = MCPToolset(MCP_URL, max_retries=3)
+    # reset_game is excluded outright rather than relying on a prompt instruction: the model
+    # would independently call it mid-game (typically right as it approached max_turns),
+    # wiping progress and restarting from turn 0. A prompt instruction isn't reliable enough
+    # here - we already reset once ourselves before the agent starts, so the tool serves no
+    # purpose for this benchmark loop and shouldn't be reachable at all. raw_server keeps
+    # direct_call_tool (FilteredToolset doesn't expose it) for that one initial reset call.
+    #
+    # That alone wasn't sufficient: the generic 'command' tool also accepts its own
+    # reset/seed parameters, and models have independently discovered and used them mid-game
+    # (e.g. deciding "game over, let me start fresh" and calling
+    # command(command=..., reset=true, seed=...)). strip_reset_params removes those
+    # parameters from every tool's advertised schema so the model never sees them as an
+    # option at all, on any tool.
+    def strip_reset_params(ctx, tool_defs):
+        stripped = []
+        for td in tool_defs:
+            schema = td.parameters_json_schema
+            props = schema.get("properties", {}) if schema else {}
+            if "reset" in props or "seed" in props:
+                new_props = {k: v for k, v in props.items() if k not in {"reset", "seed"}}
+                new_required = [r for r in schema.get("required", []) if r not in {"reset", "seed"}]
+                schema = {**schema, "properties": new_props, "required": new_required}
+                td = replace(td, parameters_json_schema=schema)
+            stripped.append(td)
+        return stripped
+
+    raw_server = MCPToolset(MCP_URL, max_retries=3)
+    server = raw_server.filtered(lambda ctx, tool_def: tool_def.name != "reset_game").prepared(
+        strip_reset_params
+    )
 
     # 1. Sliding Window History Processor
     def trim_history(messages: list[ModelMessage]) -> list[ModelMessage]:
@@ -205,8 +246,17 @@ async def run_pydantic_agent(
         ),
     )
 
+    # Reset the game ourselves, outside the agent loop. Previously the model was told to
+    # call command(command="LOOK", reset=True) as its very first action - the only example
+    # it ever saw of that tool signature - and it would later imitate that exact call
+    # mid-game (often right as it approached max_turns), wiping the game back to turn 0
+    # and effectively restarting 3-4x within a single "session". Doing the reset here means
+    # the model never sees reset=True at all, so there's nothing to imitate.
+    async with raw_server:
+        await raw_server.direct_call_tool("command", {"command": "LOOK", "reset": True})
+
     prompt = (
-        f"Start by calling the 'command' tool with command='LOOK' and reset=True. "
+        f"Start by calling the 'command' tool with command='LOOK' to see your surroundings. "
         f"Then continue playing 'Echoes of Dustwood' for up to {max_turns} turns to increase your score."
     )
 
@@ -225,7 +275,11 @@ async def run_pydantic_agent(
         async with agent.iter(
             prompt,
             message_history=loaded_messages,
-            usage_limits=UsageLimits(request_limit=max_turns * 4)
+            # This is a safety backstop against runaway loops, not the intended stopping
+            # mechanism - that's the `turns >= max_turns` check below. Observed call/turn
+            # ratios run close to 5:1 (LOOK/inventory checks, retries), so *4 was cutting
+            # games off before they reached max_turns even with no resets involved.
+            usage_limits=UsageLimits(request_limit=max_turns * 10)
         ) as run_iter:
             agent_run = run_iter
             async for node in agent_run:
@@ -335,6 +389,11 @@ async def run_pydantic_agent(
 
     except (UnexpectedModelBehavior, UsageLimitExceeded) as e:
         logger.info(f"[GAME ENDED] {e}")
+    except McpError as e:
+        # Defense in depth: a malformed tool call (e.g. a hallucinated parameter that
+        # doesn't match the advertised schema) shouldn't take down the whole run when
+        # we're this close to the turn limit - log it and fall through to run_summary.
+        logger.warning(f"[MCP ERROR] {e}")
 
     # Final summary log
     if agent_run is not None:

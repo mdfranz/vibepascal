@@ -1,4 +1,5 @@
 using System;
+using System.ClientModel.Primitives;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -6,15 +7,148 @@ using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Client;
+using OpenTelemetry;
+using OpenTelemetry.Logs;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 namespace MafMcpClient;
 
 public class Program
 {
+    private const string ActivitySourceName = "MafMcpClient.Dustwood";
+    private static readonly ActivitySource ActivitySource = new(ActivitySourceName);
+
+    private static readonly StringBuilder ReasoningSink = new();
+
+    private static void OnReasoningChunk(string text)
+    {
+        lock (ReasoningSink) { ReasoningSink.Append(text); }
+    }
+
+    private static string FlushReasoningSink()
+    {
+        lock (ReasoningSink)
+        {
+            string s = ReasoningSink.ToString();
+            ReasoningSink.Clear();
+            return s;
+        }
+    }
+
+    // OpenRouter streams reasoning tokens as a non-standard "reasoning" field on each SSE
+    // delta, alongside "content". The official OpenAI .NET SDK types Microsoft.Extensions.AI.OpenAI
+    // deserializes against have no property for it, so it's silently dropped before it ever
+    // reaches TextReasoningContent. This policy re-reads the raw SSE bytes off the wire to
+    // recover it, without disturbing the stream the SDK itself consumes.
+    private sealed class ReasoningSniffingPolicy : PipelinePolicy
+    {
+        public override void Process(PipelineMessage message, IReadOnlyList<PipelinePolicy> pipeline, int index)
+        {
+            ProcessNext(message, pipeline, index);
+            WrapStream(message);
+        }
+
+        public override async ValueTask ProcessAsync(PipelineMessage message, IReadOnlyList<PipelinePolicy> pipeline, int index)
+        {
+            await ProcessNextAsync(message, pipeline, index);
+            WrapStream(message);
+        }
+
+        private static void WrapStream(PipelineMessage message)
+        {
+            var stream = message.Response?.ContentStream;
+            if (stream != null && stream is not ReasoningSniffingStream)
+            {
+                message.Response!.ContentStream = new ReasoningSniffingStream(stream);
+            }
+        }
+    }
+
+    private sealed class ReasoningSniffingStream : Stream
+    {
+        private readonly Stream _inner;
+        private readonly StringBuilder _lineBuffer = new();
+
+        public ReasoningSniffingStream(Stream inner) => _inner = inner;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush() => _inner.Flush();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            int n = _inner.Read(buffer, offset, count);
+            if (n > 0) Sniff(buffer, offset, n);
+            return n;
+        }
+
+        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            int n = await _inner.ReadAsync(buffer, offset, count, cancellationToken);
+            if (n > 0) Sniff(buffer, offset, n);
+            return n;
+        }
+
+        private void Sniff(byte[] buffer, int offset, int count)
+        {
+            _lineBuffer.Append(Encoding.UTF8.GetString(buffer, offset, count));
+            string all = _lineBuffer.ToString();
+            int lastNewline = all.LastIndexOf('\n');
+            if (lastNewline < 0) return;
+
+            string complete = all[..lastNewline];
+            _lineBuffer.Clear();
+            _lineBuffer.Append(all[(lastNewline + 1)..]);
+
+            foreach (var rawLine in complete.Split('\n'))
+            {
+                string line = rawLine.TrimEnd('\r');
+                if (!line.StartsWith("data: ")) continue;
+                string payload = line["data: ".Length..].Trim();
+                if (payload.Length == 0 || payload == "[DONE]") continue;
+
+                try
+                {
+                    using var doc = JsonDocument.Parse(payload);
+                    if (doc.RootElement.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
+                    {
+                        var delta = choices[0].GetProperty("delta");
+                        if (delta.TryGetProperty("reasoning", out var r) && r.ValueKind == JsonValueKind.String)
+                        {
+                            string text = r.GetString() ?? "";
+                            if (text.Length > 0) OnReasoningChunk(text);
+                        }
+                    }
+                }
+                catch { }
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) _inner.Dispose();
+            base.Dispose(disposing);
+        }
+    }
+
     public record GameState(
         string RoomName,
         int Turns,
@@ -50,11 +184,33 @@ public class Program
     {
         LoadDotEnv();
 
+        var resourceBuilder = ResourceBuilder.CreateDefault().AddService("maf-dustwood-client");
+
+        using var tracerProvider = Sdk.CreateTracerProviderBuilder()
+            .SetResourceBuilder(resourceBuilder)
+            .AddSource(ActivitySourceName)
+            .AddOtlpExporter()
+            .Build();
+
+        // Without this, LogKv only wrote to the local file/console - none of it reached Logfire.
+        // Emitting through ILogger while an Activity is active correlates each record to its
+        // trace/span automatically via the ambient Activity.Current.
+        using var loggerFactory = LoggerFactory.Create(logging =>
+        {
+            logging.AddOpenTelemetry(options =>
+            {
+                options.SetResourceBuilder(resourceBuilder);
+                options.IncludeFormattedMessage = true;
+                options.AddOtlpExporter();
+            });
+        });
+        ILogger gameLogger = loggerFactory.CreateLogger(ActivitySourceName);
+
         string mcpUrl = Environment.GetEnvironmentVariable("MCP_URL") ?? "http://127.0.0.1:8765/mcp";
 
         // Parse CLI arguments
         string level = args.Length > 0 ? args[0] : "full";
-        string rawModel = args.Length > 1 ? args[1] : "google/gemini-2.5-flash";
+        string rawModel = args.Length > 1 ? args[1] : "google/gemini-3.5-flash";
         int delay = args.Length > 2 && int.TryParse(args[2], out var d) ? d : 1;
         int maxTurns = args.Length > 3 && int.TryParse(args[3], out var mt) ? mt : 25;
 
@@ -95,12 +251,17 @@ public class Program
             }
             string line = sb.ToString();
             File.AppendAllText(logFile, line + "\n");
-            
+
             bool gameConsole = Environment.GetEnvironmentVariable("GAME_CONSOLE") != "0";
             if (gameConsole)
             {
                 Console.WriteLine($"[{evt}] {line}");
             }
+
+            var fields = kv.Where(p => p.Value != null).ToList();
+            string template = "dustwood {Event}" + string.Concat(fields.Select(p => $" {p.Key}={{{p.Key}}}"));
+            object?[] args = new object?[] { evt }.Concat(fields.Select(p => p.Value)).ToArray();
+            gameLogger.LogInformation(template, args);
         }
 
         string FormatStringVal(string str)
@@ -140,6 +301,14 @@ public class Program
             "Try to explore, find items, solve puzzles, and survive as long as possible.\n" +
             "Always invoke the 'command' tool with your next game action." + guidanceBlock;
 
+        using var sessionActivity = ActivitySource.StartActivity("maf.session", ActivityKind.Client);
+        sessionActivity?.SetTag("gen_ai.operation.name", "invoke_agent");
+        sessionActivity?.SetTag("gen_ai.agent.name", "DustwoodAgent");
+        sessionActivity?.SetTag("gen_ai.provider.name", "openrouter");
+        sessionActivity?.SetTag("gen_ai.request.model", rawModel);
+        sessionActivity?.SetTag("dustwood.level", level);
+        sessionActivity?.SetTag("dustwood.max_turns", maxTurns);
+
         // Connect to MCP Server
         Console.WriteLine($"Connecting to MCP server at {mcpUrl}...");
         var transport = new HttpClientTransport(new HttpClientTransportOptions
@@ -147,7 +316,12 @@ public class Program
             Endpoint = new Uri(mcpUrl)
         });
 
-        await using var mcpClient = await McpClient.CreateAsync(transport);
+        var clientOptions = new McpClientOptions
+        {
+            ProtocolVersion = "2025-11-25"
+        };
+
+        await using var mcpClient = await McpClient.CreateAsync(transport, clientOptions);
 
         var mcpTools = await mcpClient.ListToolsAsync();
         Console.WriteLine($"Discovered {mcpTools.Count} tools from MCP server.");
@@ -195,107 +369,246 @@ public class Program
             }
         }
 
-        string prompt = "Start game. Issue LOOK to inspect your starting location.";
+        string prompt = $"Start game. Issue LOOK to inspect your starting location, " +
+            $"then continue playing for up to {maxTurns} turns to increase your score.";
         int turnCount = 0;
-        bool isPlaying = true;
 
-        while (isPlaying && currentTurn < maxTurns && turnCount < maxTurns * 3)
+        // ChatClientAgent.RunAsync/RunStreamingAsync loop internally on tool calls until the
+        // model stops requesting them - a single call can play the whole game. To honor
+        // max_turns we stream the run and cancel the token as soon as the game state we observe
+        // reaches the cap or the game ends, rather than checking a turn count after the fact.
+        using var cts = new CancellationTokenSource();
+        var overallStopwatch = Stopwatch.StartNew();
+        double lastCheckpointMs = 0;
+
+        // Span hierarchy follows OTel GenAI semantic conventions so Logfire's Gen AI views pick
+        // them up: maf.session (invoke_agent) -> chat {model} (one per LLM completion) ->
+        // execute_tool {name} (one per tool call the model made in that completion).
+        Activity? chatActivity = null;
+        Activity? toolActivity = null;
+        var assistantText = new StringBuilder();
+        var assistantReasoning = new StringBuilder();
+
+        void FlushAssistantContent()
         {
-            turnCount++;
-            var stopwatch = Stopwatch.StartNew();
-
-            AgentResponse response;
-            try
+            if (assistantText.Length > 0)
             {
-                response = await agent.RunAsync(prompt);
+                string t = assistantText.ToString();
+                chatActivity?.AddEvent(new ActivityEvent("gen_ai.assistant.message",
+                    tags: new ActivityTagsCollection { ["content"] = t.Length > 2000 ? t[..2000] : t }));
+                LogKv("assistant_text", new() { ["text"] = t });
+                assistantText.Clear();
             }
-            catch (Exception ex)
+            if (assistantReasoning.Length > 0)
             {
-                Console.WriteLine($"Agent execution error: {ex.Message}");
-                stopReason = $"error: {ex.Message}";
-                break;
-            }
-
-            stopwatch.Stop();
-            double latencyMs = stopwatch.Elapsed.TotalMilliseconds;
-            totalLatencyMs += latencyMs;
-
-            // Usage extraction
-            int inputTokens = (int)(response.Usage?.InputTokenCount ?? 0);
-            int outputTokens = (int)(response.Usage?.OutputTokenCount ?? 0);
-            int callTokens = inputTokens + outputTokens;
-
-            totalInputTokens += inputTokens;
-            totalOutputTokens += outputTokens;
-            totalTokens += callTokens;
-
-            LogKv("provider_call", new() {
-                ["model"] = rawModel,
-                ["input_tokens"] = inputTokens,
-                ["output_tokens"] = outputTokens,
-                ["total_tokens"] = callTokens,
-                ["latency_ms"] = Math.Round(latencyMs, 2)
-            });
-
-            // Inspect messages and tool results from response
-            if (response.Messages != null)
-            {
-                foreach (var msg in response.Messages)
-                {
-                    foreach (var contents in msg.Contents)
-                    {
-                        if (contents is FunctionCallContent call)
-                        {
-                            string cmd = "";
-                            if (call.Arguments != null && call.Arguments.TryGetValue("command", out var cObj))
-                            {
-                                cmd = cObj?.ToString() ?? "";
-                            }
-                            LogKv("tool_call", new() {
-                                ["tool"] = call.Name,
-                                ["command"] = cmd
-                            });
-                        }
-                        else if (contents is FunctionResultContent result)
-                        {
-                            if (result.Result is JsonElement elem)
-                            {
-                                ParseStructuredContent(elem, ref lastState, ref lastOutput);
-                            }
-                            else if (result.Result != null)
-                            {
-                                try
-                                {
-                                    string resJson = JsonSerializer.Serialize(result.Result);
-                                    using var doc = JsonDocument.Parse(resJson);
-                                    ParseStructuredContent(doc.RootElement, ref lastState, ref lastOutput);
-                                }
-                                catch { }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (lastState != null)
-            {
-                currentTurn = lastState.Turns;
-                isPlaying = lastState.IsPlaying;
-            }
-
-            prompt = $"Current turn: {currentTurn}, Room: {lastState?.RoomName ?? "Unknown"}. Continue game.";
-
-            if (delay > 0)
-            {
-                await Task.Delay(delay * 1000);
+                string r = assistantReasoning.ToString();
+                chatActivity?.AddEvent(new ActivityEvent("gen_ai.assistant.reasoning",
+                    tags: new ActivityTagsCollection { ["content"] = r.Length > 2000 ? r[..2000] : r }));
+                LogKv("assistant_thinking", new() { ["text"] = r });
+                assistantReasoning.Clear();
             }
         }
 
-        if (currentTurn >= maxTurns) stopReason = "max_turns_reached";
-        else if (lastState != null && !lastState.IsPlaying) stopReason = "game_over";
+        try
+        {
+            await foreach (var update in agent.RunStreamingAsync(prompt, cancellationToken: cts.Token))
+            {
+                if (update.FinishReason != null)
+                {
+                    LogKv("finish_reason", new() {
+                        ["value"] = update.FinishReason.ToString(),
+                        ["content_count"] = update.Contents.Count
+                    });
+                }
+
+                foreach (var content in update.Contents)
+                {
+                    if (chatActivity == null)
+                    {
+                        chatActivity = ActivitySource.StartActivity($"chat {rawModel}", ActivityKind.Client);
+                        chatActivity?.SetTag("gen_ai.operation.name", "chat");
+                        chatActivity?.SetTag("gen_ai.system", "openrouter");
+                        chatActivity?.SetTag("gen_ai.provider.name", "openrouter");
+                        chatActivity?.SetTag("gen_ai.request.model", rawModel);
+                    }
+
+                    if (content is TextContent text)
+                    {
+                        assistantText.Append(text.Text);
+                    }
+                    else if (content is TextReasoningContent reasoning)
+                    {
+                        assistantReasoning.Append(reasoning.Text);
+                    }
+                    else if (content is ErrorContent err)
+                    {
+                        chatActivity?.SetStatus(ActivityStatusCode.Error, err.Message);
+                        LogKv("assistant_error", new() {
+                            ["message"] = err.Message,
+                            ["error_code"] = err.ErrorCode
+                        });
+                    }
+                    else if (content is FunctionCallContent call)
+                    {
+                        turnCount++;
+
+                        string cmd = "";
+                        if (call.Arguments != null && call.Arguments.TryGetValue("command", out var cObj))
+                        {
+                            cmd = cObj?.ToString() ?? "";
+                        }
+
+                        toolActivity?.Dispose();
+                        toolActivity = ActivitySource.StartActivity($"execute_tool {call.Name}", ActivityKind.Internal);
+                        toolActivity?.SetTag("gen_ai.tool.name", call.Name);
+                        toolActivity?.SetTag("gen_ai.tool.call.id", call.CallId);
+                        toolActivity?.SetTag("dustwood.command", cmd);
+                        toolActivity?.SetTag("dustwood.turn", turnCount);
+                        if (call.Arguments != null)
+                        {
+                            try
+                            {
+                                toolActivity?.SetTag("gen_ai.tool.call.arguments", JsonSerializer.Serialize(call.Arguments));
+                            }
+                            catch { }
+                        }
+
+                        LogKv("tool_call", new() {
+                            ["tool"] = call.Name,
+                            ["command"] = cmd
+                        });
+
+                        if (delay > 0 && !string.Equals(cmd, "LOOK", StringComparison.OrdinalIgnoreCase))
+                        {
+                            await Task.Delay(delay * 1000);
+                        }
+
+                        if (turnCount >= maxTurns * 3)
+                        {
+                            stopReason = "safety_limit_reached";
+                            cts.Cancel();
+                        }
+                    }
+                    else if (content is FunctionResultContent result)
+                    {
+                        if (result.Result is JsonElement elem)
+                        {
+                            ParseStructuredContent(elem, ref lastState, ref lastOutput);
+                        }
+                        else if (result.Result != null)
+                        {
+                            try
+                            {
+                                string resJson = JsonSerializer.Serialize(result.Result);
+                                using var doc = JsonDocument.Parse(resJson);
+                                ParseStructuredContent(doc.RootElement, ref lastState, ref lastOutput);
+                            }
+                            catch { }
+                        }
+
+                        if (toolActivity != null)
+                        {
+                            string resultStr = lastOutput.Length > 500 ? lastOutput[..500] : lastOutput;
+                            toolActivity.SetTag("gen_ai.tool.call.result", resultStr);
+                        }
+
+                        if (lastState != null)
+                        {
+                            currentTurn = lastState.Turns;
+                            toolActivity?.SetTag("dustwood.game_turn", currentTurn);
+                            toolActivity?.SetTag("dustwood.score", lastState.Score);
+
+                            if (!lastState.IsPlaying)
+                            {
+                                stopReason = "game_over";
+                                cts.Cancel();
+                            }
+                            else if (currentTurn >= maxTurns)
+                            {
+                                stopReason = "max_turns_reached";
+                                cts.Cancel();
+                            }
+                        }
+
+                        toolActivity?.Dispose();
+                        toolActivity = null;
+                    }
+                    else if (content is UsageContent usage)
+                    {
+                        double nowMs = overallStopwatch.Elapsed.TotalMilliseconds;
+                        double latencyMs = nowMs - lastCheckpointMs;
+                        lastCheckpointMs = nowMs;
+                        totalLatencyMs += latencyMs;
+
+                        int inputTokens = (int)(usage.Details.InputTokenCount ?? 0);
+                        int outputTokens = (int)(usage.Details.OutputTokenCount ?? 0);
+                        int callTokens = inputTokens + outputTokens;
+
+                        totalInputTokens += inputTokens;
+                        totalOutputTokens += outputTokens;
+                        totalTokens += callTokens;
+
+                        chatActivity?.SetTag("gen_ai.usage.input_tokens", inputTokens);
+                        chatActivity?.SetTag("gen_ai.usage.output_tokens", outputTokens);
+                        chatActivity?.SetTag("dustwood.latency_ms", Math.Round(latencyMs, 2));
+
+                        LogKv("provider_call", new() {
+                            ["model"] = rawModel,
+                            ["input_tokens"] = inputTokens,
+                            ["output_tokens"] = outputTokens,
+                            ["total_tokens"] = callTokens,
+                            ["latency_ms"] = Math.Round(latencyMs, 2)
+                        });
+
+                        // Microsoft.Extensions.AI.OpenAI's response types don't know about
+                        // OpenRouter's non-standard delta.reasoning field, so TextReasoningContent
+                        // never fires. ReasoningSniffingPolicy pulls it straight off the wire instead.
+                        string sniffedReasoning = FlushReasoningSink();
+                        if (sniffedReasoning.Length > 0)
+                        {
+                            assistantReasoning.Append(sniffedReasoning);
+                        }
+
+                        FlushAssistantContent();
+                        chatActivity?.Dispose();
+                        chatActivity = null;
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected: the stream is cancelled once the turn cap or game-over state is observed.
+        }
+        catch (Exception ex)
+        {
+            (toolActivity ?? chatActivity)?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            if (toolActivity != null) toolActivity.AddException(ex); else chatActivity?.AddException(ex);
+            Console.WriteLine($"Agent execution error: {ex.Message}");
+            stopReason = $"error: {ex.Message}";
+        }
+        finally
+        {
+            // Catches any assistant text/reasoning from a final round that never got a
+            // terminating UsageContent (e.g. the stream was cancelled or the model stopped
+            // without the provider reporting usage).
+            FlushAssistantContent();
+            toolActivity?.Dispose();
+            chatActivity?.Dispose();
+        }
+
+        if (stopReason == "completed" && currentTurn >= maxTurns) stopReason = "max_turns_reached";
+        else if (stopReason == "completed" && lastState != null && !lastState.IsPlaying) stopReason = "game_over";
 
         bool win = lastState != null && lastState.Score >= 100;
         bool loss = lastState != null && (!lastState.IsPlaying && !win);
+
+        sessionActivity?.SetTag("dustwood.turns", currentTurn);
+        sessionActivity?.SetTag("dustwood.final_score", lastState?.Score ?? 0);
+        sessionActivity?.SetTag("dustwood.stop_reason", stopReason);
+        sessionActivity?.SetTag("dustwood.win", win);
+        sessionActivity?.SetTag("gen_ai.usage.input_tokens", totalInputTokens);
+        sessionActivity?.SetTag("gen_ai.usage.output_tokens", totalOutputTokens);
 
         LogKv("run_summary", new() {
             ["turns"] = currentTurn,
@@ -390,6 +703,7 @@ public class Program
         {
             Endpoint = new Uri(endpoint)
         };
+        options.AddPolicy(new ReasoningSniffingPolicy(), PipelinePosition.PerCall);
 
         var client = new OpenAI.OpenAIClient(new System.ClientModel.ApiKeyCredential(apiKey), options);
         return client.GetChatClient(modelName).AsIChatClient();

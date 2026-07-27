@@ -170,7 +170,7 @@ From the project root:
 Run the Go engine as an MCP Streamable HTTP server (localhost-only by default):
 
 ```bash
-./bin/dustwood-go --mcp-http --mcp-addr 127.0.0.1:8765 --mcp-json-response
+./bin/dustwood-go --seed 42 --mcp-http --mcp-addr 127.0.0.1:8765 --mcp-json-response
 ```
 
 Example MCP JSON-RPC calls (using `curl`):
