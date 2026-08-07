@@ -320,13 +320,9 @@ func (s *MCPServer) HandleCommand(_ context.Context, _ *mcp.CallToolRequest, inp
 
 		if !resetSummary.IsPlaying {
 			slog.Info("game ended after reset")
-			result := &mcp.CallToolResult{IsError: true}
-			return result, &CommandOutput{
-				Output: buf.String(),
-				State:  resetSummary,
-			}, nil
 		}
 
+		// See comment in HandleLook: a natural game end is not a tool-call error.
 		return nil, &CommandOutput{
 			Output: buf.String(),
 			State:  resetSummary,
@@ -345,13 +341,9 @@ func (s *MCPServer) HandleCommand(_ context.Context, _ *mcp.CallToolRequest, inp
 
 	if !summary.IsPlaying {
 		slog.Info("game ended")
-		result := &mcp.CallToolResult{IsError: true}
-		return result, &CommandOutput{
-			Output: output,
-			State:  summary,
-		}, nil
 	}
 
+	// See comment in HandleLook: a natural game end is not a tool-call error.
 	return nil, &CommandOutput{
 		Output: output,
 		State:  summary,

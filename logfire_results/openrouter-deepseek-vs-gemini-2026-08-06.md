@@ -266,12 +266,20 @@ tools/call reset_game
 ```
 
 This is a genuine finding about the game's MCP tool responses, not a bug in the pydantic client:
-`GAME OVER` and a real invalid-argument error currently return the same trailing hint text, and at
-least one model (GLM-5.2) can't tell the two apart. Kimi-k3 hit the same text once (after its own
-death) and also reset — but only once, then played a clean second game to a natural stop. Whether
-that trailing text should be conditional on `is_playing`/an actual validation failure is a game-engine
-question (`src/golang/mcp_server.go`), out of scope for this pydantic-client-focused session, but
-worth flagging if this pattern shows up with other frameworks/models later.
+`GAME OVER` and a real invalid-argument error were returning the same trailing hint text, and at
+least one model (GLM-5.2) couldn't tell the two apart. Kimi-k3 hit the same text once (after its
+own death) and also reset — but only once, then played a clean second game to a natural stop.
+
+**Fixed** in `src/golang/mcp_server.go`: every tool handler (`look`, `go`, `take`, `drop`,
+`inventory`, `drink`, `water_horse`, `light`, `score`, `reset_game`, and both branches of
+`command`) was setting `mcp.CallToolResult{IsError: true}` whenever `!summary.IsPlaying` — i.e.
+flagging *any* game end (win, death, day/night timeout) as an MCP tool-call error, indistinguishable
+from a genuine bad-argument error. That's what the client library (fastmcp/pydantic-ai) turns into
+the "Fix the errors and try again." hint. Removed the `IsError: true` branch from all of them —
+genuine validation errors (`Unknown direction: ...`, invalid item names) are separate code paths
+and are untouched. Verified with a raw JSON-RPC call against `--turns 1`: the day/night `GAME OVER`
+response no longer carries `isError` at all. This affects every framework client, not just pydantic,
+since they all talk to the same Go MCP server.
 
 Net result: GLM-5.2's 75-at-turn-20 headline number understates what it's actually capable of in
 this game — its *best single playthrough* (77, reached twice) is competitive with DeepSeek's best
