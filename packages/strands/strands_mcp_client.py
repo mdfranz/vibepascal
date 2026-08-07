@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import os
 import sys
@@ -5,6 +6,7 @@ import time
 from types import SimpleNamespace
 from typing import Optional
 
+import logfire
 from dotenv import load_dotenv
 from mcp import StdioServerParameters, stdio_client
 
@@ -17,8 +19,6 @@ from strands.hooks import (
     AfterInvocationEvent,
     AfterModelCallEvent,
     AfterToolCallEvent,
-    BeforeInvocationEvent,
-    BeforeModelCallEvent,
     BeforeToolCallEvent,
 )
 from strands.models.litellm import LiteLLMModel
@@ -60,12 +60,8 @@ class _GameEndedError(EventLoopException):
 
 from vibepascal_shared.guidance_loader import format_guidance_block, load_guidance
 from vibepascal_shared.llm_observability import (
-    Timer,
-    format_payload,
     game_console_enabled,
-    log_kv,
     print_game,
-    provider_payload_logging_enabled,
     setup_logger,
 )
 from vibepascal_shared.mcp_command_policy import CommandPolicy, sanitize_command
@@ -74,6 +70,34 @@ logger = setup_logger(__name__, LOG_FILE)
 
 # Global variable for delay
 global_delay = TURN_DELAY
+
+# Logfire replaces the old log_kv-based provider_call/tool_call/run_summary telemetry for
+# this client, same as pydantic_mcp_client.py. Off by default; opt in with LOGFIRE_ENABLED=1
+# (see packages/shared/OBSERVABILITY.md).
+LOGFIRE_ENABLED = os.environ.get("LOGFIRE_ENABLED", "0") not in {"0", "false", "False"}
+if LOGFIRE_ENABLED:
+    # Strands' own OTel instrumentation only records gen_ai.input.messages/gen_ai.output.messages
+    # (the actual conversation content) under this opt-in - see
+    # https://pydantic.dev/docs/logfire/integrations/llms/strands/. Must be set before the
+    # Strands Agent is constructed (in run_strands_agent, below), so set it here at import time.
+    os.environ.setdefault(
+        "OTEL_SEMCONV_STABILITY_OPT_IN",
+        "gen_ai_latest_experimental,gen_ai_span_attributes_only",
+    )
+    # data_dir defaults to a cwd-relative ".logfire/", but this client is invoked from
+    # different working directories (e.g. repo root via strands-mcp-game.sh) - pin it to
+    # ~/.logfire/ (same place `logfire auth`/`logfire projects use` write to) so project
+    # credentials resolve consistently regardless of cwd.
+    logfire.configure(
+        service_name="strands-mcp-client",
+        environment=os.environ.get("LOGFIRE_ENVIRONMENT", "development"),
+        data_dir=os.path.expanduser("~/.logfire"),
+    )
+    # Strands emits OTel spans for agent invocations, model calls, and tool executions
+    # natively (strands.telemetry) - once logfire.configure() sets the global tracer
+    # provider, those spans flow to Logfire automatically. There is no
+    # logfire.instrument_strands()-style call; configuring before the Agent is created is
+    # the whole integration.
 
 
 def run_strands_agent(
@@ -217,139 +241,63 @@ def run_strands_agent(
         tools=[mcp_client],
         conversation_manager=conv_manager,
         session_manager=session_manager,
+        # Tags every span Strands emits for this agent (model calls, tool calls, the
+        # top-level invocation) with these attributes - lets Logfire filter/group by run
+        # without needing our own wrapper span to carry them. See
+        # https://pydantic.dev/docs/logfire/integrations/llms/strands/.
+        trace_attributes={
+            "session.id": active_session_id,
+            "vibepascal.model": model_id,
+            "vibepascal.level": level,
+            "vibepascal.max_turns": max_turns,
+        },
     )
 
-    # --- Observability hooks (provider calls + tool calls + latency) ---
-    def _before_invocation(event: BeforeInvocationEvent) -> None:
-        obs = event.invocation_state.setdefault("_obs", {})
-        obs["invocation_start"] = time.perf_counter()
-        obs["model_starts"] = []
-        obs["requests"] = 0
-        log_kv(
-            logger,
-            event="invocation_start",
-            client="strands",
-            model=model_id,
-            prompt=(
-                format_payload(event.messages)
-                if provider_payload_logging_enabled()
-                else None
-            ),
-        )
-
+    # --- Hooks: game logic (state tracking, game-over/turn-limit enforcement, command
+    # policy) plus a couple of custom Logfire events that Strands' own OTel instrumentation
+    # doesn't know about (game_turn, run_summary, game_over). Per-call provider/tool
+    # telemetry (latency, token usage, request counts) is no longer hand-tracked here - once
+    # LOGFIRE_ENABLED turns on logfire.configure() (above), Strands emits those as spans
+    # natively and this client doesn't need to duplicate them.
     def _after_invocation(event: AfterInvocationEvent) -> None:
-        obs = (
-            event.invocation_state.get("_obs", {})
-            if hasattr(event, "invocation_state")
-            else {}
-        )
-        start = obs.get("invocation_start")
-        invocation_latency_ms = (
-            int((time.perf_counter() - start) * 1000)
-            if isinstance(start, (int, float))
-            else None
-        )
+        if not LOGFIRE_ENABLED:
+            return
+        # event.result.metrics is only populated when agent() returns normally - but every
+        # benchmarked run here ends via _GameEndedError raised from _before_tool_call (turn
+        # limit or game over), which leaves event.result None even though the invocation
+        # otherwise completed fine (see the `finally:` block around AfterInvocationEvent in
+        # strands/agent/agent.py - agent_result is only set from a normal EventLoopStopEvent).
+        # agent.event_loop_metrics accumulates usage on the Agent itself as each model call
+        # completes, independent of how the invocation ends, so read from there instead.
+        usage = getattr(agent.event_loop_metrics, "accumulated_usage", None)
 
-        usage = None
-        result_metrics = None
-        if event.result is not None and hasattr(event.result, "metrics"):
-            usage = getattr(event.result.metrics, "accumulated_usage", None)
-            result_metrics = getattr(event.result.metrics, "accumulated_metrics", None)
+        # accumulated_usage is Strands' own Usage TypedDict - always camelCase
+        # (inputTokens/outputTokens/totalTokens) regardless of provider (Gemini, LiteLLM/
+        # Anthropic, ...). Snake_case fallbacks are kept only in case a future Strands
+        # version changes shape.
+        def _get_val(obj, key):
+            if obj is None:
+                return None
+            if isinstance(obj, dict):
+                return obj.get(key)
+            return getattr(obj, key, None)
 
-        # Normalize token fields from LiteLLM accumulated_usage
-        input_tokens = None
-        output_tokens = None
-        total_tokens = None
-        if usage is not None:
-            def _get_val(obj, key):
-                if isinstance(obj, dict):
-                    return obj.get(key)
-                return getattr(obj, key, None)
+        input_tokens = _get_val(usage, "inputTokens") or _get_val(usage, "input_tokens")
+        output_tokens = _get_val(usage, "outputTokens") or _get_val(usage, "output_tokens")
+        total_tokens = _get_val(usage, "totalTokens") or _get_val(usage, "total_tokens")
 
-            input_tokens = (
-                _get_val(usage, "prompt_tokens")
-                or _get_val(usage, "input_tokens")
-                or _get_val(usage, "inputTokens")
-            )
-            output_tokens = (
-                _get_val(usage, "completion_tokens")
-                or _get_val(usage, "output_tokens")
-                or _get_val(usage, "outputTokens")
-            )
-            total_tokens = (
-                _get_val(usage, "total_tokens")
-                or _get_val(usage, "totalTokens")
-            )
-
-        log_kv(
-            logger,
-            event="provider_call",
-            client="strands",
-            provider="litellm",
+        logfire.info(
+            "run_summary model={model} input_tokens={input_tokens} output_tokens={output_tokens} "
+            "total_tokens={total_tokens}",
             model=model_id,
-            latency_ms=invocation_latency_ms,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=total_tokens,
-            token_scope="run_total",
-            usage=(
-                format_payload(usage)
-                if (usage is not None and provider_payload_logging_enabled())
-                else None
-            ),
-            metrics=(
-                format_payload(result_metrics)
-                if (result_metrics is not None and provider_payload_logging_enabled())
-                else None
-            ),
-            response=(
-                format_payload(str(event.result))
-                if (event.result is not None and provider_payload_logging_enabled())
-                else None
-            ),
         )
-
-        requests = obs.get("requests", 0)
-        log_kv(
-            logger,
-            event="run_summary",
-            client="strands",
-            model=model_id,
-            latency_ms=invocation_latency_ms,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            total_tokens=total_tokens,
-            requests=requests,
-            token_scope="run_total",
-            stop_reason="Agent completed.",
-        )
-
-    def _before_model_call(event: BeforeModelCallEvent) -> None:
-        obs = event.invocation_state.setdefault("_obs", {})
-        obs.setdefault("model_starts", []).append(time.perf_counter())
 
     def _after_model_call(event: AfterModelCallEvent) -> None:
-        obs = event.invocation_state.get("_obs", {})
-        obs["requests"] = obs.get("requests", 0) + 1
-        starts = obs.get("model_starts") or []
-        started = starts.pop() if starts else None
-        latency_ms = (
-            int((time.perf_counter() - started) * 1000)
-            if isinstance(started, (int, float))
-            else None
-        )
-        log_kv(
-            logger,
-            event="model_call",
-            client="strands",
-            model=model_id,
-            latency_ms=latency_ms,
-            stop_reason=(
-                str(event.stop_response.stop_reason)
-                if event.stop_response is not None
-                else None
-            ),
-        )
+        # THINKING text extraction is a local debugging aid, not telemetry - Strands' own
+        # instrumentation already captures the raw model call as a span with token usage.
         if event.stop_response and event.stop_response.message:
             msg = event.stop_response.message
             content_blocks = msg.get("content") or []
@@ -367,12 +315,6 @@ def run_strands_agent(
         # Raise OUTSIDE the inner try/except so it propagates and stops the agent loop.
         if _game_over:
             raise _GameEndedError("Game ended — stopping agent loop")
-        obs = event.invocation_state.setdefault("_obs", {})
-        tool_starts: dict[str, float] = obs.setdefault("tool_starts", {})
-        tool_use_id = (event.tool_use or {}).get(
-            "toolUseId"
-        ) or f"{(event.tool_use or {}).get('name', 'tool')}"
-        tool_starts[tool_use_id] = time.perf_counter()
         try:
             tool_name = (event.tool_use or {}).get("name")
             tool_input = (event.tool_use or {}).get("input") or {}
@@ -412,34 +354,11 @@ def run_strands_agent(
                 )
                 if cmd:
                     print_game(f"\n> {cmd}")
-        log_kv(
-            logger,
-            event="tool_call_start",
-            client="strands",
-            tool_name=(event.tool_use or {}).get("name"),
-            tool_use_id=tool_use_id,
-            args=(
-                format_payload((event.tool_use or {}).get("input"))
-                if provider_payload_logging_enabled()
-                else None
-            ),
-        )
 
     def _after_tool_call(event: AfterToolCallEvent) -> None:
         nonlocal last_state_obj
         nonlocal last_output_text
         nonlocal _game_over
-        obs = event.invocation_state.get("_obs", {})
-        tool_starts: dict[str, float] = obs.get("tool_starts") or {}
-        tool_use_id = (event.tool_use or {}).get(
-            "toolUseId"
-        ) or f"{(event.tool_use or {}).get('name', 'tool')}"
-        started = tool_starts.pop(tool_use_id, None)
-        latency_ms = (
-            int((time.perf_counter() - started) * 1000)
-            if isinstance(started, (int, float))
-            else None
-        )
         if event.exception is None:
             try:
                 tool_name = (event.tool_use or {}).get("name")
@@ -466,6 +385,18 @@ def run_strands_agent(
                                         state=last_state_obj,
                                         output_text=last_output_text,
                                     )
+                            if LOGFIRE_ENABLED:
+                                # Custom game-domain event Strands' own instrumentation
+                                # doesn't know about, mirroring pydantic_mcp_client.py's
+                                # game_turn event - lets Logfire chart score-over-turns
+                                # directly from trace data.
+                                logfire.info(
+                                    "game_turn {turn} room={room} score={score} thirst={thirst}",
+                                    turn=state.get("turns", 0),
+                                    room=state.get("room_name") or state.get("roomName") or "Unknown",
+                                    score=state.get("score", 0),
+                                    thirst=state.get("thirst", 0),
+                                )
                         if game_console_enabled():
                             if isinstance(state, dict):
                                 turns = state.get("turns")
@@ -491,32 +422,12 @@ def run_strands_agent(
             for c in event.result.get("content") or []:
                 if isinstance(c, dict) and "Turn limit reached" in c.get("text", ""):
                     _game_over = True
-                    log_kv(logger, event="game_over", client="strands", reason="server_turn_limit")
+                    logger.info("Game over: server turn limit reached")
+                    if LOGFIRE_ENABLED:
+                        logfire.info("game_over reason={reason}", reason="server_turn_limit")
                     break
-        log_kv(
-            logger,
-            event="tool_call",
-            client="strands",
-            tool_name=(event.tool_use or {}).get("name"),
-            tool_use_id=tool_use_id,
-            latency_ms=latency_ms,
-            success=(event.exception is None),
-            args=(
-                format_payload((event.tool_use or {}).get("input"))
-                if provider_payload_logging_enabled()
-                else None
-            ),
-            result=(
-                format_payload(event.result)
-                if provider_payload_logging_enabled()
-                else None
-            ),
-            error=(str(event.exception) if event.exception is not None else None),
-        )
 
-    agent.add_hook(_before_invocation, BeforeInvocationEvent)
     agent.add_hook(_after_invocation, AfterInvocationEvent)
-    agent.add_hook(_before_model_call, BeforeModelCallEvent)
     agent.add_hook(_after_model_call, AfterModelCallEvent)
     agent.add_hook(_before_tool_call, BeforeToolCallEvent)
     agent.add_hook(_after_tool_call, AfterToolCallEvent)
@@ -528,13 +439,33 @@ def run_strands_agent(
         f"Then continue playing for up to {max_turns} turns to increase your score."
     )
 
+    # Mirrors pydantic_mcp_client.py's pydantic_game_run span: wraps the whole session so
+    # every span Strands emits (model calls, tool calls) plus the custom game_turn/
+    # run_summary/game_over events above share one trace_id.
+    run_span = (
+        logfire.span(
+            "strands_game_run",
+            model=model_id,
+            level=level,
+            max_turns=max_turns,
+            session_id=active_session_id,
+        )
+        if LOGFIRE_ENABLED
+        else contextlib.nullcontext()
+    )
     try:
-        result = agent(prompt)
-        logger.info(f"\n[FINAL AGENT RESPONSE]\n{str(result).strip()}")
+        with run_span:
+            result = agent(prompt)
+            logger.info(f"\n[FINAL AGENT RESPONSE]\n{str(result).strip()}")
     except _GameEndedError as e:
         logger.info(f"Game ended: {e}")
     except Exception as e:
+        # Defense in depth, matching pydantic_mcp_client.py: any other error (MCP transport
+        # issues, provider outages, etc.) should end this run's game loop gracefully rather
+        # than crashing a serial multi-model benchmark run outright.
         logger.error(f"Error during agent execution: {e}")
+        if LOGFIRE_ENABLED:
+            logfire.exception("game_run_failed model={model}", model=model_id)
     finally:
         try:
             mcp_client.stop(None, None, None)
