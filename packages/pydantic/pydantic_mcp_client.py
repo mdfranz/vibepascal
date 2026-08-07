@@ -216,7 +216,10 @@ async def run_pydantic_agent(
         toolsets=[server],
         capabilities=capabilities,
         model_settings=ModelSettings(
-            max_tokens=4096,
+            # 4096 was too tight for verbose/reasoning-heavy models (e.g. Kimi-k3 hit this on a
+            # trailing request right after a game turn, raising UnexpectedModelBehavior before any
+            # usable output was produced - see logfire_results/openrouter-deepseek-vs-gemini-2026-08-06.md).
+            max_tokens=8192,
             **({"anthropic_thinking": {"type": "enabled", "budget_tokens": 2048}} if model_name.startswith("anthropic:") else {}),
         ),
         system_prompt=(

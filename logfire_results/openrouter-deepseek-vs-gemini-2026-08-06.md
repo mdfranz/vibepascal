@@ -287,7 +287,35 @@ run (77) and only slightly behind Gemini/Kimi's 88-93 range, but the run as exec
 finish a playthrough with all 25 turns available to it, because it kept spending its budget on
 restarts instead.
 
-## 6. Qwen tool-call hardening (found via this session)
+## 6. Kimi-k3 `max_tokens` fix (found via this session)
+
+Kimi-k3's first run (Section 4) ended not via `GAME OVER` but via `UnexpectedModelBehavior: Model
+token limit (4096) exceeded before any response was generated` — on a request made immediately
+after taking the brass key at turn 24 (score 93), i.e. a genuine attempt at a turn-25 action, not
+a wrap-up. `pydantic_mcp_client.py` hardcoded `max_tokens=4096` uniformly for every model; Kimi
+apparently generates enough reasoning/narration before committing to a tool call that it can
+exceed that cap before producing anything usable. The client's existing exception handling caught
+this gracefully (no crash, `run_summary` still logged), but the run stopped one action earlier
+than it might have.
+
+**Fix**: raised `max_tokens` to `8192` in `pydantic_mcp_client.py`'s `ModelSettings`.
+
+**Verified** by re-running Kimi-k3 for 25 turns: no truncation this time, natural day/night
+`GAME OVER` at turn 25 (and — confirming the Section 5 MCP-server fix works end-to-end — it did
+*not* reset afterward), finishing with the highest score of this entire comparison:
+
+| | Before fix | After fix |
+| :--- | ---: | ---: |
+| Score | 93 (cut short by truncation) | **98** (full natural run) |
+| Turns | 24 | **25** |
+| Requests | 49 | 28 |
+| Total tokens | 462,720 | 164,014 |
+
+The token/request drop is mostly incidental run-to-run variance (no reset this time, versus one
+death+reset in the earlier run) rather than solely attributable to the `max_tokens` change, but the
+higher score and clean natural ending are a direct result of both fixes together.
+
+## 7. Qwen tool-call hardening (found via this session)
 
 `qwen/qwen3.7-flash`'s first run crashed on turn 1: it called the `command` MCP tool with
 `seed: "None"` (a string) where the tool's JSON schema requires `null` or an integer. Pydantic
@@ -314,7 +342,7 @@ request/token count relative to deepseek and gemini (53 requests, 583,775 tokens
 requests / ~137-204k tokens for the others) suggests it was still generating malformed or
 retried tool calls throughout the run, just recovering from them instead of dying on the first one.
 
-## 7. Trace IDs (for drill-down in Logfire)
+## 8. Trace IDs (for drill-down in Logfire)
 
 | Run | Trace ID |
 | :--- | :--- |
@@ -326,6 +354,7 @@ retried tool calls throughout the run, just recovering from them instead of dyin
 | Gemini run 2 | `019fd98f5aa34f0065f5f14c24f32da4` |
 | Kimi-k3 | `019fd999c2aab1dda468670f0a90e1b8` |
 | GLM-5.2 | `019fd9a103d6f0d3563b5f9144256168` |
+| Kimi-k3 (max_tokens=8192 verification, score 98) | `019fd9c1e5c55fb4c01de271f68b1da3` |
 
 Query pattern used throughout (adjust `trace_id`/time window as needed):
 
