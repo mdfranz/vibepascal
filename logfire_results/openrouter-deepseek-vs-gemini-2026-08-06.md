@@ -358,6 +358,8 @@ retried tool calls throughout the run, just recovering from them instead of dyin
 | DeepSeek (30-turn, score 106) | `019fd9deb397e5143d88e0dcc556e3f1` |
 | Gemini (30-turn, score 88) | `019fd9e198fa922b84b8f6db511e5a26` |
 | Qwen (30-turn, score 65) | `019fd9e3a230f4ee742dd10bae6afe44` |
+| Kimi-k3 (30-turn rerun, score 108) | `019fdbe4f17fa96aaa962db50fa22150` |
+| GLM-5.2 (30-turn rerun, score 98) | `019fdbe93f25fb1c33d1e8ab3b65fc5c` |
 
 Query pattern used throughout (adjust `trace_id`/time window as needed):
 
@@ -495,6 +497,89 @@ also be rejected, since the server can't distinguish "a new run starting" from "
 retrying"). `play-mcp-game.sh` was updated to restart the server itself before each of its 4
 framework runs; single-framework scripts (`pydantic-mcp-game.sh` etc.) still expect an
 externally-managed server, so restart it between separate invocations — see `CLAUDE.md`.
+
+## 10. Kimi-k3 and GLM-5.2 — 30-turn one-life reruns
+
+**Date:** Friday, August 7, 2026, 07:04–07:10 EDT (11:04–11:10 UTC).
+
+Fresh follow-up runs used `./pydantic-mcp-game.sh openrouter:<model> 30 1 full` with a newly
+started Go MCP server for **each** model (`--turns 30`, no `--allow-restart`). Thus each model had
+one life: neither reset after `GAME OVER`; both issued the instructed trailing `QUIT` and stopped.
+Logfire recorded the root `pydantic_game_run`, every chat/tool span, each `game_turn`, and a final
+`run_summary`.
+
+| Model | Outcome | Score / final turn | Requests | Input tok | Output tok | Total tok | Mean chat latency |
+| :-- | :-- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `moonshotai/kimi-k3` | Rattlesnake killed it after `CLIMB` at Butte | **108 / 29** | 35 | 261,225 | 4,618 | 265,843 | 6.258s |
+| `z-ai/glm-5.2` | Outlaw killed it after `CLIMB` at Butte | 98 / 24 | 28 | 142,658 | 1,840 | 144,498 | 1.081s |
+
+Logfire trace links: [Kimi-k3](https://logfire-us.pydantic.dev/mdfranz/tomfoolery/?q=trace_id%3D%27019fdbe4f17fa96aaa962db50fa22150%27&since=2026-08-07T11%3A04%3A02.175789%2B00%3A00&until=2026-08-08T11%3A08%3A17.353197%2B00%3A00),
+[GLM-5.2](https://logfire-us.pydantic.dev/mdfranz/tomfoolery/?q=trace_id%3D%27019fdbe93f25fb1c33d1e8ab3b65fc5c%27&since=2026-08-07T11%3A08%3A44.197395%2B00%3A00&until=2026-08-08T11%3A09%3A43.161285%2B00%3A00).
+
+GLM used 20% fewer requests, 46% fewer total tokens, and had 5.8x lower mean chat latency. It
+mounted at turn 19 and reached Desert Edge at turn 20; Kimi did so at turns 24 and 25. This is not
+a fully controlled model comparison because placements varied by seed: GLM found both map and wire
+in Telegraph Office at turn 1, whereas Kimi found its map in Livery Stables at turn 19 and faced a
+snake there.
+
+| Milestone | Kimi-k3 | GLM-5.2 |
+| :-- | ---: | ---: |
+| Map acquired | 19, Livery Stables | 2, Telegraph Office |
+| Telegraph fixed | 14 | 4 |
+| Pump fixed / canteen filled | 20 / 21 | 15 / 16 |
+| Horse mounted | 24 | 19 |
+| Butte | 29, score 108 | 24, score 98 |
+| Game over | 29, snake after `CLIMB` | 24, outlaw after `CLIMB` |
+
+### Reasoning telemetry analysis
+
+Logfire captures each model's `thinking` parts in the `chat` span attributes
+(`pydantic_ai.all_messages` and `gen_ai.output.messages`), together with its subsequent tool call
+and result. The following summarizes those records, not just the console transcript.
+
+#### Kimi-k3
+
+Kimi did detailed symbolic state management. It tracked its five-item capacity, marked the book as
+disposable, followed the changing map-search coverage, and budgeted thirst explicitly. At Telegraph
+Office it enumerated the wire/telegraph/water sequence, correctly concluded that it could complete
+water recovery before its thirst limit, then carried out the plan. At the Livery Stables it cited the
+snake rule, froze once, observed that the snake remained, inferred that a second freeze might clear
+it, and immediately prioritized map → pump → fill → drink → saddle when the snake left. This is
+good feedback-driven reasoning.
+
+Its terminal decision was the failure. At Butte Kimi explicitly remembered that freezing twice had
+worked before and recognized that it was safer. It nevertheless chose `CLIMB` to save two turns,
+reasoning that climbing was "movement-like" and might be permitted because the prompt specifically
+forbade `TAKE` and `FIX` with a snake. The snake struck immediately. Kimi's post-game analysis
+correctly repaired this conclusion: wait until the snake leaves, then climb. It therefore had the
+relevant state and safer option, but knowingly accepted a disproportionate fatal risk. Its only
+other clear semantic slip was `EXAMINE PAGE` before correcting to `EXAMINE LEDGER`; that cost a
+request/latency, not a game turn.
+
+#### GLM-5.2
+
+GLM's visible reasoning was terser, but its execution was very disciplined. It immediately took the
+map and wire, froze in the snake-blocked General Store before collecting items, dropped the book at
+the right time, and performed pump/fill/drink/saddle/mount without wasting a game turn. In the
+desert, it correctly stated and followed the compound-threat rule at Dry Wash, then moved away from
+the unarmed-outlaw situation in Howling Desert.
+
+At Butte it made the same lexical-rule error as Kimi. GLM stated that it lacked a revolver and could
+move north to wait out the outlaw, but chose `CLIMB` because it was "not taking or fixing." The
+outlaw killed it. Its immediate diagnosis—leave and return later—was correct. Its final suggestion
+to obtain the revolver *before* entering the desert was not: the gun-box key is at the stream beyond
+the Butte, so that ordering is impossible. This exposes a retrospective causal-planning gap despite
+strong moment-to-moment navigation.
+
+### Shared failure mode and guidance implication
+
+Both models followed the linear task-sequence instruction to `CLIMB` at Butte more strongly than the
+threat policy, treating the latter as an exhaustive list of forbidden verbs. A hard safety gate would
+directly target the recorded inference:
+
+> If a rattlesnake or outlaw is present, do not use `CLIMB`, `OPEN`, `SADDLE`, `FILL`, `DRINK`,
+> `EXAMINE`, or any other non-cardinal action. With a snake, `FREEZE` or leave; with an unarmed
+> outlaw, leave. `CLIMB` is unsafe while either threat is present.
 
 ## Related Documentation
 

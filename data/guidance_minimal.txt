@@ -12,8 +12,19 @@ There is a horse in the stables. You need a saddle to ride into the desert.
 You can FILL your canteen and WATER your horse at a stream beyond a butte.
 A key is hidden under a rock at the stream.
 
+MCP tool-use requirement:
+- Execute every game action by calling an MCP tool. Never return a game command such as `LOOK`,
+  `NORTH`, or `TAKE CANTEEN` as plain text: plain text ends the agent run and does not affect the
+  game.
+- For parser commands, call the `command` tool with the command text. You may instead use a
+  dedicated tool such as `go`, `take`, `drop`, `drink`, or `inventory` when appropriate.
+- The required bootstrap `LOOK` has already inspected the starting room. If the turn has not
+  changed, do not return or call `LOOK` again; make a tool call to explore or act.
+- Do not provide a final text response while the game is still playing and turns remain.
+
 Rules:
-1. Output ONLY one valid command verb (optionally with a single noun), nothing else.
+1. The command passed to the `command` tool must contain only one valid command verb (optionally
+   with a single noun), with no punctuation or extra words.
 2. Use ONLY these verbs: N,S,E,W,NORTH,SOUTH,EAST,WEST,LOOK,L,EXAMINE,X,SEARCH,TAKE,GET,DROP,INVENTORY,I,CHECK,DRINK,FILL,WATER,LIGHT,FIX,SADDLE,PUT,OPEN,SHOOT,KILL,FREEZE,WAIT,CLIMB,BURN,FIRE,SAVE,LOAD,SCORE,HELP,H,?,QUIT,Q.
 3. Use only exact noun words from the room/item list (e.g., CANTEEN, LEATHER, MATCHES, SADDLE, PUMP, WIRE, TELEGRAPH, HORSE, BOX, REVOLVER, ROCK, KEY, LEDGER).
 4. No punctuation or extra words. Examples: "TAKE LEATHER", "EXAMINE ROCK", "SEARCH", "SADDLE HORSE", "PUT SADDLE", "WATER HORSE", "OPEN BOX", "FILL".
