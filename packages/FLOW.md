@@ -102,16 +102,15 @@ flowchart TD
     A[Start run_pydantic_agent] --> B[Load guidance]
     B --> C[MCPToolset connected to MCP_URL]
     C --> D[Create Agent with toolset and system_prompt]
-    D --> E["agent.iter(prompt, UsageLimits)"]
+    D --> E["agent.iter(prompt, UsageLimits) inside\npydantic_game_run Logfire span"]
     E --> F{Node yielded?}
-    F -- No --> Z[Log run_summary and exit]
-    F -- Yes --> G[Diff usage counters → log provider_call delta]
-    G --> H[Scan all_messages for new parts]
+    F -- No --> Z[Logfire run_summary log and exit]
+    F -- Yes --> H[Scan all_messages for new parts\nmodel calls/tool calls auto-traced by\nlogfire.instrument_pydantic_ai]
     H --> I{Part type?}
-    I -- ThinkingPart --> J[Log reasoning]
-    I -- TextPart --> K[Log AI text]
+    I -- ThinkingPart --> J[Mark processed]
+    I -- TextPart --> K[Mark processed]
     I -- ToolCallPart --> L[Apply delay]
-    I -- ToolReturnPart --> M[Parse structuredContent\nlog tool_call]
+    I -- ToolReturnPart --> M[Parse structuredContent\nlogfire.info game_turn]
     M --> N{turns >= max_turns?}
     N -- Yes --> O[Raise UsageLimitExceeded]
     N -- No --> F
@@ -120,6 +119,10 @@ flowchart TD
     L --> F
     O --> Z
 ```
+
+> Token usage, tool args/results, and model request/response spans are captured automatically by
+> `logfire.instrument_pydantic_ai()` when `LOGFIRE_ENABLED` is set (see `packages/shared/OBSERVABILITY.md`)
+> — the client no longer tracks usage deltas manually.
 
 1. Startup/bootstrap
    - Load guidance, create `MCPToolset`, instantiate `Agent` with system prompt embedding guidance.

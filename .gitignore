@@ -49,3 +49,6 @@ node_modules/
 
 # Sessions / DB persistence
 sessions/
+
+# Logfire local project credentials (per-package, written by `logfire projects use`)
+.logfire/

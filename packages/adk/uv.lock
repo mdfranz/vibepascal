@@ -8,8 +8,8 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-05-24T02:50:38.437846435Z"
-exclude-newer-span = "P3D"
+exclude-newer = "2026-08-04T23:51:17.44108256Z"
+exclude-newer-span = "P2D"
 
 [[package]]
 name = "aiohappyeyeballs"

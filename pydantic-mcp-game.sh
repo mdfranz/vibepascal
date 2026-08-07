@@ -7,6 +7,11 @@ cd "$ROOT_DIR"
 # Ensure directories exist
 mkdir -p logs data
 
+# Send this run's traces to Logfire by default (opt out with LOGFIRE_ENABLED=0).
+# Requires `logfire auth` (or LOGFIRE_TOKEN) to have been run once; see
+# packages/shared/OBSERVABILITY.md.
+export LOGFIRE_ENABLED="${LOGFIRE_ENABLED:-1}"
+
 # Ensure the game binary is up to date
 if ! make build > /dev/null 2>&1; then
     echo "Failed to compile. Please install Free Pascal (fpc)."
@@ -31,6 +36,11 @@ usage() {
     echo "  --windowing, -w   Enable sliding window history (disabled by default)"
     echo "  --window-size, -n Window size in game turns (default: 6)"
     echo "  --session-id ID   Resume or create a named session"
+    echo ""
+    echo "Env vars:"
+    echo "  LOGFIRE_ENABLED    Send traces to Logfire (default: 1). Set to 0 to disable."
+    echo "  LOGFIRE_TOKEN      Logfire project write token (falls back to ~/.logfire/ from 'logfire auth')"
+    echo "  LOGFIRE_ENVIRONMENT  Logfire deployment.environment tag (default: development)"
     echo ""
     echo "Examples:"
     echo "  ./pydantic-mcp-game.sh google:gemini-3.5-flash 25 1 full"

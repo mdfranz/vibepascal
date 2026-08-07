@@ -3,8 +3,8 @@ revision = 3
 requires-python = ">=3.12"
 
 [options]
-exclude-newer = "2026-05-24T02:52:53.7553418Z"
-exclude-newer-span = "P3D"
+exclude-newer = "2026-08-04T23:37:02.562266952Z"
+exclude-newer-span = "P2D"
 
 [[package]]
 name = "aiofile"
@@ -1772,6 +1772,7 @@ name = "vibepascal-pydantic"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "logfire" },
     { name = "pydantic-ai" },
     { name = "python-dotenv" },
     { name = "vibepascal-shared" },
@@ -1779,6 +1780,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "logfire", specifier = ">=4.33.0" },
     { name = "pydantic-ai", specifier = "==2.0.0b3" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "vibepascal-shared", editable = "../shared" },

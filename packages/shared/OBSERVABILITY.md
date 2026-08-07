@@ -4,13 +4,15 @@ This document summarizes the current observability implementation across the act
 
 - `packages/adk/adk_mcp_client.py`
 - `packages/agno/agno_mcp_client.py`
-- `packages/pydantic/pydantic_mcp_client.py`
+- `packages/pydantic/pydantic_mcp_client.py` — **now uses Logfire instead of the shared `log_kv` schema below; see [Pydantic AI](#pydantic-ai) and [Logfire (Pydantic AI only)](#logfire-pydantic-ai-only).**
 - `packages/strands/strands_mcp_client.py`
 
 
 ## Shared Foundation: `vibepascal_shared.llm_observability`
 
-All clients rely on a shared utility module for structured telemetry:
+ADK, Agno, and Strands rely on a shared utility module for structured telemetry (Pydantic AI now
+uses Logfire instead — see below — but still uses `setup_logger`/`print_game` from this module for
+basic operational logging and game-narrative console output):
 
 - `setup_logger(name, log_file)`: creates the file + optional console handler; wires HTTP debug logging. Called once per client at module level — replaces ~20 lines of duplicated setup.
 - `log_kv`: emits one-line `key=value` logs with JSON-safe value encoding.
@@ -26,12 +28,20 @@ All clients rely on a shared utility module for structured telemetry:
 - `LOG_HTTP` (default `False`): enable low-level HTTP logging.
 - `LOG_MAX_CHARS` (default `20000`): payload truncation bound.
 - `AI_REASONING` (default `False`): enable extended thinking for Pydantic AI (Anthropic only — sets `Thinking()` capability and `anthropic_thinking` model settings).
+- `LOGFIRE_ENABLED` (default `1` under `pydantic-mcp-game.sh`, `0`/unset otherwise) — **Pydantic AI only**, checked directly in `pydantic_mcp_client.py` (not part of `llm_observability.py`). Gates `logfire.configure()` + `logfire.instrument_pydantic_ai()`.
+- `LOGFIRE_ENVIRONMENT` (default `development`) — **Pydantic AI only**. Sets the Logfire `deployment.environment` resource attribute.
 
-> **Note:** `play-mcp-game.sh` exports `AI_REASONING=1` and `LOG_CONSOLE=1` unconditionally, so all benchmark runs have thinking enabled for Pydantic AI and console log output mirrored to stderr.
+> **Note:** `play-mcp-game.sh` exports `AI_REASONING=1` and `LOG_CONSOLE=1` unconditionally, so all benchmark runs have thinking enabled for Pydantic AI and console log output mirrored to stderr. `pydantic-mcp-game.sh` additionally exports `LOGFIRE_ENABLED=1` by default.
 
 ## Canonical Token Event Schema
 
-All four active clients now emit a `provider_call` event with the following normalized top-level fields:
+> **Pydantic AI no longer emits these `log_kv` events.** It moved to Logfire (see
+> [Logfire (Pydantic AI only)](#logfire-pydantic-ai-only)) — full per-model-call token usage and
+> per-tool-call args/results are captured automatically by `logfire.instrument_pydantic_ai()`
+> instead of the `provider_call`/`tool_call` events below. This schema now applies to ADK, Agno,
+> and Strands only.
+
+ADK, Agno, and Strands emit a `provider_call` event with the following normalized top-level fields:
 
 ```
 event="provider_call"  client=<fw>  model=<id>  latency_ms=<n>
@@ -41,7 +51,7 @@ event="provider_call"  client=<fw>  model=<id>  latency_ms=<n>
   tool_calls=<n>                # when available
 ```
 
-All active clients emit a `run_summary` event at session end:
+ADK, Agno, and Strands emit a `run_summary` event at session end:
 
 ```
 event="run_summary"  client=<fw>  model=<id>  token_scope="run_total"
@@ -88,11 +98,15 @@ Token fields:
 
 ### Pydantic AI
 
-Pattern: iterator-based usage deltas in the `agent.iter()` loop.
+**Superseded by Logfire** — see [Logfire (Pydantic AI only)](#logfire-pydantic-ai-only) below.
+Historically this used the same iterator-based delta-tracking pattern described here for ADK/Agno/Strands
+(reading `agent_run.usage` per node, diffing against `last_input_tokens`/`last_output_tokens`/
+`last_cache_read_tokens`, emitting `provider_call`/`run_summary` via `log_kv`); that code has been
+removed from `pydantic_mcp_client.py` in favor of `logfire.instrument_pydantic_ai()`, which captures
+the same data (and more — full request/response spans, tool args/results) automatically.
 
-- Cumulative usage is read from `agent_run.usage` on each node iteration.
-- Per-step deltas are computed against `last_input_tokens`, `last_output_tokens`, `last_cache_read_tokens`.
-- A `run_summary` event with `token_scope="run_total"` is emitted after the loop using `agent_run.result.usage`.
+<details>
+<summary>Historical schema (pre-Logfire, kept for reference)</summary>
 
 Token fields per step (delta):
 
@@ -102,7 +116,65 @@ Token fields in run summary:
 
 - `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens`, `requests`
 
-> Note: Pydantic AI 2.0.0b3 does expose a `Hooks` class, but it is located under the capabilities module (`pydantic_ai.capabilities.hooks.Hooks`) and must be registered as a capability (`capabilities=[hooks]`) rather than imported from the top-level `pydantic_ai.hooks` namespace. The current client uses the iterator-based loop as it integrates cleanly with the step-by-step console logging flow, but the native hooks capability is fully functional.
+> Note: Pydantic AI 2.0.0b3 does expose a `Hooks` class, but it is located under the capabilities module (`pydantic_ai.capabilities.hooks.Hooks`) and must be registered as a capability (`capabilities=[hooks]`) rather than imported from the top-level `pydantic_ai.hooks` namespace. The iterator-based loop this client used integrated cleanly with the step-by-step console logging flow, but the native hooks capability is fully functional.
+
+</details>
+
+### Logfire (Pydantic AI only)
+
+Pattern: [Logfire](https://github.com/pydantic/logfire)'s native Pydantic AI integration, gated by
+`LOGFIRE_ENABLED` (see [Environment Controls](#environment-controls)).
+
+- `logfire.configure(service_name="pydantic-mcp-client", environment=..., data_dir="~/.logfire")` runs once at
+  module import time, only when `LOGFIRE_ENABLED` is truthy. `data_dir` is pinned to `~/.logfire/`
+  (rather than the SDK default of a cwd-relative `.logfire/`) because this client is invoked from
+  different working directories (e.g. repo root via `pydantic-mcp-game.sh`), and project write-token
+  credentials need to resolve consistently regardless of cwd. Auth resolves via `LOGFIRE_TOKEN` if
+  set, otherwise the cached token under `~/.logfire/` from a prior `logfire auth` / `logfire projects
+  use <project> --data-dir ~/.logfire` run.
+- `logfire.instrument_pydantic_ai()` auto-instruments the whole `agent.iter()` run — every model
+  request/response and every MCP tool call becomes a span, with token usage attached to each model
+  call automatically. This is what replaced the old `provider_call`/`tool_call` `log_kv` events.
+- The client also wraps each full game session in a top-level `logfire.span("pydantic_game_run", model=...,
+  level=..., max_turns=..., session_id=...)` so every span for one run (model calls, tool calls, and
+  the two custom log events below) shares one `trace_id`.
+- Two custom structured log events (`logfire.info(...)`), both game/run-domain data that
+  `instrument_pydantic_ai()` doesn't know about on its own:
+  - `game_turn` — emitted once per tool-return that carries game state: `turn`, `room`, `score`, `thirst`.
+    Lets Logfire chart score-over-turns directly from the trace data (previously this required manually
+    reading `[turn=... room=... score=... thirst=...]` lines out of local log files, e.g. for
+    `charts/generate_charts_may27.py`'s `SCORE_TRAJ` data).
+  - `run_summary` — emitted once at the end of the run: `model`, `input_tokens`, `output_tokens`,
+    `total_tokens`, `cache_read_tokens`, `requests`. Nested inside the `pydantic_game_run` span, so it
+    shares a `trace_id` with everything else from that run.
+- When `LOGFIRE_ENABLED` is unset/false (default outside `pydantic-mcp-game.sh`), none of the above
+  runs — the client falls back to only the basic operational logging described in
+  [Shared Foundation](#shared-foundation-vibepascal_sharedllm_observability) (banner, warnings,
+  final response dump via `setup_logger`) plus stdout game narrative via `print_game`. No per-call
+  token/tool telemetry is captured locally in that case.
+
+#### Error hardening (found via Logfire)
+
+Running this client against OpenRouter models surfaced a gap the old local logging never caught:
+a malformed tool-call argument from a weaker model (e.g. `qwen/qwen3.7-flash` sending `seed: "None"`
+— a string — where the `command` tool's schema requires `null`/integer) raises
+`mcp.shared.exceptions.McpError` from the MCP transport layer. `MCPToolset`'s built-in
+`tool_error_behavior="retry"` only converts `fastmcp.exceptions.ToolError` into a `ModelRetry` (so
+the model can see the error and self-correct); it does not cover `McpError`, so this previously
+propagated uncaught and crashed the entire game run.
+
+Fixed with two layers, both in `pydantic_mcp_client.py`:
+
+1. `MCPToolset(..., process_tool_call=process_tool_call)` — a local `process_tool_call` wraps every
+   tool call and re-raises `McpError` as `ModelRetry`, matching what `tool_error_behavior="retry"`
+   already does for `ToolError`. This lets the model itself retry with corrected arguments (bounded
+   by the existing `max_retries=3`); if it still can't recover, Pydantic AI raises
+   `UnexpectedModelBehavior`, which was already handled gracefully.
+2. A broad `except Exception` (in addition to the existing `except (UnexpectedModelBehavior,
+   UsageLimitExceeded)`) around the game loop as defense in depth — any other unexpected error ends
+   that run's game loop gracefully (`run_summary` still logged, `logfire.exception(...)` still
+   recorded when `LOGFIRE_ENABLED`) instead of crashing the whole script, so one bad model in a
+   serial multi-model benchmark run doesn't take out the rest.
 
 ### Strands
 
@@ -133,7 +205,7 @@ The `model_call` event logs per-call latency and `stop_reason` but does not emit
 | :--- | :--- | :--- | :--- | :--- |
 | ADK | `after_model_callback` | `input_tokens`, `output_tokens`, `total_tokens`, `reasoning_tokens`, `cache_read_tokens` | ✅ | ✅ |
 | Agno | `post_hooks` | `input_tokens`, `output_tokens`, `total_tokens`, `reasoning_tokens`, `tool_calls` | ✅ | ✅ Resolved (closed manually to avoid anyio error) |
-| Pydantic AI | Iterator delta loop | `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens` | ✅ | ✅ |
+| Pydantic AI | `logfire.instrument_pydantic_ai()` (opt-in via `LOGFIRE_ENABLED`) | Full spans: token usage per model call, tool args/results, `game_turn`, `run_summary` | ✅ | ✅ |
 | Strands | `AfterInvocationEvent` hook | `input_tokens`, `output_tokens`, `total_tokens` | ✅ | ✅ Resolved (camelCase fallbacks added) |
 
 ## Hooks Implementation Comparison

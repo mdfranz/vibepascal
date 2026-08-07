@@ -28,7 +28,7 @@ The game server exposes a single `command` MCP tool. Each call returns `structur
 1. `MCPToolset(MCP_URL)` wraps the MCP server; passed to `Agent(toolsets=[...])`.
 2. The agent is started with `agent.iter(prompt, usage_limits=UsageLimits(request_limit=...))` as an async context manager.
 3. Each yielded node may contain `ThinkingPart`, `TextPart`, `ToolCallPart`, or `ToolReturnPart` messages. The client iterates `agent_run.all_messages()` and de-duplicates by `id(part)`.
-4. Token usage is tracked incrementally: the delta between the current `agent_run.usage` and the previous snapshot is logged as a `provider_call` after each model response.
+4. Token usage, tool calls, and model requests/responses are captured as Logfire spans via `logfire.instrument_pydantic_ai()` (opt-in with `LOGFIRE_ENABLED`; see `packages/shared/OBSERVABILITY.md`) rather than manually tracked in the client.
 5. Turn limit is enforced by raising `UsageLimitExceeded` inside the `ToolReturnPart` handler when `state.turns >= max_turns`.
 6. Thinking (extended reasoning) is optionally enabled via `AI_REASONING=1` env var, which adds a `Thinking()` capability and sets `anthropic_thinking` model settings.
 

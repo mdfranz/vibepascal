@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Pydantic AI client for the Echoes of Dustwood game (both direct-stdio and MCP variants)."
 requires-python = ">=3.12"
 dependencies = [
+    "logfire>=4.33.0",
     "pydantic-ai==2.0.0b3",
     "python-dotenv>=1.2.1",
     "vibepascal-shared",

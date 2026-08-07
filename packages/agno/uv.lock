@@ -3,8 +3,8 @@ revision = 3
 requires-python = ">=3.12"
 
 [options]
-exclude-newer = "2026-05-24T03:01:53.753511515Z"
-exclude-newer-span = "P3D"
+exclude-newer = "2026-08-04T23:51:08.794171093Z"
+exclude-newer-span = "P2D"
 
 [[package]]
 name = "agno"

@@ -116,11 +116,9 @@ func (s *MCPServer) HandleLook(_ context.Context, _ *mcp.CallToolRequest, _ *Emp
 	output, summary := ExecuteCommand(s.game, "look")
 	slog.Info("tool", "name", "look", "room", summary.RoomName, "turn", summary.Turns)
 
-	if !summary.IsPlaying {
-		result := &mcp.CallToolResult{IsError: true}
-		return result, &CommandOutput{Output: output, State: summary}, nil
-	}
-
+	// summary.IsPlaying=false is a legitimate terminal game state (win, death, or timeout), not a
+	// tool-call error - IsError must stay false so MCP clients don't treat GAME OVER as something
+	// to retry/fix (see logfire_results/openrouter-deepseek-vs-gemini-2026-08-06.md).
 	return nil, &CommandOutput{Output: output, State: summary}, nil
 }
 
@@ -146,11 +144,7 @@ func (s *MCPServer) HandleGo(_ context.Context, _ *mcp.CallToolRequest, input *G
 	output, summary := ExecuteCommand(s.game, verb)
 	slog.Info("tool", "name", "go", "direction", dir, "room", summary.RoomName, "turn", summary.Turns)
 
-	if !summary.IsPlaying {
-		result := &mcp.CallToolResult{IsError: true}
-		return result, &CommandOutput{Output: output, State: summary}, nil
-	}
-
+	// See comment in HandleLook: a natural game end is not a tool-call error.
 	return nil, &CommandOutput{Output: output, State: summary}, nil
 }
 
@@ -170,11 +164,7 @@ func (s *MCPServer) HandleTake(_ context.Context, _ *mcp.CallToolRequest, input 
 	output, summary := ExecuteCommand(s.game, fmt.Sprintf("take %s", strings.TrimSpace(input.Item)))
 	slog.Info("tool", "name", "take", "item", input.Item, "room", summary.RoomName, "turn", summary.Turns)
 
-	if !summary.IsPlaying {
-		result := &mcp.CallToolResult{IsError: true}
-		return result, &CommandOutput{Output: output, State: summary}, nil
-	}
-
+	// See comment in HandleLook: a natural game end is not a tool-call error.
 	return nil, &CommandOutput{Output: output, State: summary}, nil
 }
 
@@ -194,11 +184,7 @@ func (s *MCPServer) HandleDrop(_ context.Context, _ *mcp.CallToolRequest, input 
 	output, summary := ExecuteCommand(s.game, fmt.Sprintf("drop %s", strings.TrimSpace(input.Item)))
 	slog.Info("tool", "name", "drop", "item", input.Item, "room", summary.RoomName, "turn", summary.Turns)
 
-	if !summary.IsPlaying {
-		result := &mcp.CallToolResult{IsError: true}
-		return result, &CommandOutput{Output: output, State: summary}, nil
-	}
-
+	// See comment in HandleLook: a natural game end is not a tool-call error.
 	return nil, &CommandOutput{Output: output, State: summary}, nil
 }
 
@@ -210,11 +196,7 @@ func (s *MCPServer) HandleInventory(_ context.Context, _ *mcp.CallToolRequest, _
 	output, summary := ExecuteCommand(s.game, "inv")
 	slog.Info("tool", "name", "inventory", "room", summary.RoomName, "turn", summary.Turns)
 
-	if !summary.IsPlaying {
-		result := &mcp.CallToolResult{IsError: true}
-		return result, &CommandOutput{Output: output, State: summary}, nil
-	}
-
+	// See comment in HandleLook: a natural game end is not a tool-call error.
 	return nil, &CommandOutput{Output: output, State: summary}, nil
 }
 
@@ -226,11 +208,7 @@ func (s *MCPServer) HandleDrink(_ context.Context, _ *mcp.CallToolRequest, _ *Em
 	output, summary := ExecuteCommand(s.game, "drink")
 	slog.Info("tool", "name", "drink", "room", summary.RoomName, "turn", summary.Turns)
 
-	if !summary.IsPlaying {
-		result := &mcp.CallToolResult{IsError: true}
-		return result, &CommandOutput{Output: output, State: summary}, nil
-	}
-
+	// See comment in HandleLook: a natural game end is not a tool-call error.
 	return nil, &CommandOutput{Output: output, State: summary}, nil
 }
 
@@ -242,11 +220,7 @@ func (s *MCPServer) HandleWaterHorse(_ context.Context, _ *mcp.CallToolRequest, 
 	output, summary := ExecuteCommand(s.game, "water horse")
 	slog.Info("tool", "name", "water_horse", "room", summary.RoomName, "turn", summary.Turns)
 
-	if !summary.IsPlaying {
-		result := &mcp.CallToolResult{IsError: true}
-		return result, &CommandOutput{Output: output, State: summary}, nil
-	}
-
+	// See comment in HandleLook: a natural game end is not a tool-call error.
 	return nil, &CommandOutput{Output: output, State: summary}, nil
 }
 
@@ -258,11 +232,7 @@ func (s *MCPServer) HandleLight(_ context.Context, _ *mcp.CallToolRequest, _ *Em
 	output, summary := ExecuteCommand(s.game, "light lamp")
 	slog.Info("tool", "name", "light", "room", summary.RoomName, "turn", summary.Turns)
 
-	if !summary.IsPlaying {
-		result := &mcp.CallToolResult{IsError: true}
-		return result, &CommandOutput{Output: output, State: summary}, nil
-	}
-
+	// See comment in HandleLook: a natural game end is not a tool-call error.
 	return nil, &CommandOutput{Output: output, State: summary}, nil
 }
 
@@ -274,11 +244,7 @@ func (s *MCPServer) HandleScore(_ context.Context, _ *mcp.CallToolRequest, _ *Em
 	output, summary := ExecuteCommand(s.game, "score")
 	slog.Info("tool", "name", "score", "room", summary.RoomName, "turn", summary.Turns)
 
-	if !summary.IsPlaying {
-		result := &mcp.CallToolResult{IsError: true}
-		return result, &CommandOutput{Output: output, State: summary}, nil
-	}
-
+	// See comment in HandleLook: a natural game end is not a tool-call error.
 	return nil, &CommandOutput{Output: output, State: summary}, nil
 }
 
@@ -298,11 +264,7 @@ func (s *MCPServer) HandleResetGame(_ context.Context, _ *mcp.CallToolRequest, i
 
 	slog.Info("tool", "name", "reset_game", "room", resetSummary.RoomName, "turn", resetSummary.Turns)
 
-	if !resetSummary.IsPlaying {
-		result := &mcp.CallToolResult{IsError: true}
-		return result, &CommandOutput{Output: buf.String(), State: resetSummary}, nil
-	}
-
+	// See comment in HandleLook: a natural game end is not a tool-call error.
 	return nil, &CommandOutput{Output: buf.String(), State: resetSummary}, nil
 }
 
