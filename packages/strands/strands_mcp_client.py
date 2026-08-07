@@ -4,7 +4,7 @@ import os
 import sys
 import time
 from types import SimpleNamespace
-from typing import Optional
+from typing import Any, Optional
 
 import logfire
 from dotenv import load_dotenv
@@ -453,9 +453,51 @@ def run_strands_agent(
         if LOGFIRE_ENABLED
         else contextlib.nullcontext()
     )
+    # Some providers/models intermittently return a fully empty completion - no text, no
+    # tool call, finish_reason="stop" - which Strands treats as a normal final answer and
+    # ends the agent loop. Reproduced live and in isolation against
+    # openrouter/google/gemini-3.6-flash: ~50-60% empty-response rate replaying the exact
+    # same turn repeatedly, unaffected by tool_choice or excluding reasoning output - this
+    # is provider-side flakiness, not something a request parameter fixes deterministically.
+    # Left unhandled, one unlucky completion silently truncates an otherwise-healthy run to
+    # a handful of turns. Mitigate the only way that matches the actual failure mode: when
+    # the agent stops with empty output while the game is still demonstrably active (per
+    # last_state_obj from the tool-call hooks above), nudge it to continue, bounded so a
+    # persistently broken model still terminates.
+    #
+    # Strands' own streaming.py:_normalize_messages replaces a truly empty assistant
+    # content list with the literal sentinel text "[blank text]" before it's stored on the
+    # message/AgentResult - str(result) is therefore "[blank text]", not "", on this path.
+    # Treat both as empty.
+    MAX_EMPTY_STOP_RETRIES = 5
+
+    def _is_empty_result(r: Any) -> bool:
+        text = str(r).strip()
+        return text in ("", "[blank text]")
+
     try:
         with run_span:
             result = agent(prompt)
+            empty_stop_retries = 0
+            while (
+                _is_empty_result(result)
+                and last_state_obj is not None
+                and last_state_obj.is_playing
+                and last_state_obj.turns < max_turns
+                and empty_stop_retries < MAX_EMPTY_STOP_RETRIES
+            ):
+                empty_stop_retries += 1
+                logger.info(
+                    f"Model stopped with an empty response at turn {last_state_obj.turns}/{max_turns} "
+                    f"while the game is still active - retrying ({empty_stop_retries}/{MAX_EMPTY_STOP_RETRIES})."
+                )
+                if LOGFIRE_ENABLED:
+                    logfire.info(
+                        "empty_stop_retry attempt={attempt} turn={turn}",
+                        attempt=empty_stop_retries,
+                        turn=last_state_obj.turns,
+                    )
+                result = agent("Continue playing by calling an MCP tool. The game is not over.")
             logger.info(f"\n[FINAL AGENT RESPONSE]\n{str(result).strip()}")
     except _GameEndedError as e:
         logger.info(f"Game ended: {e}")

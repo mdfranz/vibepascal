@@ -321,6 +321,50 @@ game and Logfire data unaffected — verified via `query_run` that every `game_t
 correctly-cancelled tool spans' exception status all landed) and the trailing traceback prints after
 `--- Session Complete ---`. Not fixed here since it would mean patching Strands' vendored code.
 
+### 6. Strands — model stops with an empty completion, ending the run early (priority: high) — ✅ Mitigated
+
+Found running the OpenRouter flash-model cohort (Gemini 3.6 Flash, Qwen 3.7 Flash, DeepSeek v4
+Flash) at 30-turn minimal guidance. 3/3 initial `openrouter/google/gemini-3.6-flash` runs stopped
+calling tools after just 1-9 turns with a blank `[FINAL AGENT RESPONSE]` and no exception - Strands
+treats a normal (non-tool-call) stop as the agent finishing successfully, so the run just... ends,
+mid-game, with no error to catch.
+
+Root-caused by replaying the exact failing conversation directly against `litellm.completion(...,
+stream=True)` outside the game harness: the model returns `finish_reason="stop"` with zero output
+tokens and no tool call - a fully empty completion. Repeating the *identical* prompt 5 times in a
+row measured a **~50-60% empty-response rate**. Neither `extra_body={"reasoning": {"exclude":
+True}}` nor `tool_choice="required"` fixed this reliably (an initial attempt with `reasoning:
+exclude` looked like a fix on the first retry but failed 3/5 times under repeat testing) - this is
+provider-side flakiness in `openrouter/google/gemini-3.6-flash`'s streaming Chat Completions
+endpoint, not something a deterministic request parameter resolves.
+
+This is exactly the risk `strands_mcp_client.py`'s existing "game state, not model narration, wins"
+principle exists for, and the exact gap Section 8 item 5 of
+[`openrouter-deepseek-vs-gemini-2026-08-06.md`](../../logfire_results/openrouter-deepseek-vs-gemini-2026-08-06.md)
+already called out for the Pydantic AI client: *"a model can still return text while `is_playing=true`.
+The client should either classify that as an explicit early stop or retry under a documented
+policy."* Mitigated in `run_strands_agent` by wrapping the `agent(prompt)` call in a bounded retry
+(`MAX_EMPTY_STOP_RETRIES = 5`): if the result is empty **and** `last_state_obj` (from the
+`_after_tool_call` hook) shows the game is still `is_playing` with turns remaining, nudge the agent
+with `agent("Continue playing by calling an MCP tool. The game is not over.")` and re-check. Each
+retry logs `logger.info(...)` locally and a `logfire.info("empty_stop_retry", ...)` event when
+enabled.
+
+One non-obvious wrinkle found while validating this: Strands' own `_normalize_messages`
+(`strands/event_loop/streaming.py`) replaces a truly empty assistant content list with the literal
+sentinel text `"[blank text]"` before storing it on the message/`AgentResult` - so `str(result)` on
+this failure path is `"[blank text]"`, not `""`. An initial version of this fix checked only
+`not str(result).strip()`, which correctly caught the *first* empty stop in a run (before Strands'
+own normalization had touched that message) but missed a *second* one later in the same run (the
+sentinel is non-empty). Fixed by treating both as empty explicitly (`text in ("", "[blank text]")`).
+
+Verified end-to-end: a run that previously died at turn 1-9 with a blank response now either
+survives through a real `logfire.info("empty_stop_retry", ...)`-logged recovery and continues
+scoring, or reaches a legitimate engine `GAME OVER` (confirmed via `query_run` - an actual outlaw
+death event, not another empty stop). This is a bounded mitigation, not a root-cause fix - the
+underlying OpenRouter/Gemini flakiness is unchanged and the same class of issue could in principle
+affect other providers/models; the retry makes it survivable rather than run-ending.
+
 ### 2. Agno — TaskGroup teardown crash on Anthropic (priority: medium) — ✅ Fixed
 
 Agno previously crashed with `unhandled errors in a TaskGroup (1 sub-exception)` during async teardown because the connection lifecycle was managed via a context manager that exited outside the task context. 
