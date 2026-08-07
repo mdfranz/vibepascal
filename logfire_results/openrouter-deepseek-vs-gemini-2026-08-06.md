@@ -355,6 +355,9 @@ retried tool calls throughout the run, just recovering from them instead of dyin
 | Kimi-k3 | `019fd999c2aab1dda468670f0a90e1b8` |
 | GLM-5.2 | `019fd9a103d6f0d3563b5f9144256168` |
 | Kimi-k3 (max_tokens=8192 verification, score 98) | `019fd9c1e5c55fb4c01de271f68b1da3` |
+| DeepSeek (30-turn, score 106) | `019fd9deb397e5143d88e0dcc556e3f1` |
+| Gemini (30-turn, score 88) | `019fd9e198fa922b84b8f6db511e5a26` |
+| Qwen (30-turn, score 65) | `019fd9e3a230f4ee742dd10bae6afe44` |
 
 Query pattern used throughout (adjust `trace_id`/time window as needed):
 
@@ -378,6 +381,120 @@ from records
 where trace_id = '<trace_id>' and span_name = 'execute_tool command'
 order by start_timestamp
 ```
+
+## 9. Extended 30-turn runs (the three "flash" / cheap models)
+
+**Date:** Friday, August 7, 2026, 01:37–01:46 UTC.
+
+Re-ran the three cheapest models from Section 1 (all have "flash" in the name) at a 30-turn limit
+instead of 25, to see how the extra runway changes outcomes. This required restarting the Go MCP
+server with `--turns 30` — its own internal day/night turn limit defaults to 25 and is independent
+of the client's `max_turns` argument, so without this change every run would have hit the *server's*
+day/night `GAME OVER` at turn 25 regardless of what the client asked for.
+
+### Component versions
+
+Verified before running, not assumed:
+
+| Component | Version |
+| :--- | :--- |
+| Repo commit | `5c3e691` (branch `logfire-evals`) — includes the `mcp_server.go` `IsError` fix ([Section 5](#5-glm-52-resets-the-game-after-every-game-over)) and the `max_tokens=8192` fix ([Section 6](#6-kimi-k3-max_tokens-fix-found-via-this-session)) |
+| `bin/dustwood-go` | Rebuilt via `make build-go` after the `IsError` fix (confirmed binary mtime postdates the `mcp_server.go` fix commit) |
+| MCP server flags | `--mcp-http --mcp-addr 127.0.0.1:8765 --mcp-json-response --turns 30` |
+| Go | `go1.26.1 linux/amd64` |
+| `github.com/modelcontextprotocol/go-sdk` | `v1.4.0` (from `src/golang/go.mod`) |
+| `pydantic-ai-slim` | `2.0.0b3` |
+| `logfire` (Python) | `4.33.0` |
+| Python | `3.14.3` |
+| Client | `packages/pydantic/pydantic_mcp_client.py` via `./pydantic-mcp-game.sh <model> 30 1 full` (`LOGFIRE_ENABLED=1` by default) |
+
+### Results
+
+| Model | Outcome | Final score | Requests | Total tokens |
+| :--- | :--- | ---: | ---: | ---: |
+| `deepseek/deepseek-v4-flash-0731` | ✅ Natural `GAME OVER` at turn 30 | **106** | 28 | 199,193 |
+| `google/gemini-3.6-flash` | ✅ Natural `GAME OVER` at turn 30 | 88 | 35 | 190,441 |
+| `qwen/qwen3.7-flash` | ⚠️ Died once (turn 10), reset, completed 2nd playthrough | 65 | 46 | 399,968 |
+
+Cross-checked `chat` span counts against each `run_summary`'s `requests` field (28/35/46) — they
+match exactly, confirming no dropped or duplicated telemetry.
+
+All three ended via the client's `UsageLimitExceeded: Turn limit 30 reached.` after the engine's
+own day/night `GAME OVER` fired at turn 30 (`--turns 30` on the server) — a real engine ending this
+time for all three, not a self-narrated stop like most of the 25-turn runs in Section 1.
+
+### Gameplay narrative
+
+**DeepSeek (106, new high across all runs in this doc)** — a clean, efficient run: reached the
+General Store, Telegraph Office, and Livery Stables at a similar pace to its 25-turn runs, fixed
+the pump around turn 17 (`FIX PUMP`, +20), then used the extra 5 turns to push past where its
+25-turn runs stopped — riding out to **Hidden Stream**, surviving a rattlesnake there with
+`FREEZE` (score held at 103 for a turn while it waited the snake out, same tactic as DeepSeek run 1
+in Section 4), then took the brass key for a final push to 106.
+
+**Gemini (88, its worst result across all runs — despite 5 extra turns)** — reached the Livery
+Stables around turn 15 (score 50) but ran into a **rattlesnake** there and, instead of freezing
+immediately, oscillated between Main Street and the Livery Stables several times (turns 15-22 all
+logged score 50 — confirmed via `game_turn` events, no progress for 8 straight turns) before
+settling in, freezing twice (`FREEZE`, `FREEZE`), fixing the pump, and then — after already
+filling the canteen once — calling `FILL` a *second* time and checking its own `score` tool mid-run
+before finally saddling and mounting. All of that consumed most of the 30-turn budget; it only
+managed one `go` south into the desert (**The Desert Edge**) before time ran out. Compare to its
+25-turn runs (Section 4), which reached the Livery Stables by turn 9-15 with no snake stand-off at
+all — this run's rattlesnake placement (a map-seed effect, same caveat noted in the original
+[gemini35-vs-25-flash-analysis.md](../gemini35-vs-25-flash-analysis.md)) cost it the entire
+efficiency advantage it showed in every prior run.
+
+**Qwen (65, died once, hit the seed bug again — and self-recovered)** — two things happened here,
+confirmed via `gen_ai.tool.call.arguments`/`gen_ai.tool.call.result`:
+
+1. On its very first `command` call, it sent `seed: "None"` — **the exact same malformed-argument
+   bug from the original crash** ([Section 7](#7-qwen-tool-call-hardening-found-via-this-session)).
+   This time the `process_tool_call`→`ModelRetry` hardening caught it cleanly: the model retried
+   with `seed: ""` (also invalid — same error, different bad value), then a third attempt omitting
+   `seed` entirely, which succeeded. No crash, no manual intervention — the hardening built for the
+   original bug is still doing its job on a completely different run.
+2. It died to a rattlesnake at the **Sheriff's Office** on turn 10 (score 27) — a genuine in-engine
+   death, confirmed in the raw tool result. It then reset (`command(reset=true)`) and played a full
+   second game to turn 30 (score 65). Notably, **the "Fix the errors and try again." hint text is
+   confirmed gone from this result** (checked directly) — the `mcp_server.go` fix is working — yet
+   Qwen reset anyway. This refines the Section 5 finding: the hint text made GLM-5.2 reset after
+   *every* ending including harmless ones, but resetting after a genuine *death* appears to be a
+   model-initiated strategy some models (Qwen here, Kimi in Section 4) choose independent of any
+   server-side hint. Not a bug to fix — just a data point on how differently models treat failure.
+
+### Extended-run takeaways
+
+- Longer turn budgets don't uniformly help: DeepSeek benefited (77/65 at 25 turns → 106 at 30),
+  Gemini got *worse* (88/93 at 25 turns → 88 at 30, despite more turns) purely because of a
+  snake encounter that happened to land at a chokepoint room this run.
+- The two hardening fixes from Sections 5-7 both got real, unplanned exercise in this batch: Qwen
+  re-triggered the original seed bug and self-recovered via `ModelRetry`, and the `mcp_server.go`
+  fix was confirmed still removing the misleading hint text from a genuine death this time, not
+  just the day/night endings tested before.
+
+### Follow-up: restarts are now configurable
+
+Qwen's death-then-reset above (and Kimi-k3's and GLM-5.2's in Section 4) prompted a design
+question: should a model be able to retry at all after `GAME OVER`? `src/golang/mcp_server.go`
+now has an `--allow-restart` flag, **default off** — once a game has ended, `reset_game` /
+`command(reset=true)` are rejected (`isError: true`, clear message) instead of silently starting a
+new attempt. The mandatory initial bootstrap `reset=true` call every client sends at the very start
+of a run is unaffected (it happens while `IsPlaying` is still true).
+
+**This means the Qwen result above (65, via a second playthrough after dying at turn 10) reflects
+the old unconditional-allow behavior** — these 30-turn runs were conducted before the flag
+existed. Under the new default, that same run would have stopped at the death: score 27, turn 10.
+Re-running with the new default would be needed to get a genuinely comparable "one life" number
+for Qwen (and to see whether GLM-5.2/Kimi-k3 behave differently when reset attempts are rejected
+outright rather than silently succeeding).
+
+Because the restart flag is per-server-*process*, one MCP server can no longer be reused across
+multiple sequential single-framework runs by default (the second run's own bootstrap reset would
+also be rejected, since the server can't distinguish "a new run starting" from "the same model
+retrying"). `play-mcp-game.sh` was updated to restart the server itself before each of its 4
+framework runs; single-framework scripts (`pydantic-mcp-game.sh` etc.) still expect an
+externally-managed server, so restart it between separate invocations — see `CLAUDE.md`.
 
 ## Related Documentation
 

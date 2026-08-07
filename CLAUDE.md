@@ -45,8 +45,8 @@ Each lives in `packages/<framework>/` with its own venv:
 - `vibepascal_shared/mcp_command_policy.py` — Command validation
 
 ### Orchestrators
-- Root-level `*-game.sh` scripts (e.g., `pydantic-mcp-game.sh`) — Wrapper scripts that invoke `uv run --project packages/<fw>` with the right arguments.
-- `play-mcp-game.sh` — Runs all 4 frameworks sequentially for benchmarking.
+- Root-level `*-game.sh` scripts (e.g., `pydantic-mcp-game.sh`) — Wrapper scripts that invoke `uv run --project packages/<fw>` with the right arguments. These do **not** manage the MCP server themselves; they expect one already running.
+- `play-mcp-game.sh` — Runs all 4 frameworks sequentially for benchmarking. Unlike the single-framework scripts, this one **does** manage its own MCP server lifecycle — see the restart note below.
 
 ## Architecture Decisions
 
@@ -64,9 +64,23 @@ The Go port (`bin/dustwood-go`) handles HTTP MCP better (async I/O, signal handl
 
 ## Common Tasks
 
+### Restart-after-`GAME OVER` is off by default (server-side)
+`bin/dustwood-go`'s `--allow-restart` flag (default **off**) controls whether `reset_game` /
+`command(reset=true)` work once a game has ended (win, death, or day/night timeout) — see
+`src/golang/mcp_server.go`. With it off (default), a model gets exactly one attempt per server
+process; with it on, models can retry after `GAME OVER` (the old behavior). Because this is
+per-*process*, **one server instance must not be reused across multiple separate client runs**
+unless `--allow-restart` is passed — the second run's own required bootstrap `reset=true` call
+would be rejected too, since the server can't distinguish "a new run starting" from "the same
+model retrying." Restart the server between every individual `*-game.sh` invocation (`play-mcp-game.sh`
+does this automatically for its own 4 sub-runs; the single-framework scripts below do not, so do it
+yourself). Also match the server's `--turns` to the client's `max_turns` argument — they're
+independent, and the *server's* turn limit governs the in-game day/night cutoff regardless of what
+turn count you pass the client.
+
 ### Test One Framework
 ```bash
-./bin/dustwood-go --mcp-http --mcp-addr 127.0.0.1:8765 --mcp-json-response &
+./bin/dustwood-go --mcp-http --mcp-addr 127.0.0.1:8765 --mcp-json-response --turns 25 &
 ./pydantic-mcp-game.sh google-gla:gemini-3.5-flash 25 1 full
 ```
 
@@ -78,9 +92,11 @@ uv sync --upgrade
 
 ### Benchmark All 4 Frameworks
 ```bash
-./bin/dustwood-go --mcp-http --mcp-addr 127.0.0.1:8765 --mcp-json-response &
 ./play-mcp-game.sh google-gla:gemini-3.5-flash 25 1 full
 ```
+No need to start the server yourself — `play-mcp-game.sh` builds `bin/dustwood-go` and restarts it
+fresh before each of the 4 clients. Pass `--allow-restart` to let models retry after `GAME OVER`
+instead of getting one attempt each.
 
 ### Add a New Game Command
 1. Edit `src/golang/commands.go` (preferred) or `src/pascal/u_commands.pas`

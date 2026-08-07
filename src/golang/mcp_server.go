@@ -82,18 +82,32 @@ You wake up in a distant frontier town, parched and desperate. Your goal is to s
 Use the available tools and MCP resources (game://state, game://room, game://inventory) to track your progress.`
 
 type MCPServer struct {
-	mu          sync.Mutex
-	game        *GameState
-	defaultSeed *int64
-	turnLimit   int
+	mu           sync.Mutex
+	game         *GameState
+	defaultSeed  *int64
+	turnLimit    int
+	allowRestart bool
 }
 
-func NewMCPServer(seed *int64, turnLimit int) *MCPServer {
+// NewMCPServer constructs a game server. When allowRestart is false (the default via the
+// --allow-restart CLI flag), reset_game/command(reset=true) are rejected once the current game
+// has already ended (IsPlaying=false) - a real death or day/night timeout - so a benchmark run
+// gets exactly one continuous playthrough instead of a model being able to retry after failing.
+// The mandatory initial bootstrap reset (sent while IsPlaying is still true, before anything has
+// happened) is unaffected either way.
+func NewMCPServer(seed *int64, turnLimit int, allowRestart bool) *MCPServer {
 	return &MCPServer{
-		game:        NewGame(seed, turnLimit, io.Discard),
-		defaultSeed: seed,
-		turnLimit:   turnLimit,
+		game:         NewGame(seed, turnLimit, io.Discard),
+		defaultSeed:  seed,
+		turnLimit:    turnLimit,
+		allowRestart: allowRestart,
 	}
+}
+
+// restartBlocked reports whether a reset attempt should be rejected: restarts are disabled and
+// the current game has already ended. Must be called with s.mu held.
+func (s *MCPServer) restartBlocked() bool {
+	return !s.allowRestart && s.game != nil && !s.game.IsPlaying
 }
 
 // validateItemName validates that an item name is non-empty and not too long
@@ -253,6 +267,15 @@ func (s *MCPServer) HandleResetGame(_ context.Context, _ *mcp.CallToolRequest, i
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.restartBlocked() {
+		slog.Info("tool", "name", "reset_game", "rejected", "restarts disabled after game over")
+		result := &mcp.CallToolResult{IsError: true}
+		return result, &CommandOutput{
+			Output: "Restarts are disabled on this server (--allow-restart not set). The game has ended - this was your one attempt.",
+			State:  SummarizeState(s.game),
+		}, nil
+	}
+
 	seed := s.defaultSeed
 	if input != nil && input.Seed != nil {
 		seed = input.Seed
@@ -302,6 +325,15 @@ func (s *MCPServer) HandleCommand(_ context.Context, _ *mcp.CallToolRequest, inp
 	defer s.mu.Unlock()
 
 	if input.Reset {
+		if s.restartBlocked() {
+			slog.Info("command", "cmd", "[reset]", "rejected", "restarts disabled after game over")
+			result := &mcp.CallToolResult{IsError: true}
+			return result, &CommandOutput{
+				Output: "Restarts are disabled on this server (--allow-restart not set). The game has ended - this was your one attempt.",
+				State:  SummarizeState(s.game),
+			}, nil
+		}
+
 		seed := s.defaultSeed
 		if input.Seed != nil {
 			seed = input.Seed

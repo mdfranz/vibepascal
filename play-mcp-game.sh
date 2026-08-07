@@ -7,11 +7,23 @@ export LOG_CONSOLE=1
 # Echoes of Dustwood: Multi-Client MCP Runner
 # This script runs MCP AI clients sequentially for a given model.
 
+ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+cd "$ROOT_DIR"
+
+MCP_ADDR="127.0.0.1:8765"
+MCP_URL="http://${MCP_ADDR}/mcp"
+SERVER_PID=""
+
 usage() {
-    echo "Usage: ./play-mcp-game.sh <model> <max_turns> [delay] [difficulty] [--summarize] [--windowing] [--window-size SIZE] [--session-id ID]"
+    echo "Usage: ./play-mcp-game.sh <model> <max_turns> [delay] [difficulty] [--summarize] [--windowing] [--window-size SIZE] [--session-id ID] [--allow-restart]"
     echo ""
-    echo "Note: This script requires the Go MCP server to be running."
-    echo "      ./bin/dustwood-go --mcp-http --mcp-addr 127.0.0.1:8765 --mcp-json-response"
+    echo "Manages its own Go MCP server (bin/dustwood-go) - one fresh instance per client,"
+    echo "restarted between each of the 4 framework runs below, rather than requiring one to"
+    echo "already be running. This matters because the server's own --turns limit (matched to"
+    echo "max_turns here) and --allow-restart flag are per-process: since --allow-restart"
+    echo "defaults OFF (see src/golang/mcp_server.go), a model can no longer reset_game/retry"
+    echo "after GAME OVER, so each of the 4 clients needs its own clean server instance rather"
+    echo "than sharing one long-lived process across all 4 runs."
     echo ""
     echo "Arguments:"
     echo "  model             Model name (required)"
@@ -22,6 +34,8 @@ usage() {
     echo "  --windowing, -w   Enable sliding window history (disabled by default)"
     echo "  --window-size, -n Window size in game turns (default: 6)"
     echo "  --session-id ID   Resume or create a named session"
+    echo "  --allow-restart   Pass --allow-restart to the MCP server: let a model reset_game/retry"
+    echo "                    after GAME OVER instead of one attempt per client (old behavior)"
     echo ""
     echo "Examples:"
     echo "  ./play-mcp-game.sh google-gla:gemini-3-flash-preview 15"
@@ -39,6 +53,7 @@ DELAY=${3:-"1"}
 LEVEL=${4:-"full"}
 
 EXTRA_ARGS=()
+ALLOW_RESTART=0
 shift 4 2>/dev/null || shift $# 2>/dev/null || true
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -58,6 +73,10 @@ while [[ $# -gt 0 ]]; do
             EXTRA_ARGS+=(--session-id "$2")
             shift 2
             ;;
+        --allow-restart)
+            ALLOW_RESTART=1
+            shift
+            ;;
         *)
             echo "Unknown argument: $1"
             usage
@@ -65,9 +84,63 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# --- MCP server lifecycle -----------------------------------------------
+# One fresh server per client run (not one shared long-lived process): the
+# server's --allow-restart is off by default (src/golang/mcp_server.go), so a
+# model gets exactly one attempt per process. Reusing one process across all
+# 4 clients would let only the first client's game actually start.
+
+stop_mcp_server() {
+    if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
+        kill "$SERVER_PID" 2>/dev/null || true
+        wait "$SERVER_PID" 2>/dev/null || true
+    fi
+    SERVER_PID=""
+}
+
+trap stop_mcp_server EXIT INT TERM
+
+start_mcp_server() {
+    stop_mcp_server
+
+    local server_args=(--mcp-http --mcp-addr "$MCP_ADDR" --mcp-json-response --turns "$MAX_TURNS")
+    if [[ "$ALLOW_RESTART" -eq 1 ]]; then
+        server_args+=(--allow-restart)
+    fi
+
+    ./bin/dustwood-go "${server_args[@]}" &
+    SERVER_PID=$!
+
+    local waited=0
+    until curl -s -o /dev/null -w '' "$MCP_URL" -X POST \
+        -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
+        -d '{"jsonrpc":"2.0","id":0,"method":"ping"}' 2>/dev/null; do
+        if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+            echo "MCP server exited unexpectedly during startup." >&2
+            exit 1
+        fi
+        if [[ "$waited" -ge 10 ]]; then
+            echo "MCP server did not become ready within 10s." >&2
+            exit 1
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+}
+
+if ! make build-go > /dev/null 2>&1; then
+    echo "Failed to compile the Go MCP server. Please install Go." >&2
+    exit 1
+fi
+
 echo "================================================================"
 echo "STARTING MULTI-CLIENT MCP SESSION"
 echo "Model: $MODEL, Level: $LEVEL, Delay: ${DELAY}s, Max Turns: $MAX_TURNS"
+if [[ "$ALLOW_RESTART" -eq 1 ]]; then
+    echo "MCP server: --allow-restart set (models may retry after GAME OVER)"
+else
+    echo "MCP server: one attempt per client (default; pass --allow-restart to change)"
+fi
 echo "================================================================"
 
 # Map model for different frameworks if necessary
@@ -103,19 +176,25 @@ fi
 
 echo ""
 echo "--- Running Client 1: Pydantic AI (MCP) ---"
+start_mcp_server
 ./pydantic-mcp-game.sh "$MODEL" "$MAX_TURNS" "$DELAY" "$LEVEL" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"
 
 echo ""
 echo "--- Running Client 2: Agno (MCP) ---"
+start_mcp_server
 ./agno-mcp-game.sh "$AGNO_MODEL" "$MAX_TURNS" "$DELAY" "$LEVEL" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"
 
 echo ""
 echo "--- Running Client 3: Strands AI (MCP) ---"
+start_mcp_server
 ./strands-mcp-game.sh "$STRANDS_MODEL" "$MAX_TURNS" "$DELAY" "$LEVEL" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"
 
 echo ""
 echo "--- Running Client 4: ADK (MCP) ---"
+start_mcp_server
 ./adk-mcp-game.sh "$ADK_MODEL" "$MAX_TURNS" "$DELAY" "$LEVEL" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"
+
+stop_mcp_server
 
 echo ""
 echo "================================================================"

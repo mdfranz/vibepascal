@@ -23,6 +23,7 @@ func main() {
 	mcpStateless := flag.Bool("mcp-stateless", false, "Run MCP server in stateless mode (no sessions/SSE)")
 	seedFlag := flag.Int64("seed", -1, "Deterministic game seed (optional)")
 	turnLimitFlag := flag.Int("turns", 25, "Set the turn limit")
+	allowRestart := flag.Bool("allow-restart", false, "Allow reset_game/command(reset=true) after GAME OVER (default: one attempt per server process)")
 	autosaveEnabled := flag.Bool("autosave", false, "Enable autosave")
 	autosaveInterval := flag.Int("autosave-interval", 5, "Turns between autosaves")
 	autosavePath := flag.String("autosave-path", "data/autosave.db", "Path to autosave file")
@@ -35,6 +36,7 @@ func main() {
 		fmt.Printf("  -h, --h, --help      Show this help message\n")
 		fmt.Printf("  --headless           Run in headless mode\n")
 		fmt.Printf("  --turns <n>          Set the turn limit (default: 25)\n")
+		fmt.Printf("  --allow-restart      Allow reset_game/reset=true after GAME OVER (default: one attempt per process)\n")
 		fmt.Printf("  --seed <n>           Set the random seed\n")
 		fmt.Printf("  --autosave           Enable autosave feature\n")
 		fmt.Printf("  --autosave-interval  Turns between autosaves (default: 5)\n")
@@ -59,7 +61,7 @@ func main() {
 		if len(origins) == 0 {
 			origins = append(origins, "http://localhost", "http://127.0.0.1")
 		}
-		server := NewMCPServer(seed, *turnLimitFlag)
+		server := NewMCPServer(seed, *turnLimitFlag, *allowRestart)
 		// Propagate autosave settings to server game instance
 		server.game.AutosaveEnabled = *autosaveEnabled
 		server.game.AutosaveInterval = *autosaveInterval
