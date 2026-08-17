@@ -4,66 +4,42 @@ set -euo pipefail
 export AI_REASONING=1
 export LOG_CONSOLE=1
 
+ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+cd "$ROOT_DIR"
+
 # --- OpenTelemetry & Logfire Observability ------------------------------
 export OTEL_ENABLED="${OTEL_ENABLED:-1}"
 export OTEL_SERVICE_NAME="${OTEL_SERVICE_NAME:-dustwood-go}"
 export OTEL_EXPORTER_OTLP_PROTOCOL="${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}"
 
-# Extract Logfire endpoint and write token from ~/.logfire if not explicitly set
-if [[ -z "${OTEL_EXPORTER_OTLP_HEADERS:-}" || -z "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ]]; then
-    read -r DETECTED_ENDPOINT DETECTED_TOKEN < <(python3 -c '
-import json, pathlib
-try:
-    import tomllib
-except ImportError:
-    tomllib = None
+# Read the repository-local project credential unless the caller supplied a token.
+LOGFIRE_CREDS="${LOGFIRE_CREDS:-$ROOT_DIR/.logfire/logfire_credentials.json}"
+if [[ -z "${LOGFIRE_TOKEN:-}" && -f "$LOGFIRE_CREDS" ]]; then
+    read -r DETECTED_ENDPOINT LOGFIRE_TOKEN < <(
+        python3 - "$LOGFIRE_CREDS" <<'PY'
+import json
+import sys
 
-logfire_dir = pathlib.Path.home() / ".logfire"
-creds = logfire_dir / "logfire_credentials.json"
-endpoint, token = "", ""
-if creds.exists():
-    try:
-        d = json.loads(creds.read_text())
-        token = d.get("token", "")
-        endpoint = d.get("logfire_api_url", "")
-    except Exception:
-        pass
+with open(sys.argv[1]) as f:
+    credentials = json.load(f)
 
-if not token and (logfire_dir / "default.toml").exists() and tomllib:
-    try:
-        d = tomllib.loads((logfire_dir / "default.toml").read_text())
-        for url, tok_info in d.get("tokens", {}).items():
-            if isinstance(tok_info, dict) and tok_info.get("token"):
-                token = tok_info["token"]
-                endpoint = url
-                break
-    except Exception:
-        pass
-
-if token and not endpoint:
-    if "_eu_" in token:
-        endpoint = "https://logfire-eu.pydantic.dev"
-    else:
-        endpoint = "https://logfire-us.pydantic.dev"
-
-print(f"{endpoint} {token}")
-' 2>/dev/null || true)
-
+print(credentials.get("logfire_api_url", ""), credentials.get("token", ""))
+PY
+    )
+    export LOGFIRE_TOKEN
     if [[ -z "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" && -n "$DETECTED_ENDPOINT" ]]; then
         export OTEL_EXPORTER_OTLP_ENDPOINT="$DETECTED_ENDPOINT"
     fi
-    if [[ -z "${OTEL_EXPORTER_OTLP_HEADERS:-}" && -n "$DETECTED_TOKEN" ]]; then
-        export OTEL_EXPORTER_OTLP_HEADERS="Authorization=${DETECTED_TOKEN}"
-    fi
+fi
+
+if [[ -n "${LOGFIRE_TOKEN:-}" && -z "${OTEL_EXPORTER_OTLP_HEADERS:-}" ]]; then
+    export OTEL_EXPORTER_OTLP_HEADERS="Authorization=${LOGFIRE_TOKEN}"
 fi
 
 export OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-https://logfire-us.pydantic.dev}"
 
 # Echoes of Dustwood: Multi-Client MCP Runner
 # This script runs MCP AI clients sequentially for a given model.
-
-ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-cd "$ROOT_DIR"
 
 MCP_ADDR="127.0.0.1:8765"
 MCP_URL="http://${MCP_ADDR}/mcp"

@@ -307,6 +307,14 @@ func ExecuteCommand(s *GameState, cmd string) (string, GameSummary) {
 		s.Out = prevOut
 	}()
 
+	// A finished game is immutable. Reset requests are handled separately by the MCP
+	// handlers, where restart policy is enforced; ordinary commands must not be able
+	// to move, collect items, or change the score after GAME OVER.
+	if !s.IsPlaying {
+		outPrintln(s, "GAME OVER. No further actions are accepted.")
+		return buf.String(), SummarizeState(s)
+	}
+
 	trimmed := strings.TrimSpace(cmd)
 	if trimmed == "" {
 		look(s)

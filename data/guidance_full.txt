@@ -79,8 +79,15 @@ Command Notes:
 - There is no TAKE ALL. Use TAKE <ITEM> for each item.
 - Use EXAMINE <ITEM> (not INSPECT) if you want details.
 
+MCP tool-use requirement:
+- Execute every game action by calling an MCP tool. Never return a game command as plain text.
+- For parser commands, call the `command` tool with the command text. You may instead use a
+  dedicated tool such as `go`, `take`, `drop`, `drink`, or `inventory` when appropriate.
+- Do not provide a final text response while the game is still playing and turns remain.
+
 Rules:
-1. Output ONLY one valid command verb (optionally with a single noun), nothing else.
+1. The command passed to the `command` tool must contain only one valid command verb (optionally
+   with a single noun), with no punctuation or extra words.
 2. Use ONLY these verbs: N,S,E,W,NORTH,SOUTH,EAST,WEST,LOOK,L,EXAMINE,X,SEARCH,TAKE,GET,DROP,INVENTORY,I,CHECK,DRINK,FILL,WATER,LIGHT,FIX,SADDLE,PUT,OPEN,SHOOT,KILL,FREEZE,WAIT,CLIMB,BURN,FIRE,SAVE,LOAD,SCORE,HELP,H,?,QUIT,Q,MOUNT,DISMOUNT,RIDE.
 3. Use only exact noun words from the room/item list (e.g., CANTEEN, LEATHER, MATCHES, SADDLE, PUMP, WIRE, TELEGRAPH, HORSE, BOX, REVOLVER, ROCK, KEY, LEDGER).
 4. No punctuation or extra words. Examples: "TAKE LEATHER", "EXAMINE ROCK", "SEARCH", "SADDLE HORSE", "PUT SADDLE", "WATER HORSE", "OPEN BOX", "FILL".

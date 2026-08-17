@@ -216,6 +216,7 @@ async def run_pydantic_agent(
         model=model_name,
         toolsets=[server],
         capabilities=capabilities,
+        retries=3,
         model_settings=ModelSettings(
             # 4096 was too tight for verbose/reasoning-heavy models (e.g. Kimi-k3 hit this on a
             # trailing request right after a game turn, raising UnexpectedModelBehavior before any
@@ -234,6 +235,19 @@ async def run_pydantic_agent(
             f"{guidance_block}"
         ),
     )
+
+    # This agent is a tool-using game player, not a chat agent. Pydantic AI otherwise
+    # treats plain text as a valid final answer, which lets a model return e.g. "TAKE MAP"
+    # after LOOK without ever executing that action through MCP.
+    latest_game_state = {"is_playing": True}
+
+    @agent.output_validator
+    def require_tool_action_while_playing(output: str) -> str:
+        if latest_game_state.get("is_playing", True):
+            raise ModelRetry(
+                "The game is still active. Do not return a plain-text command; call an MCP game tool."
+            )
+        return output
 
     prompt = (
         f"Start by calling the 'command' tool with command='LOOK' and reset=True. "
@@ -297,25 +311,33 @@ async def run_pydantic_agent(
                                         output = sc.get("output", "")
                                         state = sc.get("state")
 
-                                    if output and isinstance(state, dict):
-                                        turns = state.get("turns", 0)
-                                        room = state.get("room_name") or state.get("roomName") or "Unknown"
-                                        score = state.get("score", 0)
-                                        thirst = state.get("thirst", 0)
+                                    if isinstance(state, dict):
+                                        latest_game_state.clear()
+                                        latest_game_state.update(state)
 
-                                        if game_console_enabled():
-                                            print_game(f"\n[turn={turns} room={room} score={score} thirst={thirst}]\n{output.strip()}\n")
+                                        if output:
+                                            turns = state.get("turns", 0)
+                                            room = state.get("room_name") or state.get("roomName") or "Unknown"
+                                            score = state.get("score", 0)
+                                            thirst = state.get("thirst", 0)
 
-                                        if LOGFIRE_ENABLED:
-                                            logfire.info(
-                                                "game_turn {turn} room={room} score={score} thirst={thirst}",
-                                                turn=turns,
-                                                room=room,
-                                                score=score,
-                                                thirst=thirst,
-                                            )
+                                            if game_console_enabled():
+                                                print_game(f"\n[turn={turns} room={room} score={score} thirst={thirst}]\n{output.strip()}\n")
 
-                                        if turns >= max_turns:
+                                            if LOGFIRE_ENABLED:
+                                                logfire.info(
+                                                    "game_turn {turn} room={room} score={score} thirst={thirst}",
+                                                    turn=turns,
+                                                    room=room,
+                                                    score=score,
+                                                    thirst=thirst,
+                                                )
+
+                                        if not state.get("is_playing", True):
+                                            logger.info("Game ended. Stopping agent.")
+                                            raise UsageLimitExceeded("Game ended")
+
+                                        if state.get("turns", 0) >= max_turns:
                                             logger.info(f"Turn limit ({max_turns}) reached. Stopping agent.")
                                             raise UsageLimitExceeded(f"Turn limit {max_turns} reached.")
 
