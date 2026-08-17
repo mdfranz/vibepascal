@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -87,6 +88,7 @@ type MCPServer struct {
 	defaultSeed  *int64
 	turnLimit    int
 	allowRestart bool
+	telemetry    *Telemetry
 }
 
 // NewMCPServer constructs a game server. When allowRestart is false (the default via the
@@ -95,12 +97,16 @@ type MCPServer struct {
 // gets exactly one continuous playthrough instead of a model being able to retry after failing.
 // The mandatory initial bootstrap reset (sent while IsPlaying is still true, before anything has
 // happened) is unaffected either way.
-func NewMCPServer(seed *int64, turnLimit int, allowRestart bool) *MCPServer {
+func NewMCPServer(seed *int64, turnLimit int, allowRestart bool, tel *Telemetry) *MCPServer {
+	if tel == nil {
+		tel = NewNoopTelemetry()
+	}
 	return &MCPServer{
 		game:         NewGame(seed, turnLimit, io.Discard),
 		defaultSeed:  seed,
 		turnLimit:    turnLimit,
 		allowRestart: allowRestart,
+		telemetry:    tel,
 	}
 }
 
@@ -123,11 +129,11 @@ func validateItemName(name string) error {
 }
 
 // Handler for the "look" tool
-func (s *MCPServer) HandleLook(_ context.Context, _ *mcp.CallToolRequest, _ *EmptyInput) (*mcp.CallToolResult, *CommandOutput, error) {
+func (s *MCPServer) HandleLook(ctx context.Context, _ *mcp.CallToolRequest, _ *EmptyInput) (*mcp.CallToolResult, *CommandOutput, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	output, summary := ExecuteCommand(s.game, "look")
+	output, summary := ExecuteCommandContext(ctx, s.game, "look", "mcp", s.telemetry)
 	slog.Info("tool", "name", "look", "room", summary.RoomName, "turn", summary.Turns)
 
 	// summary.IsPlaying=false is a legitimate terminal game state (win, death, or timeout), not a
@@ -137,7 +143,7 @@ func (s *MCPServer) HandleLook(_ context.Context, _ *mcp.CallToolRequest, _ *Emp
 }
 
 // Handler for the "go" tool
-func (s *MCPServer) HandleGo(_ context.Context, _ *mcp.CallToolRequest, input *GoInput) (*mcp.CallToolResult, *CommandOutput, error) {
+func (s *MCPServer) HandleGo(ctx context.Context, _ *mcp.CallToolRequest, input *GoInput) (*mcp.CallToolResult, *CommandOutput, error) {
 	dir := strings.ToLower(strings.TrimSpace(input.Direction))
 	validDirs := map[string]string{
 		"north": "N", "south": "S", "east": "E", "west": "W",
@@ -155,7 +161,7 @@ func (s *MCPServer) HandleGo(_ context.Context, _ *mcp.CallToolRequest, input *G
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	output, summary := ExecuteCommand(s.game, verb)
+	output, summary := ExecuteCommandContext(ctx, s.game, verb, "mcp", s.telemetry)
 	slog.Info("tool", "name", "go", "direction", dir, "room", summary.RoomName, "turn", summary.Turns)
 
 	// See comment in HandleLook: a natural game end is not a tool-call error.
@@ -163,7 +169,7 @@ func (s *MCPServer) HandleGo(_ context.Context, _ *mcp.CallToolRequest, input *G
 }
 
 // Handler for the "take" tool
-func (s *MCPServer) HandleTake(_ context.Context, _ *mcp.CallToolRequest, input *TakeInput) (*mcp.CallToolResult, *CommandOutput, error) {
+func (s *MCPServer) HandleTake(ctx context.Context, _ *mcp.CallToolRequest, input *TakeInput) (*mcp.CallToolResult, *CommandOutput, error) {
 	if err := validateItemName(input.Item); err != nil {
 		result := &mcp.CallToolResult{IsError: true}
 		return result, &CommandOutput{
@@ -175,7 +181,7 @@ func (s *MCPServer) HandleTake(_ context.Context, _ *mcp.CallToolRequest, input 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	output, summary := ExecuteCommand(s.game, fmt.Sprintf("take %s", strings.TrimSpace(input.Item)))
+	output, summary := ExecuteCommandContext(ctx, s.game, fmt.Sprintf("take %s", strings.TrimSpace(input.Item)), "mcp", s.telemetry)
 	slog.Info("tool", "name", "take", "item", input.Item, "room", summary.RoomName, "turn", summary.Turns)
 
 	// See comment in HandleLook: a natural game end is not a tool-call error.
@@ -183,7 +189,7 @@ func (s *MCPServer) HandleTake(_ context.Context, _ *mcp.CallToolRequest, input 
 }
 
 // Handler for the "drop" tool
-func (s *MCPServer) HandleDrop(_ context.Context, _ *mcp.CallToolRequest, input *DropInput) (*mcp.CallToolResult, *CommandOutput, error) {
+func (s *MCPServer) HandleDrop(ctx context.Context, _ *mcp.CallToolRequest, input *DropInput) (*mcp.CallToolResult, *CommandOutput, error) {
 	if err := validateItemName(input.Item); err != nil {
 		result := &mcp.CallToolResult{IsError: true}
 		return result, &CommandOutput{
@@ -195,7 +201,7 @@ func (s *MCPServer) HandleDrop(_ context.Context, _ *mcp.CallToolRequest, input 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	output, summary := ExecuteCommand(s.game, fmt.Sprintf("drop %s", strings.TrimSpace(input.Item)))
+	output, summary := ExecuteCommandContext(ctx, s.game, fmt.Sprintf("drop %s", strings.TrimSpace(input.Item)), "mcp", s.telemetry)
 	slog.Info("tool", "name", "drop", "item", input.Item, "room", summary.RoomName, "turn", summary.Turns)
 
 	// See comment in HandleLook: a natural game end is not a tool-call error.
@@ -203,11 +209,11 @@ func (s *MCPServer) HandleDrop(_ context.Context, _ *mcp.CallToolRequest, input 
 }
 
 // Handler for the "inventory" tool
-func (s *MCPServer) HandleInventory(_ context.Context, _ *mcp.CallToolRequest, _ *EmptyInput) (*mcp.CallToolResult, *CommandOutput, error) {
+func (s *MCPServer) HandleInventory(ctx context.Context, _ *mcp.CallToolRequest, _ *EmptyInput) (*mcp.CallToolResult, *CommandOutput, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	output, summary := ExecuteCommand(s.game, "inv")
+	output, summary := ExecuteCommandContext(ctx, s.game, "inv", "mcp", s.telemetry)
 	slog.Info("tool", "name", "inventory", "room", summary.RoomName, "turn", summary.Turns)
 
 	// See comment in HandleLook: a natural game end is not a tool-call error.
@@ -215,11 +221,11 @@ func (s *MCPServer) HandleInventory(_ context.Context, _ *mcp.CallToolRequest, _
 }
 
 // Handler for the "drink" tool
-func (s *MCPServer) HandleDrink(_ context.Context, _ *mcp.CallToolRequest, _ *EmptyInput) (*mcp.CallToolResult, *CommandOutput, error) {
+func (s *MCPServer) HandleDrink(ctx context.Context, _ *mcp.CallToolRequest, _ *EmptyInput) (*mcp.CallToolResult, *CommandOutput, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	output, summary := ExecuteCommand(s.game, "drink")
+	output, summary := ExecuteCommandContext(ctx, s.game, "drink", "mcp", s.telemetry)
 	slog.Info("tool", "name", "drink", "room", summary.RoomName, "turn", summary.Turns)
 
 	// See comment in HandleLook: a natural game end is not a tool-call error.
@@ -227,11 +233,11 @@ func (s *MCPServer) HandleDrink(_ context.Context, _ *mcp.CallToolRequest, _ *Em
 }
 
 // Handler for the "water_horse" tool
-func (s *MCPServer) HandleWaterHorse(_ context.Context, _ *mcp.CallToolRequest, _ *EmptyInput) (*mcp.CallToolResult, *CommandOutput, error) {
+func (s *MCPServer) HandleWaterHorse(ctx context.Context, _ *mcp.CallToolRequest, _ *EmptyInput) (*mcp.CallToolResult, *CommandOutput, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	output, summary := ExecuteCommand(s.game, "water horse")
+	output, summary := ExecuteCommandContext(ctx, s.game, "water horse", "mcp", s.telemetry)
 	slog.Info("tool", "name", "water_horse", "room", summary.RoomName, "turn", summary.Turns)
 
 	// See comment in HandleLook: a natural game end is not a tool-call error.
@@ -239,11 +245,11 @@ func (s *MCPServer) HandleWaterHorse(_ context.Context, _ *mcp.CallToolRequest, 
 }
 
 // Handler for the "light" tool
-func (s *MCPServer) HandleLight(_ context.Context, _ *mcp.CallToolRequest, _ *EmptyInput) (*mcp.CallToolResult, *CommandOutput, error) {
+func (s *MCPServer) HandleLight(ctx context.Context, _ *mcp.CallToolRequest, _ *EmptyInput) (*mcp.CallToolResult, *CommandOutput, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	output, summary := ExecuteCommand(s.game, "light lamp")
+	output, summary := ExecuteCommandContext(ctx, s.game, "light lamp", "mcp", s.telemetry)
 	slog.Info("tool", "name", "light", "room", summary.RoomName, "turn", summary.Turns)
 
 	// See comment in HandleLook: a natural game end is not a tool-call error.
@@ -251,11 +257,11 @@ func (s *MCPServer) HandleLight(_ context.Context, _ *mcp.CallToolRequest, _ *Em
 }
 
 // Handler for the "score" tool
-func (s *MCPServer) HandleScore(_ context.Context, _ *mcp.CallToolRequest, _ *EmptyInput) (*mcp.CallToolResult, *CommandOutput, error) {
+func (s *MCPServer) HandleScore(ctx context.Context, _ *mcp.CallToolRequest, _ *EmptyInput) (*mcp.CallToolResult, *CommandOutput, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	output, summary := ExecuteCommand(s.game, "score")
+	output, summary := ExecuteCommandContext(ctx, s.game, "score", "mcp", s.telemetry)
 	slog.Info("tool", "name", "score", "room", summary.RoomName, "turn", summary.Turns)
 
 	// See comment in HandleLook: a natural game end is not a tool-call error.
@@ -263,7 +269,7 @@ func (s *MCPServer) HandleScore(_ context.Context, _ *mcp.CallToolRequest, _ *Em
 }
 
 // Handler for the "reset_game" tool
-func (s *MCPServer) HandleResetGame(_ context.Context, _ *mcp.CallToolRequest, input *ResetGameInput) (*mcp.CallToolResult, *CommandOutput, error) {
+func (s *MCPServer) HandleResetGame(ctx context.Context, _ *mcp.CallToolRequest, input *ResetGameInput) (*mcp.CallToolResult, *CommandOutput, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -282,7 +288,9 @@ func (s *MCPServer) HandleResetGame(_ context.Context, _ *mcp.CallToolRequest, i
 	}
 
 	var buf bytes.Buffer
-	s.game = NewGame(seed, s.turnLimit, &buf)
+	s.telemetry.TraceGameInit(ctx, true, "mcp", func() {
+		s.game = NewGame(seed, s.turnLimit, &buf)
+	})
 	resetSummary := SummarizeState(s.game)
 
 	slog.Info("tool", "name", "reset_game", "room", resetSummary.RoomName, "turn", resetSummary.Turns)
@@ -316,7 +324,7 @@ func ExecuteCommand(s *GameState, cmd string) (string, GameSummary) {
 	return buf.String(), SummarizeState(s)
 }
 
-func (s *MCPServer) HandleCommand(_ context.Context, _ *mcp.CallToolRequest, input *CommandInput) (*mcp.CallToolResult, *CommandOutput, error) {
+func (s *MCPServer) HandleCommand(ctx context.Context, _ *mcp.CallToolRequest, input *CommandInput) (*mcp.CallToolResult, *CommandOutput, error) {
 	if input == nil {
 		input = &CommandInput{}
 	}
@@ -339,7 +347,9 @@ func (s *MCPServer) HandleCommand(_ context.Context, _ *mcp.CallToolRequest, inp
 			seed = input.Seed
 		}
 		var buf bytes.Buffer
-		s.game = NewGame(seed, s.turnLimit, &buf)
+		s.telemetry.TraceGameInit(ctx, true, "mcp", func() {
+			s.game = NewGame(seed, s.turnLimit, &buf)
+		})
 		resetSummary := SummarizeState(s.game)
 		slog.Info("command",
 			"cmd", "[reset]",
@@ -361,7 +371,7 @@ func (s *MCPServer) HandleCommand(_ context.Context, _ *mcp.CallToolRequest, inp
 		}, nil
 	}
 
-	output, summary := ExecuteCommand(s.game, input.Command)
+	output, summary := ExecuteCommandContext(ctx, s.game, input.Command, "mcp", s.telemetry)
 	slog.Info("command",
 		"cmd", input.Command,
 		"room", summary.RoomName,
@@ -382,7 +392,7 @@ func (s *MCPServer) HandleCommand(_ context.Context, _ *mcp.CallToolRequest, inp
 	}, nil
 }
 
-func RunMCPHTTP(server *MCPServer, addr, path string, origins []string, token string, jsonResponse bool, stateless bool) error {
+func RunMCPHTTP(ctx context.Context, server *MCPServer, addr, path string, origins []string, token string, jsonResponse bool, stateless bool) error {
 	mcpServer := createMCPServer(server)
 
 	if !strings.HasPrefix(path, "/") {
@@ -427,18 +437,36 @@ func RunMCPHTTP(server *MCPServer, addr, path string, origins []string, token st
 		Addr:    addr,
 		Handler: mux,
 	}
+
+	// Handle graceful shutdown on context cancellation
+	shutdownErr := make(chan error, 1)
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		slog.Info("shutting down HTTP server...")
+		shutdownErr <- serverHTTP.Shutdown(shutdownCtx)
+	}()
+
 	slog.Info("listening",
 		"addr", addr,
 		"path", path,
 		"stateless", stateless,
 		"json_response", jsonResponse,
 	)
-	return serverHTTP.ListenAndServe()
+	err := serverHTTP.ListenAndServe()
+	if err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	if err := <-shutdownErr; err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }
 
-func RunMCPStdio(server *MCPServer) error {
+func RunMCPStdio(ctx context.Context, server *MCPServer) error {
 	mcpServer := createMCPServer(server)
-	return mcpServer.Run(context.Background(), &mcp.StdioTransport{})
+	return mcpServer.Run(ctx, &mcp.StdioTransport{})
 }
 
 func createMCPServer(server *MCPServer) *mcp.Server {
@@ -446,6 +474,11 @@ func createMCPServer(server *MCPServer) *mcp.Server {
 		Name:    "dustwood-go",
 		Version: "v1.0.0",
 	}, nil)
+
+	// Add OpenTelemetry receiving middleware if enabled
+	if server != nil && server.telemetry != nil && server.telemetry.Enabled {
+		mcpServer.AddReceivingMiddleware(server.telemetry.MCPReceivingMiddleware())
+	}
 
 	// Register generic command tool
 	mcp.AddTool(mcpServer, &mcp.Tool{

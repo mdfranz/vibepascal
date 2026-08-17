@@ -251,6 +251,16 @@ Pattern: [Logfire](https://github.com/pydantic/logfire)'s native Strands integra
   final response dump via `setup_logger`) plus stdout game narrative via `print_game`. No per-call
   token/tool telemetry is captured locally in that case, same tradeoff as Pydantic AI.
 
+### Go MCP Server (`dustwood-go`) & Distributed Tracing
+
+The Go MCP server (`bin/dustwood-go`) and gameplay engine are instrumented with standard OpenTelemetry Go SDK (`src/golang/telemetry.go`), exporting traces and metrics over OTLP/HTTP to Logfire or any OTLP backend:
+
+- **Activation**: Gated by `OTEL_ENABLED=1`. Configurable via standard OTel environment variables (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_SERVICE_NAME=dustwood-go`).
+- **Distributed MCP Trace Propagation**: Uses Go MCP receiving middleware (`AddReceivingMiddleware`) to extract W3C `traceparent` and `tracestate` from request `_meta`. Pydantic AI's `logfire.instrument_mcp()` injects trace context into outgoing MCP requests, yielding a seamless cross-language trace hierarchy:
+  `pydantic_game_run → MCP client request → mcp.tool <name> (Go) → dustwood.game.command <verb>`
+- **Safe Metadata Attributes**: Records safe execution mode (`mcp` vs `cli`), turn, score, thirst, horse thirst, room ID, and canonical verbs. Never logs raw command strings, arguments, output narrative, seeds, or authorization data.
+- **Metrics**: Emits `mcp.server.request.count`, `mcp.server.request.duration`, `dustwood.game.command.count`, `dustwood.game.command.duration`, and latest-value gauges for `turn`, `score`, `thirst`, and `horse_thirst`.
+
 ## Token Telemetry Status Matrix
 
 | Framework | Hook/callback mechanism | Normalized token fields | Gemini | Anthropic |

@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 )
 
 func main() {
@@ -13,6 +16,9 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})))
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	headless := flag.Bool("headless", false, "Run in headless mode (no raw terminal input)")
 	mcpHTTP := flag.Bool("mcp-http", false, "Run MCP Streamable HTTP server")
@@ -52,6 +58,18 @@ func main() {
 
 	flag.Parse()
 
+	tel, err := InitTelemetry(ctx)
+	if err != nil {
+		slog.Warn("telemetry initialization note", "err", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := tel.Shutdown(shutdownCtx); err != nil {
+			slog.Warn("telemetry shutdown error", "err", err)
+		}
+	}()
+
 	var seed *int64
 	if *seedFlag >= 0 {
 		seed = seedFlag
@@ -61,27 +79,39 @@ func main() {
 		if len(origins) == 0 {
 			origins = append(origins, "http://localhost", "http://127.0.0.1")
 		}
-		server := NewMCPServer(seed, *turnLimitFlag, *allowRestart)
+		server := NewMCPServer(seed, *turnLimitFlag, *allowRestart, tel)
 		// Propagate autosave settings to server game instance
 		server.game.AutosaveEnabled = *autosaveEnabled
 		server.game.AutosaveInterval = *autosaveInterval
 		server.game.AutosavePath = *autosavePath
 
-		if err := RunMCPHTTP(server, *mcpAddr, *mcpPath, origins, *mcpToken, *mcpJSON, *mcpStateless); err != nil {
-			log.Fatal(err)
+		if err := RunMCPHTTP(ctx, server, *mcpAddr, *mcpPath, origins, *mcpToken, *mcpJSON, *mcpStateless); err != nil {
+			slog.Error("MCP HTTP server stopped with error", "err", err)
+			os.Exit(1)
 		}
 		return
 	}
 
-	s := NewGame(seed, *turnLimitFlag, nil)
+	cliCtx, sessionSpan := tel.Tracer.Start(ctx, "dustwood.cli_session")
+	defer sessionSpan.End()
+
+	var s *GameState
+	tel.TraceGameInit(cliCtx, false, "cli", func() {
+		s = NewGame(seed, *turnLimitFlag, nil)
+	})
 	s.IsHeadless = *headless
 	s.AutosaveEnabled = *autosaveEnabled
 	s.AutosaveInterval = *autosaveInterval
 	s.AutosavePath = *autosavePath
 
 	for s.IsPlaying {
+		select {
+		case <-ctx.Done():
+			break
+		default:
+		}
 		cmd := customReadLn(s, "> ")
-		processCommand(s, cmd)
+		ExecuteCommandContext(cliCtx, s, cmd, "cli", tel)
 	}
 	outPrintln(s)
 	outPrintf(s, "🏆 Final score: %d\n", s.Score)

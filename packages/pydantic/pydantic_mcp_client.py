@@ -63,6 +63,7 @@ if LOGFIRE_ENABLED:
         data_dir=os.path.expanduser("~/.logfire"),
     )
     logfire.instrument_pydantic_ai()
+    logfire.instrument_mcp()
 
 
 async def run_pydantic_agent(

@@ -4,6 +4,61 @@ set -euo pipefail
 export AI_REASONING=1
 export LOG_CONSOLE=1
 
+# --- OpenTelemetry & Logfire Observability ------------------------------
+export OTEL_ENABLED="${OTEL_ENABLED:-1}"
+export OTEL_SERVICE_NAME="${OTEL_SERVICE_NAME:-dustwood-go}"
+export OTEL_EXPORTER_OTLP_PROTOCOL="${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}"
+
+# Extract Logfire endpoint and write token from ~/.logfire if not explicitly set
+if [[ -z "${OTEL_EXPORTER_OTLP_HEADERS:-}" || -z "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ]]; then
+    read -r DETECTED_ENDPOINT DETECTED_TOKEN < <(python3 -c '
+import json, pathlib
+try:
+    import tomllib
+except ImportError:
+    tomllib = None
+
+logfire_dir = pathlib.Path.home() / ".logfire"
+creds = logfire_dir / "logfire_credentials.json"
+endpoint, token = "", ""
+if creds.exists():
+    try:
+        d = json.loads(creds.read_text())
+        token = d.get("token", "")
+        endpoint = d.get("logfire_api_url", "")
+    except Exception:
+        pass
+
+if not token and (logfire_dir / "default.toml").exists() and tomllib:
+    try:
+        d = tomllib.loads((logfire_dir / "default.toml").read_text())
+        for url, tok_info in d.get("tokens", {}).items():
+            if isinstance(tok_info, dict) and tok_info.get("token"):
+                token = tok_info["token"]
+                endpoint = url
+                break
+    except Exception:
+        pass
+
+if token and not endpoint:
+    if "_eu_" in token:
+        endpoint = "https://logfire-eu.pydantic.dev"
+    else:
+        endpoint = "https://logfire-us.pydantic.dev"
+
+print(f"{endpoint} {token}")
+' 2>/dev/null || true)
+
+    if [[ -z "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" && -n "$DETECTED_ENDPOINT" ]]; then
+        export OTEL_EXPORTER_OTLP_ENDPOINT="$DETECTED_ENDPOINT"
+    fi
+    if [[ -z "${OTEL_EXPORTER_OTLP_HEADERS:-}" && -n "$DETECTED_TOKEN" ]]; then
+        export OTEL_EXPORTER_OTLP_HEADERS="Authorization=${DETECTED_TOKEN}"
+    fi
+fi
+
+export OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-https://logfire-us.pydantic.dev}"
+
 # Echoes of Dustwood: Multi-Client MCP Runner
 # This script runs MCP AI clients sequentially for a given model.
 
@@ -140,6 +195,13 @@ if [[ "$ALLOW_RESTART" -eq 1 ]]; then
     echo "MCP server: --allow-restart set (models may retry after GAME OVER)"
 else
     echo "MCP server: one attempt per client (default; pass --allow-restart to change)"
+fi
+if [[ "$OTEL_ENABLED" == "1" && -n "${OTEL_EXPORTER_OTLP_HEADERS:-}" ]]; then
+    echo "MCP telemetry: OpenTelemetry enabled -> $OTEL_EXPORTER_OTLP_ENDPOINT ($OTEL_SERVICE_NAME)"
+elif [[ "$OTEL_ENABLED" == "1" ]]; then
+    echo "MCP telemetry: OpenTelemetry enabled (no auth token found; no-op/local fallback)"
+else
+    echo "MCP telemetry: OpenTelemetry disabled (OTEL_ENABLED=0)"
 fi
 echo "================================================================"
 

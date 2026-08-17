@@ -12,6 +12,61 @@ mkdir -p logs data
 # packages/shared/OBSERVABILITY.md.
 export LOGFIRE_ENABLED="${LOGFIRE_ENABLED:-1}"
 
+# --- OpenTelemetry & Logfire Observability ------------------------------
+export OTEL_ENABLED="${OTEL_ENABLED:-1}"
+export OTEL_SERVICE_NAME="${OTEL_SERVICE_NAME:-dustwood-go}"
+export OTEL_EXPORTER_OTLP_PROTOCOL="${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}"
+
+# Extract Logfire endpoint and write token from ~/.logfire if not explicitly set
+if [[ -z "${OTEL_EXPORTER_OTLP_HEADERS:-}" || -z "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ]]; then
+    read -r DETECTED_ENDPOINT DETECTED_TOKEN < <(python3 -c '
+import json, pathlib
+try:
+    import tomllib
+except ImportError:
+    tomllib = None
+
+logfire_dir = pathlib.Path.home() / ".logfire"
+creds = logfire_dir / "logfire_credentials.json"
+endpoint, token = "", ""
+if creds.exists():
+    try:
+        d = json.loads(creds.read_text())
+        token = d.get("token", "")
+        endpoint = d.get("logfire_api_url", "")
+    except Exception:
+        pass
+
+if not token and (logfire_dir / "default.toml").exists() and tomllib:
+    try:
+        d = tomllib.loads((logfire_dir / "default.toml").read_text())
+        for url, tok_info in d.get("tokens", {}).items():
+            if isinstance(tok_info, dict) and tok_info.get("token"):
+                token = tok_info["token"]
+                endpoint = url
+                break
+    except Exception:
+        pass
+
+if token and not endpoint:
+    if "_eu_" in token:
+        endpoint = "https://logfire-eu.pydantic.dev"
+    else:
+        endpoint = "https://logfire-us.pydantic.dev"
+
+print(f"{endpoint} {token}")
+' 2>/dev/null || true)
+
+    if [[ -z "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" && -n "$DETECTED_ENDPOINT" ]]; then
+        export OTEL_EXPORTER_OTLP_ENDPOINT="$DETECTED_ENDPOINT"
+    fi
+    if [[ -z "${OTEL_EXPORTER_OTLP_HEADERS:-}" && -n "$DETECTED_TOKEN" ]]; then
+        export OTEL_EXPORTER_OTLP_HEADERS="Authorization=${DETECTED_TOKEN}"
+    fi
+fi
+
+export OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-https://logfire-us.pydantic.dev}"
+
 # Ensure the game binary is up to date
 if ! make build > /dev/null 2>&1; then
     echo "Failed to compile. Please install Free Pascal (fpc)."

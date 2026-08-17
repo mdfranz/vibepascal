@@ -3,13 +3,25 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"os"
 	"strings"
 
 	"gopkg.in/ini.v1"
 )
 
 func loadWorld(s *GameState, path string) {
-	cfg, err := ini.Load(path)
+	resolvedPath := path
+	if _, err := os.Stat(resolvedPath); os.IsNotExist(err) {
+		candidates := []string{"../../" + path, "../" + path}
+		for _, c := range candidates {
+			if _, err := os.Stat(c); err == nil {
+				resolvedPath = c
+				break
+			}
+		}
+	}
+
+	cfg, err := ini.Load(resolvedPath)
 	if err != nil {
 		outPrintf(s, "Error loading world: %v\n", err)
 		return
