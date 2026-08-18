@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import dataclasses
 import logging
 import os
 import sys
@@ -19,14 +20,14 @@ from vibepascal_shared.llm_observability import (
 from pydantic_ai import Agent, ModelSettings
 from pydantic_ai.exceptions import ModelRetry, UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
-from pydantic_ai.capabilities import Thinking, ProcessHistory
+from pydantic_ai.capabilities import Hooks, Thinking, ProcessHistory
 from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.messages import (
     ModelResponse,
     ModelRequest,
-    TextPart, 
-    ThinkingPart, 
-    ToolCallPart, 
+    TextPart,
+    ThinkingPart,
+    ToolCallPart,
     ToolReturnPart,
     ModelMessage,
     UserPromptPart,
@@ -39,7 +40,9 @@ load_dotenv()
 
 # --- Configuration ---
 MCP_URL = os.environ.get("MCP_URL", "http://127.0.0.1:8765/mcp")
-DEFAULT_MODEL: KnownModelName = "google-gla:gemini-3-flash-preview"
+# 2.31.0 renamed the `google-gla` provider prefix to plain `google` (the old prefix now raises
+# "Unknown provider" from `infer_model`) - caught while testing the pydantic-ai 2.31.0 bump.
+DEFAULT_MODEL: KnownModelName = "google:gemini-3.7-flash"
 TURN_DELAY = 1
 MAX_TURNS = 25
 
@@ -66,6 +69,51 @@ if LOGFIRE_ENABLED:
     logfire.instrument_mcp()
 
 
+# --- GPT-OSS tool-call hardening -----------------------------------------------------------
+#
+# GPT-OSS (and other Harmony-format models served through some OpenAI-compatible endpoints)
+# occasionally emits a tool call whose name carries a trailing `<|channel|>commentary` marker
+# from its Harmony response format instead of the plain registered tool name. Left alone this
+# burns through the MCP toolset's retry budget and can end the run.
+#
+# The repair has to happen on the raw `ModelResponse`, in `after_model_request` - not inside
+# `MCPToolset.process_tool_call` (the file's existing `McpError` bridge below, `process_tool_call`
+# in `run_pydantic_agent`). By the time a tool call reaches `process_tool_call`,
+# `ToolManager._resolve_tool` has already looked the name up against the registered tool set and
+# raised `ModelRetry('Unknown tool name...')` for anything that doesn't match - a malformed
+# Harmony name never survives that lookup, so `process_tool_call` never sees it.
+# `after_model_request` fires strictly before tool resolution, so it's the only point that can
+# fix the name before the framework gives up on it.
+HARMONY_TOOL_NAME_SUFFIX = "<|channel|>commentary"
+
+_tool_name_hooks = Hooks()
+
+
+@_tool_name_hooks.on.after_model_request
+async def _repair_harmony_tool_names(ctx, *, request_context, response):
+    known_tool_names = {td.name for td in request_context.model_request_parameters.function_tools}
+    repaired_parts = None
+    for i, part in enumerate(response.parts):
+        if not isinstance(part, ToolCallPart) or not part.tool_name.endswith(HARMONY_TOOL_NAME_SUFFIX):
+            continue
+        repaired_name = part.tool_name[: -len(HARMONY_TOOL_NAME_SUFFIX)]
+        if repaired_name not in known_tool_names:
+            continue  # Only repair names that resolve to a real, registered tool - never guess.
+        if repaired_parts is None:
+            repaired_parts = list(response.parts)
+        repaired_parts[i] = dataclasses.replace(part, tool_name=repaired_name)
+        logger.info(f"Repaired malformed Harmony tool name: {part.tool_name!r} -> {repaired_name!r}")
+        if LOGFIRE_ENABLED:
+            logfire.info(
+                "harmony_tool_name_repaired original={original} repaired={repaired}",
+                original=part.tool_name,
+                repaired=repaired_name,
+            )
+    if repaired_parts is None:
+        return response  # No malformed names in this response - identical to an unpatched run.
+    return dataclasses.replace(response, parts=repaired_parts)
+
+
 async def run_pydantic_agent(
     level: str,
     model_name: str,
@@ -85,6 +133,7 @@ async def run_pydantic_agent(
 
     reasoning_enabled = os.environ.get("AI_REASONING", "0") not in {"0", "false", "False"}
     capabilities = [Thinking()] if reasoning_enabled else []
+    capabilities.append(_tool_name_hooks)
 
     # MCPToolset's built-in tool_error_behavior="retry" only converts fastmcp.exceptions.ToolError
     # into a ModelRetry (so the model can self-correct instead of crashing the run). It does NOT
