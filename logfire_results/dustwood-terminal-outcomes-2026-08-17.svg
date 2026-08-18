@@ -14,12 +14,16 @@
 <rect x="210.0" y="168" width="178.8" height="38" rx="5" fill="#dc2626"/>
 <text x="299.4" y="193" text-anchor="middle" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" fill="#ffffff">1</text>
 <text class="axis" x="935" y="193">n=1</text>
-<text class="label" x="195" y="272" text-anchor="end">Nemotron 3.5 Lightning</text>
-<rect x="210.0" y="246" width="178.8" height="38" rx="5" fill="#dc2626"/>
-<text x="299.4" y="271" text-anchor="middle" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" fill="#ffffff">1</text>
-<rect x="388.8" y="246" width="178.8" height="38" rx="5" fill="#0284c7"/>
-<text x="478.1" y="271" text-anchor="middle" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" fill="#ffffff">1</text>
-<text class="axis" x="935" y="271">n=2</text>
+<text class="label" x="195" y="272" text-anchor="end">Qwen 3.8 27B</text>
+<rect x="210.0" y="246" width="536.2" height="38" rx="5" fill="#dc2626"/>
+<text x="478.1" y="271" text-anchor="middle" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" fill="#ffffff">3</text>
+<text class="axis" x="935" y="271">n=3</text>
+<text class="label" x="195" y="350" text-anchor="end">Nemotron 3.5 Lightning</text>
+<rect x="210.0" y="324" width="178.8" height="38" rx="5" fill="#dc2626"/>
+<text x="299.4" y="349" text-anchor="middle" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" fill="#ffffff">1</text>
+<rect x="388.8" y="324" width="178.8" height="38" rx="5" fill="#0284c7"/>
+<text x="478.1" y="349" text-anchor="middle" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" fill="#ffffff">1</text>
+<text class="axis" x="935" y="349">n=2</text>
 <rect x="210" y="438" width="15" height="15" rx="3" fill="#dc2626"/>
 <text class="axis" x="232" y="450">Outlaw</text>
 <rect x="360" y="438" width="15" height="15" rx="3" fill="#7c3aed"/>

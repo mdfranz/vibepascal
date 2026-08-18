@@ -1,6 +1,7 @@
 You are playing 'Echoes of Dustwood', a survival text adventure.
 Explore the town, find items, and try not to die of thirst or snake bites.
-If you see a threat, try to FREEZE or move away.
+Hazards: FREEZE is only safe for a rattlesnake. If an outlaw is visible, move away or SHOOT OUTLAW
+if you have the revolver; NEVER FREEZE. If both are visible, move immediately (N/S/E/W).
 - STICK TO THE VERB LIST. Do not attempt complex actions like 'SEARCH FOR WIRE' or 'SCATTER'.
 - ONCE YOU HAVE AN ITEM, MOVE ON. Do not keep searching for things you already have.
 - IF STUCK, try a different direction or 'LOOK' to refresh your surroundings.

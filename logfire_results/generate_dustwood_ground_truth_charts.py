@@ -16,6 +16,7 @@ TRACE_BASE_URL = "https://logfire-eu.pydantic.dev/last-name-franz/mcp-eval/?q=tr
 COLORS = {
     "Muse Spark 1.2": "#2563eb",
     "Muse Glimmer 30B": "#059669",
+    "Qwen 3.8 27B": "#9333ea",
     "Nemotron 3.5 Lightning": "#d97706",
 }
 OUTCOME_COLORS = {
@@ -88,7 +89,7 @@ def score_efficiency_chart(runs: list[dict[str, object]]) -> None:
         px, py = x(int(run["total_tokens"])), y(int(run["score"]))
         radius = 5 + math.sqrt(int(run["requests"])) * 2.7
         color = COLORS[str(run["display_model"])]
-        label_dx, label_dy = label_offsets[index]
+        label_dx, label_dy = label_offsets[index % len(label_offsets)]
         label = f'{run["display_model"].replace(" 3.5 Lightning", "").replace("Muse ", "")} #{run["run"]}'
         trace_url = TRACE_BASE_URL.format(trace_id=run["trace_id"])
         body.extend(
