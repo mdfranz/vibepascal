@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="650" viewBox="0 0 1100 650" role="img">
+<style>text{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#172033}.title{font-size:22px;font-weight:700}.subtitle{font-size:13px;fill:#526072}.axis{font-size:12px;fill:#526072}.label{font-size:12px;font-weight:600}.note{font-size:11px;fill:#526072}</style>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text class="title" x="95" y="36">Dustwood run efficiency: score versus total tokens</text>
+<text class="subtitle" x="95" y="58">Each bubble is one run; bubble area represents model requests. Upper-left is preferable.</text>
+<line x1="95" y1="545" x2="1045" y2="545" stroke="#94a3b8"/>
+<line x1="95" y1="85" x2="95" y2="545" stroke="#94a3b8"/>
+<line x1="95.0" y1="85" x2="95.0" y2="545" stroke="#e2e8f0"/>
+<text class="axis" x="95.0" y="569" text-anchor="middle">0k</text>
+<line x1="285.0" y1="85" x2="285.0" y2="545" stroke="#e2e8f0"/>
+<text class="axis" x="285.0" y="569" text-anchor="middle">50k</text>
+<line x1="475.0" y1="85" x2="475.0" y2="545" stroke="#e2e8f0"/>
+<text class="axis" x="475.0" y="569" text-anchor="middle">100k</text>
+<line x1="665.0" y1="85" x2="665.0" y2="545" stroke="#e2e8f0"/>
+<text class="axis" x="665.0" y="569" text-anchor="middle">150k</text>
+<line x1="855.0" y1="85" x2="855.0" y2="545" stroke="#e2e8f0"/>
+<text class="axis" x="855.0" y="569" text-anchor="middle">200k</text>
+<line x1="1045.0" y1="85" x2="1045.0" y2="545" stroke="#e2e8f0"/>
+<text class="axis" x="1045.0" y="569" text-anchor="middle">250k</text>
+<line x1="95" y1="545.0" x2="1045" y2="545.0" stroke="#e2e8f0"/>
+<text class="axis" x="83" y="549.0" text-anchor="end">0</text>
+<line x1="95" y1="479.3" x2="1045" y2="479.3" stroke="#e2e8f0"/>
+<text class="axis" x="83" y="483.3" text-anchor="end">10</text>
+<line x1="95" y1="413.6" x2="1045" y2="413.6" stroke="#e2e8f0"/>
+<text class="axis" x="83" y="417.6" text-anchor="end">20</text>
+<line x1="95" y1="347.9" x2="1045" y2="347.9" stroke="#e2e8f0"/>
+<text class="axis" x="83" y="351.9" text-anchor="end">30</text>
+<line x1="95" y1="282.1" x2="1045" y2="282.1" stroke="#e2e8f0"/>
+<text class="axis" x="83" y="286.1" text-anchor="end">40</text>
+<line x1="95" y1="216.4" x2="1045" y2="216.4" stroke="#e2e8f0"/>
+<text class="axis" x="83" y="220.4" text-anchor="end">50</text>
+<line x1="95" y1="150.7" x2="1045" y2="150.7" stroke="#e2e8f0"/>
+<text class="axis" x="83" y="154.7" text-anchor="end">60</text>
+<line x1="95" y1="85.0" x2="1045" y2="85.0" stroke="#e2e8f0"/>
+<text class="axis" x="83" y="89.0" text-anchor="end">70</text>
+<a href="https://logfire-eu.pydantic.dev/last-name-franz/mcp-eval/?q=trace_id%3D%2701a0121a-2b2a-76f1-a0b6-9653ddf2d80f%27" target="_blank">
+<circle cx="513.3" cy="282.1" r="17.9" fill="#2563eb" fill-opacity="0.78" stroke="#ffffff" stroke-width="2"/>
+</a>
+<text class="label" x="525.3" y="272.1">Spark 1.2 #1</text>
+<a href="https://logfire-eu.pydantic.dev/last-name-franz/mcp-eval/?q=trace_id%3D%2701a0121c-a1b7-7144-b8af-7fa1e9a204ad%27" target="_blank">
+<circle cx="257.3" cy="374.1" r="14.4" fill="#2563eb" fill-opacity="0.78" stroke="#ffffff" stroke-width="2"/>
+</a>
+<text class="label" x="269.3" y="392.1">Spark 1.2 #2</text>
+<a href="https://logfire-eu.pydantic.dev/last-name-franz/mcp-eval/?q=trace_id%3D%2701a0121d-6cc7-7038-abaa-53471fd4c4be%27" target="_blank">
+<circle cx="148.9" cy="512.1" r="11.0" fill="#2563eb" fill-opacity="0.78" stroke="#ffffff" stroke-width="2"/>
+</a>
+<text class="label" x="160.9" y="502.1">Spark 1.2 #3</text>
+<a href="https://logfire-eu.pydantic.dev/last-name-franz/mcp-eval/?q=trace_id%3D%2701a0121e-2a42-71f4-9b55-64d3cbb42172%27" target="_blank">
+<circle cx="151.4" cy="492.4" r="11.0" fill="#2563eb" fill-opacity="0.78" stroke="#ffffff" stroke-width="2"/>
+</a>
+<text class="label" x="163.4" y="510.4">Spark 1.2 #4</text>
+<a href="https://logfire-eu.pydantic.dev/last-name-franz/mcp-eval/?q=trace_id%3D%2701a01216-e657-72cf-ae6f-c80945838dc7%27" target="_blank">
+<circle cx="690.9" cy="137.6" r="19.3" fill="#059669" fill-opacity="0.78" stroke="#ffffff" stroke-width="2"/>
+</a>
+<text class="label" x="702.9" y="127.6">Glimmer 30B #1</text>
+<a href="https://logfire-eu.pydantic.dev/last-name-franz/mcp-eval/?q=trace_id%3D%2701a01201-4601-76fd-aee4-e455122c965b%27" target="_blank">
+<circle cx="967.9" cy="354.4" r="22.3" fill="#d97706" fill-opacity="0.78" stroke="#ffffff" stroke-width="2"/>
+</a>
+<text class="label" x="979.9" y="344.4">Nemotron #1</text>
+<a href="https://logfire-eu.pydantic.dev/last-name-franz/mcp-eval/?q=trace_id%3D%2701a01202-49f6-7169-85b9-5b8224deaf41%27" target="_blank">
+<circle cx="570.8" cy="426.7" r="19.3" fill="#d97706" fill-opacity="0.78" stroke="#ffffff" stroke-width="2"/>
+</a>
+<text class="label" x="582.8" y="444.7">Nemotron #2</text>
+<circle cx="95" cy="608" r="7" fill="#2563eb"/>
+<text class="axis" x="107" y="612">Muse Spark 1.2</text>
+<circle cx="315" cy="608" r="7" fill="#059669"/>
+<text class="axis" x="327" y="612">Muse Glimmer 30B</text>
+<circle cx="535" cy="608" r="7" fill="#d97706"/>
+<text class="axis" x="547" y="612">Nemotron 3.5 Lightning</text>
+<text class="axis" x="570.0" y="580" text-anchor="middle">Total tokens (lower is leaner)</text>
+<text class="axis" x="28" y="315.0" text-anchor="middle" transform="rotate(-90 28 315.0)">Final score (higher is better)</text>
+<text class="note" x="95" y="636">Nemotron runs are a pre-fix cohort; Muse runs are post-fix confirmations. Click bubbles to open their Logfire traces.</text>
+</svg>
